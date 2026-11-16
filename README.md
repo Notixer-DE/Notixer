@@ -55,6 +55,10 @@ Notixer arbeitet vollständig offline. Über das Wolkensymbol lässt sich option
 
 ## Installieren & Bauen
 
+### Fertige Downloads
+
+Die jeweils neuesten Installationsdateien für Android, Debian 13 (amd64) und Windows (x64) findest du unter [GitHub Releases](https://github.com/Notixer-DE/Notixer/releases/latest). Dort gibt es außerdem Prüfsummen für die Downloads.
+
 ### Aus dem Quellcode bauen
 
 Voraussetzung ist Flutter `3.44.0` (Dart `3.12`):
