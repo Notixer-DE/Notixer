@@ -1,0 +1,366 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
+import 'dart:typed_data';
+import 'package:crypto/crypto.dart';
+import 'package:http/http.dart' as http;
+import 'sync_crypto.dart';
+import 'sync_revision.dart';
+
+const syncBlockBytes = 4 * 1024 * 1024;
+
+bool isLoopbackServer(Uri uri) =>
+    ['localhost', '127.0.0.1', '::1', '[::1]'].contains(uri.host.toLowerCase());
+
+Uri validateServerUrl(String value, {bool allowInsecureHttp = false}) {
+  final uri = Uri.parse(value.trim());
+  final loopback = isLoopbackServer(uri);
+  if (uri.host.isEmpty ||
+      uri.userInfo.isNotEmpty ||
+      uri.hasQuery ||
+      uri.hasFragment ||
+      (uri.path.isNotEmpty && uri.path != '/') ||
+      (uri.scheme != 'https' &&
+          !(uri.scheme == 'http' && (loopback || allowInsecureHttp)))) {
+    throw const SyncFailure(
+      'Serveradresse ohne Pfad angeben. HTTPS verwenden oder HTTP ausdrücklich erlauben.',
+    );
+  }
+  return uri.replace(path: '');
+}
+
+class ServerRemote implements RevisionRemote {
+  ServerRemote({
+    required Uri server,
+    required this.token,
+    required this.crypto,
+    required this.cache,
+    http.Client? client,
+    bool allowInsecureHttp = false,
+  }) : server = validateServerUrl(
+         server.toString(),
+         allowInsecureHttp: allowInsecureHttp,
+       ),
+       _client = client ?? http.Client();
+  final Uri server;
+  final String token;
+  final SyncCrypto crypto;
+  final Directory cache;
+  final http.Client _client;
+  late final _transport = _ServerHttp(server, token, _client);
+  final _envelopes = <String, Map<String, dynamic>>{};
+
+  void close() => _client.close();
+
+  static Future<Map<String, dynamic>> connect(
+    Uri server,
+    String token, {
+    http.Client? client,
+    bool allowInsecureHttp = false,
+  }) async {
+    final normalized = validateServerUrl(
+      server.toString(),
+      allowInsecureHttp: allowInsecureHttp,
+    );
+    final transport = _ServerHttp(normalized, token, client ?? http.Client());
+    try {
+      return jsonDecode(utf8.decode(await transport.request('GET', '/session')))
+          as Map<String, dynamic>;
+    } finally {
+      if (client == null) transport.client.close();
+    }
+  }
+
+  Future<Uint8List> _request(
+    String method,
+    String path, {
+    List<int>? bytes,
+    Map<String, dynamic>? json,
+    int limit = 16 * 1024 * 1024,
+  }) =>
+      _transport.request(method, path, bytes: bytes, json: json, limit: limit);
+
+  Future<void> verifyKey() async {
+    await _request('PUT', '/key-check', json: {'value': crypto.keyCheck});
+  }
+
+  @override
+  Future<String> accountId() async {
+    final session =
+        jsonDecode(utf8.decode(await _request('GET', '/session')))
+            as Map<String, dynamic>;
+    if (session['account'] != crypto.account ||
+        session['key_check'] != crypto.keyCheck) {
+      throw const SyncFailure(
+        'Serverkonto oder Verschlüsselungsschlüssel stimmt nicht überein.',
+      );
+    }
+    return '$server:${crypto.account}:${crypto.keyCheck}';
+  }
+
+  Future<void> _write(File file, List<int> bytes) async {
+    await file.parent.create(recursive: true);
+    final temp = File('${file.path}.tmp');
+    await temp.writeAsBytes(bytes, flush: true);
+    await temp.rename(file.path);
+  }
+
+  Future<SyncRevision> _inspect(Map<String, dynamic> envelope) async {
+    final id = envelope['id'] as String;
+    if (!syncHashPattern.hasMatch(id)) {
+      throw const FormatException('Ungültige Kennung.');
+    }
+    final decoded =
+        jsonDecode(
+              utf8.decode(
+                await crypto.decrypt(
+                  base64Decode(envelope['manifest'] as String),
+                  'revision:$id',
+                ),
+              ),
+            )
+            as Map<String, dynamic>;
+    final revision = SyncRevision.parse(
+      decoded['revision'] as Map<String, dynamic>,
+    );
+    final parents = revision.parents.map(crypto.wireRevision).toList();
+    if (crypto.wireRevision(revision.revision) != id ||
+        jsonEncode(parents) != jsonEncode(envelope['parents']) ||
+        jsonEncode(decoded['blobs']) != jsonEncode(envelope['blobs'])) {
+      throw const SyncFailure(
+        'Revision wurde verändert. Lokale Daten bleiben erhalten.',
+      );
+    }
+    final blobs = (envelope['blobs'] as List).cast<String>();
+    if (blobs.length > 64 ||
+        blobs.any((b) => !syncHashPattern.hasMatch(b)) ||
+        (revision.deleted && blobs.isNotEmpty)) {
+      throw const FormatException('Ungültige Blockliste.');
+    }
+    _envelopes[revision.revision] = envelope;
+    return revision;
+  }
+
+  @override
+  Future<List<SyncRevision>> list() async {
+    await cache.create(recursive: true);
+    final all = <String, SyncRevision>{};
+    final history = Directory('${cache.path}/history');
+    await history.create(recursive: true);
+    await for (final entry in history.list()) {
+      if (entry is File && entry.path.endsWith('.json')) {
+        final r = await _inspect(
+          jsonDecode(await entry.readAsString()) as Map<String, dynamic>,
+        );
+        all[r.revision] = r;
+      }
+    }
+    final cursorFile = File('${cache.path}/cursor');
+    var cursor = await cursorFile.exists()
+        ? int.parse(await cursorFile.readAsString())
+        : 0;
+    if (cursor < 0 || all.length < cursor) {
+      throw const SyncFailure(
+        'Lokales Sync-Journal ist unvollständig. Cache vor erneutem Vollabgleich prüfen.',
+      );
+    }
+    while (true) {
+      final page =
+          jsonDecode(
+                utf8.decode(await _request('GET', '/changes?after=$cursor')),
+              )
+              as Map<String, dynamic>;
+      final items = page['items'] as List;
+      final next = page['cursor'] as int;
+      if (next != cursor + items.length) {
+        throw const SyncFailure('Ungültiger Sync-Cursor.');
+      }
+      for (final raw in items) {
+        final envelope = raw as Map<String, dynamic>;
+        final revision = await _inspect(envelope);
+        // Persist before advancing the cursor; crashes may replay, never skip.
+        await _write(
+          File('${history.path}/${envelope['id']}.json'),
+          utf8.encode(jsonEncode(envelope)),
+        );
+        all[revision.revision] = revision;
+      }
+      await _write(cursorFile, utf8.encode('$next'));
+      cursor = next;
+      if (items.isEmpty) break;
+    }
+    return all.values.toList();
+  }
+
+  @override
+  Future<void> upload(SyncRevision revision, Uint8List bytes) async {
+    if (bytes.length > maxSyncBytes || (revision.deleted && bytes.isNotEmpty)) {
+      throw const SyncFailure('Notiz überschreitet das Sync-Limit.');
+    }
+    final blobs = <String>[];
+    final files = <String, File>{};
+    for (var offset = 0; offset < bytes.length; offset += syncBlockBytes) {
+      final end = (offset + syncBlockBytes).clamp(0, bytes.length);
+      final plain = Uint8List.sublistView(bytes, offset, end);
+      // Local keyed lookup reuses the exact random-nonce ciphertext on retry.
+      // Neither this lookup nor the plaintext hash is sent to the server.
+      final lookup = crypto.identify('chunk:${sha256.convert(plain)}');
+      final file = File('${cache.path}/chunks/$lookup');
+      Uint8List? encrypted;
+      if (await file.exists()) {
+        try {
+          final cached = await file.readAsBytes();
+          final restored = await crypto.decrypt(cached, 'chunk');
+          if (crypto.identify('chunk:${sha256.convert(restored)}') == lookup) {
+            encrypted = cached;
+          }
+        } catch (_) {
+          // A damaged local cache is disposable; never publish its bad bytes.
+        }
+      }
+      if (encrypted == null) {
+        encrypted = await crypto.encrypt(plain, 'chunk');
+        await _write(file, encrypted);
+      }
+      final id = sha256.convert(encrypted).toString();
+      blobs.add(id);
+      files[id] = file;
+    }
+    final missing =
+        (jsonDecode(
+                  utf8.decode(
+                    await _request(
+                      'POST',
+                      '/blobs/missing',
+                      json: {'ids': blobs},
+                    ),
+                  ),
+                )
+                as Map<String, dynamic>)['missing']
+            as List;
+    for (final id in missing.cast<String>()) {
+      final file = files[id];
+      if (file == null) {
+        throw const SyncFailure('Server fordert unbekannten Block an.');
+      }
+      await _request('PUT', '/blobs/$id', bytes: await file.readAsBytes());
+    }
+    final id = crypto.wireRevision(revision.revision);
+    final manifest = await crypto.encrypt(
+      utf8.encode(jsonEncode({'revision': revision.metadata, 'blobs': blobs})),
+      'revision:$id',
+    );
+    final canonical =
+        jsonDecode(
+              utf8.decode(
+                await _request(
+                  'POST',
+                  '/commits',
+                  json: {
+                    'id': id,
+                    'parents': revision.parents
+                        .map(crypto.wireRevision)
+                        .toList(),
+                    'blobs': blobs,
+                    'manifest': base64Encode(manifest),
+                  },
+                ),
+              ),
+            )
+            as Map<String, dynamic>;
+    final accepted = await _inspect(canonical);
+    if (accepted.revision != revision.revision) {
+      throw const SyncFailure('Server bestätigte eine andere Revision.');
+    }
+  }
+
+  @override
+  Future<Uint8List> download(SyncRevision revision) async {
+    final envelope = _envelopes[revision.revision];
+    if (envelope == null) {
+      throw const SyncFailure('Revision fehlt im lokalen Journal.');
+    }
+    final output = BytesBuilder(copy: false);
+    for (final id in (envelope['blobs'] as List).cast<String>()) {
+      final encrypted = await _request(
+        'GET',
+        '/blobs/$id',
+        limit: syncBlockBytes + 28,
+      );
+      if (sha256.convert(encrypted).toString() != id) {
+        throw const SyncFailure('Verschlüsselter Block ist beschädigt.');
+      }
+      final plain = await crypto.decrypt(encrypted, 'chunk');
+      if (output.length + plain.length > maxSyncBytes) {
+        throw const SyncFailure('Notiz überschreitet das Sync-Limit.');
+      }
+      final lookup = crypto.identify('chunk:${sha256.convert(plain)}');
+      await _write(File('${cache.path}/chunks/$lookup'), encrypted);
+      output.add(plain);
+    }
+    return output.takeBytes();
+  }
+}
+
+/// Authentication/transport is independent of the vault key. The initial
+/// session probe discovers the account before account-scoped keys are derived.
+class _ServerHttp {
+  _ServerHttp(this.server, this.token, this.client);
+  final Uri server;
+  final String token;
+  final http.Client client;
+
+  Future<Uint8List> request(
+    String method,
+    String path, {
+    List<int>? bytes,
+    Map<String, dynamic>? json,
+    int limit = 16 * 1024 * 1024,
+  }) async {
+    for (var attempt = 0; ; attempt++) {
+      final request = http.Request(method, server.resolve('/api/v1$path'))
+        ..followRedirects = false
+        ..headers['authorization'] = 'Bearer $token';
+      if (json != null) {
+        request.headers['content-type'] = 'application/json';
+        request.body = jsonEncode(json);
+      } else if (bytes != null) {
+        request.headers['content-type'] = 'application/octet-stream';
+        request.bodyBytes = bytes;
+      }
+      final response = await client
+          .send(request)
+          .timeout(const Duration(seconds: 30));
+      final output = BytesBuilder(copy: false);
+      await for (final chunk in response.stream.timeout(
+        const Duration(seconds: 60),
+      )) {
+        if (output.length + chunk.length > limit) {
+          throw const SyncFailure(
+            'Serverantwort überschreitet das Größenlimit.',
+          );
+        }
+        output.add(chunk);
+      }
+      if ((response.statusCode == 429 || response.statusCode == 503) &&
+          attempt < 3) {
+        await Future<void>.delayed(
+          Duration(milliseconds: 500 * (1 << attempt) + Random().nextInt(500)),
+        );
+        continue;
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw SyncFailure(switch (response.statusCode) {
+          401 ||
+          403 => 'Gerätezugang ungültig oder widerrufen. Bitte neu verbinden.',
+          409 =>
+            'Schlüssel oder Sync-Stand passen nicht zum Server. Nicht automatisch zurücksetzen.',
+          507 => 'Speicher- oder Revisionskontingent ausgeschöpft.',
+          _ =>
+            'Serveranfrage fehlgeschlagen (${response.statusCode}). Später erneut versuchen.',
+        });
+      }
+      return output.takeBytes();
+    }
+  }
+}

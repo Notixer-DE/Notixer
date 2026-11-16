@@ -1,0 +1,253 @@
+name: Test, build and release
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Each master update gets its own release; do not cancel pending builds.
+jobs:
+  sync-server:
+    uses: ./.github/workflows/sync-server.yml
+
+  metadata:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build_number: ${{ steps.version.outputs.build_number }}
+      deb_version: ${{ steps.version.outputs.deb_version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Determine release version
+        id: version
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          version="$(awk '/^version:/ {sub(/[+].*/, "", $2); print $2}' pubspec.yaml)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build_number=$((100000 + RUN_NUMBER))" >> "$GITHUB_OUTPUT"
+          echo "deb_version=$version+ci.$RUN_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version-build.$RUN_NUMBER" >> "$GITHUB_OUTPUT"
+
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.0'
+          cache: true
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - run: flutter pub get --enforce-lockfile
+      - run: dart format --output=none --set-exit-if-changed lib test tools
+      - run: flutter analyze
+      - run: flutter test --reporter expanded
+      - name: Check large-PDF event-loop responsiveness
+        run: python3 tools/performance.py
+      - name: Measure independent ink processing
+        run: python3 tools/ink_performance.py
+      - name: Measure long Markdown scrolling
+        run: python3 tools/markdown_scroll.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: performance-report
+          path: |
+            build/performance-results.json
+            build/ink-performance-results.json
+            build/markdown-scroll-results.json
+          if-no-files-found: error
+          retention-days: 30
+
+  android:
+    needs: [metadata, check]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.0'
+          cache: true
+      - name: Restore persistent APK signing key
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        env:
+          KEYSTORE_B64: ${{ secrets.NOTER_ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [[ -z "$KEYSTORE_B64" ]]; then
+            echo 'NOTER_ANDROID_KEYSTORE_B64 is required for updatable release APKs.' >&2
+            exit 1
+          fi
+          keystore="$RUNNER_TEMP/noter-debug.keystore"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+          echo "NOTER_DEBUG_KEYSTORE=$keystore" >> "$GITHUB_ENV"
+      - run: flutter pub get --enforce-lockfile
+      - name: Build installable signed APK
+        env:
+          APP_VERSION: ${{ needs.metadata.outputs.version }}
+          BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
+        run: flutter build apk --release --no-pub --build-name "$APP_VERSION" --build-number "$BUILD_NUMBER"
+      - name: Verify signature and prepare download
+        env:
+          APP_VERSION: ${{ needs.metadata.outputs.version }}
+          BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
+        run: |
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs build/app/outputs/flutter-apk/app-release.apk
+          mkdir -p release-assets
+          cp build/app/outputs/flutter-apk/app-release.apk "release-assets/noter_${APP_VERSION}_build-${BUILD_NUMBER}.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-package
+          path: release-assets/*.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/noter-debug.keystore"
+
+  windows:
+    needs: [metadata, check]
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.0'
+          cache: true
+      - name: Generate Windows Flutter runner
+        shell: pwsh
+        run: flutter create --platforms=windows --project-name noter .
+      - name: Resolve dependencies
+        shell: pwsh
+        run: flutter pub get --enforce-lockfile
+      - name: Build Windows x64 release
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ needs.metadata.outputs.version }}
+          BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
+        run: |
+          # Windows file version components must fit into 16 bits.
+          flutter build windows --release --no-pub --build-name "$env:APP_VERSION" --build-number 1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force release-assets | Out-Null
+          $bundle = "build/windows/x64/runner/Release"
+          if (-not (Test-Path "$bundle/noter.exe")) { throw "Missing Windows executable" }
+          Compress-Archive -Path "$bundle/*" -DestinationPath "release-assets/noter_${env:APP_VERSION}_build-${env:BUILD_NUMBER}_windows-x64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-package
+          path: release-assets/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  debian:
+    needs: [metadata, check]
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    timeout-minutes: 35
+    steps:
+      - run: apt-get update && apt-get install -y ca-certificates jq git curl unzip xz-utils zip clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev libstdc++-14-dev
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.0'
+      - name: Trust the Flutter SDK extracted inside the container
+        run: git config --global --add safe.directory "$FLUTTER_ROOT"
+      - run: flutter pub get --enforce-lockfile
+      - name: Build Debian 13 package
+        env:
+          NOTER_DEB_VERSION: ${{ needs.metadata.outputs.deb_version }}
+          NOTER_BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
+        run: bash tools/build-deb.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debian-package
+          path: dist/*.deb
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    needs: [metadata, android, debian, windows, sync-server]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '*-package'
+          path: release-assets
+          merge-multiple: true
+      - name: Publish release with APK, Debian, Windows and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
+          APP_VERSION: ${{ needs.metadata.outputs.version }}
+          BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          cd release-assets
+          test "$(find . -maxdepth 1 -name '*.apk' | wc -l)" -eq 1
+          test "$(find . -maxdepth 1 -name '*.deb' | wc -l)" -eq 1
+          test "$(find . -maxdepth 1 -name '*.zip' | wc -l)" -eq 1
+          sha256sum -- *.apk *.deb *.zip > SHA256SUMS
+          notes="$RUNNER_TEMP/release-notes.md"
+          cat > "$notes" <<NOTES
+          Automatischer Build von master: $SOURCE_SHA
+
+          - Android: installierbare, mit dem bestehenden Vorschau-Schlüssel signierte Release-APK, Versionscode $BUILD_NUMBER.
+          - Debian: Paket für Debian 13, amd64.
+          - Windows: x64-ZIP mit noter.exe und allen erforderlichen Laufzeitdateien; ZIP vollständig entpacken und noter.exe starten.
+          - Optionaler E2EE-Sync über den selbst gehosteten Notixer-Server; Einrichtung siehe docs/sync-server.md.
+          - Google Drive wurde entfernt. Bestehende Cloudkopien vorher lokal sichern; sie werden nicht automatisch übernommen oder gelöscht.
+          - Der Sync-Server ist eine erste funktionale Fassung, noch keine Großdienst-Freigabe. Lasttests, automatische Speicherbereinigung und Schlüsselrotation sind offen.
+
+          Die APK nutzt den optimierten Release-Modus und den bestehenden Vorschau-Schlüssel.
+          NOTES
+          latest=false
+          if [[ "$(gh api "repos/$GH_REPO/git/ref/heads/master" --jq '.object.sha')" == "$SOURCE_SHA" ]]; then
+            latest=true
+          fi
+          expected="$(printf '%s\n' *.apk *.deb *.zip SHA256SUMS | sort)"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')"
+            if [[ "$draft" == true ]]; then
+              [[ "$(gh release view "$RELEASE_TAG" --json targetCommitish --jq '.targetCommitish')" == "$SOURCE_SHA" ]]
+              gh release upload "$RELEASE_TAG" --clobber -- *.apk *.deb *.zip SHA256SUMS
+            else
+              git fetch origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+              [[ "$(git rev-list -n 1 "$RELEASE_TAG")" == "$SOURCE_SHA" ]]
+              [[ "$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | sort)" == "$expected" ]]
+              echo 'This release is already complete; published files remain unchanged.'
+              exit 0
+            fi
+          else
+            gh release create "$RELEASE_TAG" --draft --target "$SOURCE_SHA" \
+              --title "Notixer $APP_VERSION · Build $BUILD_NUMBER" \
+              --notes-file "$notes" -- *.apk *.deb *.zip SHA256SUMS
+          fi
+          [[ "$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | sort)" == "$expected" ]]
+          gh release edit "$RELEASE_TAG" --draft=false --latest="$latest"

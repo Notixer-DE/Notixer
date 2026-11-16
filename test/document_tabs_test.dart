@@ -1,0 +1,214 @@
+import 'dart:io';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:noter/data/file_gateway.dart';
+import 'package:noter/data/markdown_document.dart';
+import 'package:noter/data/markdown_library.dart';
+import 'package:noter/data/notebook.dart';
+import 'package:noter/data/paper.dart';
+import 'package:noter/ui/document_workspace.dart';
+import 'package:noter/ui/document_tab.dart';
+import 'package:noter/ui/editor.dart';
+import 'package:noter/ui/editor_pane.dart';
+import 'package:noter/ui/markdown_editor.dart';
+import 'package:noter/ui/noter_theme.dart';
+
+void main() {
+  for (final width in [390.0, 1200.0]) {
+    testWidgets(
+      'tabs preserve PDF zoom, unfinished ink and Markdown state at width $width',
+      (tester) async {
+        tester.view.physicalSize = Size(width, 900);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final fixture = (await tester.runAsync(() async {
+          final directory = await Directory.systemTemp.createTemp(
+            'noter-tabs-',
+          );
+          final repo = LocalNotebookRepository(directory);
+          final pdf = await repo.create(
+            'PDF A',
+            await createPaper('blank', pages: 3),
+          );
+          final other = await repo.create('PDF B', await createPaper('grid'));
+          final text = await MarkdownLibrary(repo).create('Text C');
+          return (directory, repo, pdf, other, text);
+        }))!;
+        final (directory, repo, a, b, c) = fixture;
+        final key = GlobalKey<DocumentWorkspaceState>();
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: NoterTheme.light,
+            home: DocumentWorkspace(key: key, repository: repo),
+          ),
+        );
+        Future<void> io([bool Function()? done]) async {
+          for (var i = 0; i < 250; i++) {
+            await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 5)),
+            );
+            await tester.pump(const Duration(milliseconds: 16));
+            if (done?.call() ?? i > 20) break;
+          }
+        }
+
+        Future<void> open(Notebook note) async {
+          var finished = false;
+          key.currentState!.openNotebook(note).then((_) => finished = true);
+          await io(() => finished);
+          await io();
+        }
+
+        await io();
+        await open(a);
+        final pane = tester.state<EditorPaneState>(find.byType(EditorPane));
+        expect(pane.widget.session.toolsReady, isTrue);
+        expect(
+          tester.widget<EditorPage>(find.byType(EditorPage)).workspaceSessions,
+          isNotNull,
+        );
+        pane.viewer.jumpToPage(1);
+        await io();
+        pane.viewer.setZoom(1.8);
+        await io();
+        final zoom = pane.viewer.zoom;
+        final bounds = pane.viewer.globalRectOf(
+          1,
+          pane.editing.document.page(1).cropBox,
+        )!;
+        final start = bounds.center;
+        pane.handleCustomInput(
+          PointerDownEvent(
+            pointer: 91,
+            kind: PointerDeviceKind.stylus,
+            position: start,
+          ),
+        );
+        pane.handleCustomInput(
+          PointerMoveEvent(
+            pointer: 91,
+            kind: PointerDeviceKind.stylus,
+            position: start + const Offset(30, 20),
+          ),
+        );
+        // Changing tabs must commit an in-progress contact rather than cancel it.
+        await open(b);
+        expect(pane.widget.session.ink.index.strokes, isNotEmpty);
+        expect(key.currentState!.openNotebookIds, [a.id, b.id]);
+        await open(a);
+        expect(
+          tester.state<EditorPaneState>(find.byType(EditorPane)),
+          same(pane),
+        );
+        expect(pane.viewer.currentPage, 1);
+        expect(pane.viewer.zoom, closeTo(zoom, .001));
+        await open(c);
+        expect(find.byType(MarkdownEditorPage), findsOneWidget);
+        final source = find.byKey(
+          const ValueKey('markdown-source'),
+          skipOffstage: false,
+        );
+        await tester.enterText(
+          source,
+          '# Ungespeichert\n\nInhalt bleibt im Tab.',
+        );
+        await tester.pump();
+        final sourceWidget = tester.widget<TextField>(source);
+        final controller = sourceWidget.controller!;
+        await open(a);
+        await open(c);
+        expect(tester.widget<TextField>(source).controller, same(controller));
+        expect(controller.text, contains('Ungespeichert'));
+        // Closing an inactive PDF must not dispose the active Markdown editor.
+        var closed = false;
+        key.currentState!.closeNotebook(b.id).then((value) => closed = value);
+        await io(() => closed);
+        expect(closed, isTrue);
+        expect(key.currentState!.activeNotebookId, c.id);
+        expect(controller.text, contains('Ungespeichert'));
+        var saved = false;
+        FileGateway.prepareClose().then((value) => saved = value);
+        await io(() => saved);
+        expect(saved, isTrue);
+        final persisted = await tester.runAsync(
+          () async => MarkdownDocument.decode(await repo.load(c.id)),
+        );
+        expect(persisted!.source, contains('Ungespeichert'));
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump();
+        expect(FileGateway.workspaceBeforeClose, isNull);
+        await tester.runAsync(() => directory.delete(recursive: true));
+      },
+    );
+  }
+  testWidgets(
+    'a failed save keeps the tab open and cancels application close',
+    (tester) async {
+      final fixture = (await tester.runAsync(() async {
+        final directory = await Directory.systemTemp.createTemp(
+          'noter-tab-failure-',
+        );
+        final repo = LocalNotebookRepository(directory);
+        final note = await repo.create(
+          'Nicht verlieren',
+          await createPaper('blank'),
+        );
+        return (directory, repo, note);
+      }))!;
+      final (directory, repo, note) = fixture;
+      final key = GlobalKey<DocumentWorkspaceState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DocumentWorkspace(key: key, repository: repo),
+        ),
+      );
+      var opened = false;
+      key.currentState!.openNotebook(note).then((_) => opened = true);
+      for (var i = 0; i < 100 && !opened; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+        await tester.pump();
+      }
+      await tester.pump();
+      final tab = tester
+          .widget<EditorPage>(find.byType(EditorPage))
+          .tabController!;
+      tab.attach(Object(), save: () async => false);
+      expect(await key.currentState!.closeNotebook(note.id), isFalse);
+      expect(key.currentState!.openNotebookIds, [note.id]);
+      expect(await FileGateway.prepareClose(), isFalse);
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(() => directory.delete(recursive: true));
+    },
+  );
+
+  test(
+    'PDF sessions are shared and live until their last pane is released',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'noter-tab-pool-',
+      );
+      final repo = LocalNotebookRepository(directory);
+      final bytes = await createPaper('blank');
+      final note = await repo.create('Gemeinsam', bytes);
+      final pool = WorkspacePdfSessions(repo);
+      final first = pool.acquire(note, bytes),
+          second = pool.acquire(note, bytes);
+      expect(second, same(first));
+      await first.ready;
+      await first.toolReady;
+      pool.release(first);
+      expect(pool.contains(note.id), isTrue);
+      expect(second.editing.document.pageCount, 1);
+      pool.release(second);
+      expect(pool.contains(note.id), isFalse);
+      pool.dispose();
+      await repo.flush();
+      await directory.delete(recursive: true);
+    },
+  );
+}
