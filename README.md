@@ -55,8 +55,6 @@ Notixer arbeitet vollständig offline. Über das Wolkensymbol lässt sich option
 
 ## Installieren & Bauen
 
-Fertige Pakete (**Android APK**, **Debian 13 `.deb`**, **Windows x64 `.zip`** sowie `SHA256SUMS`) stehen unter [GitHub Releases](https://github.com/elixs-de/noter/releases) bereit.
-
 ### Aus dem Quellcode bauen
 
 Voraussetzung ist Flutter `3.44.0` (Dart `3.12`):
