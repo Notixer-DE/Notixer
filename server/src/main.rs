@@ -1,0 +1,13 @@
+mod api;
+mod app;
+mod migration;
+
+#[tokio::main]
+async fn main() -> loco_rs::Result<()> {
+    // Administrative credentials are generated locally and printed once, never
+    // accepted in command arguments or exposed by a public registration route.
+    if std::env::args().nth(1).as_deref() == Some("admin") {
+        return api::admin().await;
+    }
+    loco_rs::cli::main::<app::App, migration::Migrator>().await
+}

@@ -1,0 +1,30 @@
+name: Sync server
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.0'
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - run: cargo fmt --manifest-path server/Cargo.toml --check
+      - run: cargo test --manifest-path server/Cargo.toml --locked
+      - run: cargo clippy --manifest-path server/Cargo.toml --locked --all-targets -- -D warnings
+      - run: FLUTTER_BIN="$(command -v flutter)" python3 tools/test-sync-server.py

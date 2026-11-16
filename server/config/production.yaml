@@ -1,0 +1,28 @@
+logger:
+  enable: true
+  pretty_backtrace: false
+  level: info
+  format: json
+server:
+  binding: 0.0.0.0
+  port: 5150
+  host: http://localhost:5150
+  middlewares:
+    limit_payload:
+      body_limit: 5mb
+    logger:
+      enable: false
+database:
+  uri: <%= get_env(name="DATABASE_URL") %>
+  enable_logging: false
+  min_connections: 2
+  max_connections: 20
+  connect_timeout: 10000
+  idle_timeout: 30000
+  acquire_timeout: 10000
+  auto_migrate: true
+  dangerously_truncate: false
+  dangerously_recreate: false
+workers:
+  mode: BackgroundAsync
+

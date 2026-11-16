@@ -1,0 +1,244 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../data/notebook.dart';
+import 'notebook_sync.dart';
+import 'server_remote.dart';
+import 'sync_crypto.dart';
+import 'sync_revision.dart';
+
+class SyncController extends ChangeNotifier {
+  SyncController(this.repository, {FlutterSecureStorage? storage})
+    : _storage = storage ?? const FlutterSecureStorage();
+  final LocalNotebookRepository repository;
+  final FlutterSecureStorage _storage;
+  ServerRemote? _remote;
+  bool busy = false, enabled = false, automatic = false;
+  bool allowInsecureHttp = false;
+  bool get usesHttp => enabled && Uri.tryParse(serverUrl)?.scheme == 'http';
+  String serverUrl = '', status = 'Server-Sync ist ausgeschaltet.';
+  String? error;
+  DateTime? lastSyncedAt;
+  Future<void>? _loading;
+  File get _file => File('${repository.directory.path}/.server-sync.json');
+  Future<void> load() => _loading ??= _load();
+
+  Future<void> _load() async {
+    try {
+      await _loadConfiguration();
+    } catch (_) {
+      enabled = false;
+      automatic = false;
+      _remote?.close();
+      _remote = null;
+      status =
+          'Serverkonfiguration oder Schlüsselbund nicht verfügbar. Bitte erneut verbinden.';
+      notifyListeners();
+    }
+  }
+
+  Future<void> _loadConfiguration() async {
+    if (!await _file.exists()) return;
+    final config =
+        jsonDecode(await _file.readAsString()) as Map<String, dynamic>;
+    serverUrl = config['server'] as String;
+    automatic = config['automatic'] == true;
+    allowInsecureHttp = config['allowInsecureHttp'] == true;
+    enabled = config['enabled'] == true;
+    if (enabled) {
+      final secret = await _storage.read(key: 'noter.sync.credentials');
+      if (secret == null) {
+        enabled = false;
+        status = 'Geräteschlüssel fehlt. Bitte erneut verbinden.';
+      } else {
+        final credentials = jsonDecode(secret) as Map<String, dynamic>;
+        if (credentials['server'] != serverUrl) {
+          enabled = false;
+          throw const SyncFailure(
+            'Gespeicherter Zugang gehört zu einem anderen Server. Bitte neu verbinden.',
+          );
+        }
+        _remote = await _makeRemote(
+          serverUrl,
+          credentials['token'] as String,
+          credentials['key'] as String,
+          credentials['account'] as String,
+          allowHttp: allowInsecureHttp,
+        );
+        status = 'Bereit zum Synchronisieren.';
+      }
+    }
+    notifyListeners();
+  }
+
+  Future<ServerRemote> _makeRemote(
+    String url,
+    String token,
+    String key,
+    String account, {
+    bool allowHttp = false,
+  }) async {
+    final crypto = await SyncCrypto.create(key, account);
+    return ServerRemote(
+      server: validateServerUrl(url, allowInsecureHttp: allowHttp),
+      allowInsecureHttp: allowHttp,
+      token: token,
+      crypto: crypto,
+      cache: Directory(
+        '${repository.directory.path}/.sync-cache/${crypto.identify('$url:$account')}',
+      ),
+    );
+  }
+
+  Future<void> _save() async {
+    await _file.parent.create(recursive: true);
+    final temp = File('${_file.path}.tmp');
+    await temp.writeAsString(
+      jsonEncode({
+        'server': serverUrl,
+        'enabled': enabled,
+        'automatic': automatic,
+        'allowInsecureHttp': allowInsecureHttp,
+      }),
+      flush: true,
+    );
+    await temp.rename(_file.path);
+  }
+
+  Future<void> _action(Future<void> Function() action) async {
+    if (busy) return;
+    busy = true;
+    error = null;
+    notifyListeners();
+    try {
+      await action();
+    } catch (e) {
+      error = e is SyncFailure
+          ? e.message
+          : 'Synchronisierung fehlgeschlagen. Verbindung, Schlüssel und System-Schlüsselbund prüfen. Lokale Notizen bleiben erhalten.';
+      status = 'Synchronisierung nicht abgeschlossen.';
+    } finally {
+      busy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> connect(
+    String url,
+    String token,
+    String recoveryKey, {
+    bool allowHttp = false,
+  }) => _action(() async {
+    await load();
+    final server = validateServerUrl(url, allowInsecureHttp: allowHttp);
+    if (!syncHashPattern.hasMatch(token.trim())) {
+      throw const SyncFailure('Gültigen Geräte-Zugangstoken eintragen.');
+    }
+    final session = await ServerRemote.connect(
+      server,
+      token.trim(),
+      allowInsecureHttp: allowHttp,
+    );
+    if (session['version'] != 1) {
+      throw const SyncFailure('Unbekannte Serverversion.');
+    }
+    final remote = await _makeRemote(
+      server.toString(),
+      token.trim(),
+      recoveryKey.trim(),
+      session['account'] as String,
+      allowHttp: allowHttp,
+    );
+    try {
+      await remote.verifyKey();
+      // One atomic keychain entry prevents partially updated token/key pairs.
+      await _storage.write(
+        key: 'noter.sync.credentials',
+        value: jsonEncode({
+          'server': server.toString(),
+          'token': token.trim(),
+          'key': recoveryKey.trim(),
+          'account': session['account'],
+        }),
+      );
+    } catch (_) {
+      remote.close();
+      rethrow;
+    }
+    _remote?.close();
+    _remote = remote;
+    serverUrl = server.toString();
+    allowInsecureHttp = server.scheme == 'http' && allowHttp;
+    enabled = true;
+    lastSyncedAt = null;
+    await _save();
+    status = 'Server verbunden. Ende-zu-Ende-Verschlüsselung aktiv.';
+  });
+
+  Future<void> disableHttp() => _action(() async {
+    await load();
+    if (usesHttp) {
+      enabled = false;
+      automatic = false;
+      _remote?.close();
+      _remote = null;
+      status =
+          'HTTP-Verbindung deaktiviert. Für HTTPS erneut verbinden. Zugangsdaten bleiben im Schlüsselbund.';
+    }
+    allowInsecureHttp = false;
+    await _save();
+  });
+
+  Future<void> setAutomatic(bool value) => _action(() async {
+    await load();
+    automatic = value;
+    await _save();
+    status = value
+        ? 'Automatische Synchronisierung eingeschaltet.'
+        : 'Automatische Synchronisierung ausgeschaltet.';
+  });
+
+  Future<void> synchronize({String? noteId, bool onlyIfChanged = false}) =>
+      _action(() async {
+        await load();
+        if (!enabled || _remote == null) {
+          throw const SyncFailure('Bitte zuerst den Server verbinden.');
+        }
+        final report = await NotebookSync(
+          repository,
+          _remote!,
+          onProgress: (value) {
+            status = value;
+            notifyListeners();
+          },
+        ).run(noteId: noteId, onlyIfChanged: onlyIfChanged);
+        lastSyncedAt = DateTime.now();
+        status = 'Synchronisiert: $report';
+      });
+
+  Future<void> disconnect() => _action(() async {
+    enabled = false;
+    automatic = false;
+    allowInsecureHttp = false;
+    await _save();
+    await _storage.delete(key: 'noter.sync.credentials');
+    _remote?.close();
+    _remote = null;
+    status =
+        'Verbindung getrennt. Notizen bleiben erhalten; der Serverzugang ist nicht widerrufen.';
+  });
+
+  Future<String?> recoveryKey() async {
+    final value = await _storage.read(key: 'noter.sync.credentials');
+    return value == null
+        ? null
+        : (jsonDecode(value) as Map<String, dynamic>)['key'] as String?;
+  }
+
+  @override
+  void dispose() {
+    _remote?.close();
+    super.dispose();
+  }
+}

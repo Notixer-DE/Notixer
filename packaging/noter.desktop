@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Notixer
+Comment=Handschriftliche Notizen und PDF-Anmerkungen
+Exec=noter
+Icon=noter
+Terminal=false
+Categories=Office;Graphics;
