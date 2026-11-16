@@ -2,15 +2,15 @@ name: Test, build and release
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# Each master update gets its own release; do not cancel pending builds.
+# Each main update gets its own release; do not cancel pending builds.
 jobs:
   sync-server:
     uses: ./.github/workflows/sync-server.yml
@@ -85,7 +85,7 @@ jobs:
           flutter-version: '3.44.0'
           cache: true
       - name: Restore persistent APK signing key
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
           KEYSTORE_B64: ${{ secrets.NOTER_ANDROID_KEYSTORE_B64 }}
         run: |
@@ -184,7 +184,7 @@ jobs:
           retention-days: 14
 
   release:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: [metadata, android, debian, windows, sync-server]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -216,7 +216,7 @@ jobs:
           sha256sum -- *.apk *.deb *.zip > SHA256SUMS
           notes="$RUNNER_TEMP/release-notes.md"
           cat > "$notes" <<NOTES
-          Automatischer Build von master: $SOURCE_SHA
+          Automatischer Build von main: $SOURCE_SHA
 
           - Android: installierbare, mit dem bestehenden Vorschau-Schlüssel signierte Release-APK, Versionscode $BUILD_NUMBER.
           - Debian: Paket für Debian 13, amd64.
@@ -228,7 +228,7 @@ jobs:
           Die APK nutzt den optimierten Release-Modus und den bestehenden Vorschau-Schlüssel.
           NOTES
           latest=false
-          if [[ "$(gh api "repos/$GH_REPO/git/ref/heads/master" --jq '.object.sha')" == "$SOURCE_SHA" ]]; then
+          if [[ "$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')" == "$SOURCE_SHA" ]]; then
             latest=true
           fi
           expected="$(printf '%s\n' *.apk *.deb *.zip SHA256SUMS | sort)"

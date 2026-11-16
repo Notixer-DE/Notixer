@@ -55,7 +55,9 @@ Notixer arbeitet vollständig offline. Über das Wolkensymbol lässt sich option
 
 ## Installieren & Bauen
 
-Fertige Pakete (**Android APK**, **Debian 13 `.deb`**, **Windows x64 `.zip`** sowie `SHA256SUMS`) stehen unter [GitHub Releases](https://github.com/elixs-de/noter/releases) bereit.
+### Fertige Downloads
+
+Die jeweils neuesten Installationsdateien für Android, Debian 13 (amd64) und Windows (x64) findest du unter [GitHub Releases](https://github.com/Notixer-DE/Notixer/releases/latest). Dort gibt es außerdem Prüfsummen für die Downloads.
 
 ### Aus dem Quellcode bauen
 
