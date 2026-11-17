@@ -16,6 +16,7 @@ import '../data/notebook.dart';
 import 'editor.dart';
 import 'noter_theme.dart';
 import 'markdown_preview.dart';
+import 'markdown_source_edit.dart';
 import 'workspace_chrome.dart';
 import 'document_tab.dart';
 
@@ -160,6 +161,23 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       ..addListener(_changed);
     _text = TextEditingController(text: _session.document.source)
       ..addListener(_edited);
+    _focus.onKeyEvent = (_, event) {
+      if (event.logicalKey != LogicalKeyboardKey.tab ||
+          HardwareKeyboard.instance.isControlPressed ||
+          HardwareKeyboard.instance.isAltPressed ||
+          HardwareKeyboard.instance.isMetaPressed ||
+          _busy ||
+          _leaving) {
+        return KeyEventResult.ignored;
+      }
+      if (event is KeyDownEvent || event is KeyRepeatEvent) {
+        _text.value = indentMarkdown(
+          _text.value,
+          outdent: HardwareKeyboard.instance.isShiftPressed,
+        );
+      }
+      return KeyEventResult.handled;
+    };
     _title = TextEditingController(text: widget.note.title);
     _source = _text.text.isEmpty || _text.text == '- [ ] Erste Aufgabe\n';
     _previousClose = FileGateway.beforeClose;
@@ -405,6 +423,19 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     });
   }
 
+  void _codeBlock() {
+    final selection = _text.selection;
+    final selected = selection.isValid && !selection.isCollapsed
+        ? _text.text.substring(selection.start, selection.end)
+        : '';
+    var length = 3;
+    for (final match in RegExp(r'`+').allMatches(selected)) {
+      if (match.group(0)!.length >= length) length = match.group(0)!.length + 1;
+    }
+    final fence = '`' * length;
+    _insert('\n$fence\n', '\n$fence\n', 'Code');
+  }
+
   Future<void> _linkDialog() async {
     final url = TextEditingController();
     final label = TextEditingController();
@@ -639,6 +670,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
         tool('Link einfügen', Icons.link, _linkDialog),
         tool('Bild einfügen', Icons.image_outlined, _image),
         tool('Code', Icons.code, () => _insert('`', '`')),
+        tool('Codeblock', Icons.integration_instructions_outlined, _codeBlock),
       ],
     );
   }

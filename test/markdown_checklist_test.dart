@@ -4,6 +4,63 @@ import 'package:noter/data/markdown_document.dart';
 import 'package:noter/ui/markdown_preview.dart';
 
 void main() {
+  for (final scale in [1.0, 1.6]) {
+    testWidgets('checkbox centres on first line at text scale $scale', (
+      tester,
+    ) async {
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaQuery(
+            data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+            child: Scaffold(
+              body: SizedBox(
+                width: 260,
+                child: CustomScrollView(
+                  controller: scroll,
+                  slivers: [
+                    MarkdownPreview(
+                      document: MarkdownDocument(
+                        '- [ ] First line with enough words to wrap onto several lines',
+                      ),
+                      scrollController: scroll,
+                      onFollow: (_) {},
+                      onToggle: (_, _) {},
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final label = find.byType(SelectableText).first;
+      final text = tester.widget<SelectableText>(label);
+      final metrics = TextPainter(
+        text: TextSpan(
+          style: DefaultTextStyle.of(tester.element(label)).style,
+          children: [text.textSpan!],
+        ),
+        strutStyle: text.strutStyle,
+        textDirection: TextDirection.ltr,
+        textScaler: TextScaler.linear(scale),
+      )..layout(maxWidth: tester.getSize(label).width);
+      final line = metrics.computeLineMetrics().first;
+      final firstCentre = tester.getTopLeft(label).dy + line.height / 2;
+      expect(
+        tester.getCenter(find.byType(Checkbox)).dy,
+        closeTo(firstCentre, .5),
+      );
+      expect(
+        tester.getSize(find.byType(Checkbox)).height,
+        greaterThanOrEqualTo(44),
+      );
+      metrics.dispose();
+    });
+  }
+
   final cases = <String, (String, List<String>, List<bool>)>{
     'loose list': (
       '- [ ] Erste\n\n- [X] Zweite\n\n- [x] Dritte',

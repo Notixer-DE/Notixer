@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noter/data/file_gateway.dart';
 import 'package:noter/data/markdown_document.dart';
@@ -72,6 +73,52 @@ void main() {
     );
     await markdownIo(tester, () => find.text('Lernplan').evaluate().isNotEmpty);
   }
+
+  testWidgets('Tab indents selected source lines and code blocks render', (
+    tester,
+  ) async {
+    await open(tester, const Size(1440, 1000));
+    await tester.tap(find.text('Markdown'));
+    await tester.pumpAndSettle();
+    final field = find.byKey(const ValueKey('markdown-source'));
+    await tester.tap(field);
+    await tester.enterText(field, 'one\ntwo\nthree');
+    final controller = tester.widget<TextField>(field).controller!;
+    controller.selection = const TextSelection(baseOffset: 0, extentOffset: 8);
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    expect(controller.text, '    one\n    two\nthree');
+    expect(tester.widget<TextField>(field).focusNode!.hasFocus, isTrue);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pump();
+    expect(controller.text, 'one\ntwo\nthree');
+    controller.selection = const TextSelection.collapsed(offset: 3);
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    expect(controller.text, 'one    \ntwo\nthree');
+    await tester.enterText(field, 'print("hello");');
+    controller.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: controller.text.length,
+    );
+    await tester.ensureVisible(find.byTooltip('Codeblock'));
+    await tester.tap(find.byTooltip('Codeblock'));
+    await tester.pumpAndSettle();
+    expect(controller.text, '\n```\nprint("hello");\n```\n');
+    var saveFinished = false;
+    FileGateway.beforeClose!().then((saved) => saveFinished = saved);
+    await markdownIo(tester, () => saveFinished);
+    final saved = await tester.runAsync(() => repository.load(a.id));
+    expect(MarkdownDocument.decode(saved!).source, controller.text);
+    await tester.tap(find.text('Formatiert'));
+    await markdownIo(
+      tester,
+      () => find.textContaining('print("hello");').evaluate().isNotEmpty,
+    );
+    expect(find.textContaining('print("hello");'), findsWidgets);
+  });
 
   testWidgets(
     'desktop list toggles; source, formatting and checks share one saved document',

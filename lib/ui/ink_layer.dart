@@ -367,6 +367,7 @@ class InkLayer extends StatelessWidget {
                   tileSize,
                   level,
                   ratio,
+                  MediaQuery.devicePixelRatioOf(context) * rasterScale,
                   ratio <
                       MediaQuery.devicePixelRatioOf(context) *
                           rasterScale *
@@ -397,6 +398,7 @@ class InkLayer extends StatelessWidget {
     double tileSize,
     int level,
     double pixelRatio,
+    double gridScale,
     bool vectorOnly,
   ) {
     final bounds = Rect.fromLTWH(
@@ -405,9 +407,18 @@ class InkLayer extends StatelessWidget {
       tileSize,
       tileSize,
     );
-    final rect = geometry.toViewRect(
+    final view = geometry.toViewRect(
       PdfRect(bounds.left, bounds.top, bounds.right, bounds.bottom),
     );
+    // Adjacent tiles must own exactly the same device-pixel boundary.
+    double snap(double value) => (value * gridScale).round() / gridScale;
+    final rect = Rect.fromLTRB(
+      snap(view.left),
+      snap(view.top),
+      snap(view.right),
+      snap(view.bottom),
+    );
+    if (rect.isEmpty) return const SizedBox.shrink();
     return Positioned.fromRect(
       key: ValueKey((page, x, y, level)),
       rect: rect,
@@ -417,6 +428,7 @@ class InkLayer extends StatelessWidget {
         bounds: bounds,
         geometry: geometry,
         origin: rect.topLeft,
+        viewSize: rect.size,
         cache: cache,
         pixelRatio: pixelRatio,
         vectorOnly: vectorOnly,
@@ -432,6 +444,7 @@ class _InkTile extends StatefulWidget {
     required this.bounds,
     required this.geometry,
     required this.origin,
+    required this.viewSize,
     required this.cache,
     required this.pixelRatio,
     required this.vectorOnly,
@@ -441,6 +454,7 @@ class _InkTile extends StatefulWidget {
   final Rect bounds;
   final PdfPageGeometry geometry;
   final Offset origin;
+  final Size viewSize;
   final InkPathCache cache;
   final double pixelRatio;
   final bool vectorOnly;
@@ -468,6 +482,8 @@ class _InkTileState extends State<_InkTile> {
   void didUpdateWidget(_InkTile old) {
     super.didUpdateWidget(old);
     if (old.controller != widget.controller ||
+        old.origin != widget.origin ||
+        old.viewSize != widget.viewSize ||
         old.geometry.viewSize != widget.geometry.viewSize ||
         old.geometry.rotation != widget.geometry.rotation ||
         old.geometry.cropBox != widget.geometry.cropBox ||
@@ -511,26 +527,29 @@ class _InkTileState extends State<_InkTile> {
     }
     final batch = _pending.take(count).toList();
     final held = _image?.clone();
-    final view = widget.geometry.toViewRect(
-      PdfRect(
-        widget.bounds.left,
-        widget.bounds.top,
-        widget.bounds.right,
-        widget.bounds.bottom,
-      ),
-    );
-    final width = math.max(1, (view.width * widget.pixelRatio).floor());
-    final height = math.max(1, (view.height * widget.pixelRatio).floor());
+    final size = widget.viewSize;
+    final width = math.max(1, (size.width * widget.pixelRatio).round());
+    final height = math.max(1, (size.height * widget.pixelRatio).round());
+    // Keep a one-pixel gutter so bilinear sampling at an internal tile edge
+    // reads neighbouring ink instead of transparent pixels outside the image.
+    final scaleX = width / size.width, scaleY = height / size.height;
+    final gutter = Offset(1 / scaleX, 1 / scaleY);
     final recorder = ui.PictureRecorder();
     ui.Picture? picture;
     try {
       final canvas = Canvas(recorder)
-        ..scale(width / view.width, height / view.height);
+        ..scale(scaleX, scaleY)
+        ..translate(gutter.dx, gutter.dy);
       if (held != null) {
         canvas.drawImageRect(
           held,
           Rect.fromLTWH(0, 0, held.width.toDouble(), held.height.toDouble()),
-          Offset.zero & view.size,
+          Rect.fromLTWH(
+            -gutter.dx,
+            -gutter.dy,
+            size.width + 2 * gutter.dx,
+            size.height + 2 * gutter.dy,
+          ),
           Paint(),
         );
       }
@@ -542,7 +561,7 @@ class _InkTileState extends State<_InkTile> {
         batch,
       );
       picture = recorder.endRecording();
-      final image = await picture.toImage(width, height);
+      final image = await picture.toImage(width + 2, height + 2);
       if (!mounted || epoch != _epoch) {
         image.dispose();
         return;
@@ -570,15 +589,18 @@ class _InkTileState extends State<_InkTile> {
 
   @override
   Widget build(BuildContext context) {
-    final revision = widget.controller.areaRevision(widget.page, widget.bounds);
+    final queryBounds = widget.bounds.inflate(
+      2 / (widget.geometry.scale * widget.pixelRatio),
+    );
+    final revision = widget.controller.areaRevision(widget.page, queryBounds);
     if (_revision != revision) {
       _revision = revision;
       final unique = <String, InkStroke>{
         for (final s in [
           ...widget.controller.index
-              .query(widget.page, widget.bounds)
+              .query(widget.page, queryBounds)
               .where((s) => !widget.controller.hidden.contains(s.id)),
-          ...widget.controller.preview.query(widget.page, widget.bounds),
+          ...widget.controller.preview.query(widget.page, queryBounds),
         ])
           s.id: s,
       };
@@ -673,7 +695,7 @@ class _TilePainter extends CustomPainter {
     if (image != null) {
       canvas.drawImageRect(
         image!,
-        Rect.fromLTWH(0, 0, image!.width.toDouble(), image!.height.toDouble()),
+        Rect.fromLTWH(1, 1, image!.width - 2.0, image!.height - 2.0),
         Offset.zero & size,
         Paint()..filterQuality = FilterQuality.low,
       );
