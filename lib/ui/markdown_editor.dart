@@ -1070,10 +1070,13 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                 ? null
                 : AppBar(
                     toolbarHeight: NoterTheme.headerHeight(context),
-                    leading: IconButton(
-                      tooltip: 'Back to library',
-                      icon: const Icon(Icons.arrow_back),
-                      onPressed: _leave,
+                    leadingWidth: DocumentTabsChrome.leadingWidth(context),
+                    leading: DocumentNavigation(
+                      child: IconButton(
+                        tooltip: 'Back to library',
+                        icon: const Icon(Icons.arrow_back),
+                        onPressed: _leave,
+                      ),
                     ),
                     title: Text(
                       _session.note.title,
@@ -1161,136 +1164,158 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                       ),
                     ],
                   ),
-            body: SafeArea(
-              child: Row(
-                children: [
-                  if (desktop && _showChrome)
-                    SizedBox(width: 196, child: _rail()),
-                  if (desktop && _showChrome && _showNotes)
-                    SizedBox(width: 244, child: _list()),
-                  Expanded(
-                    child: Column(
-                      children: [
-                        if (_busy || _loadingNotes)
-                          const LinearProgressIndicator(),
-                        if (_showChrome)
-                          WorkspaceToolbar(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                              ),
-                              child: Row(
-                                children: [
-                                  if (!phone) ...[
-                                    Expanded(
-                                      flex: 2,
-                                      child: _toolbarContents(),
-                                    ),
-                                    const ToolbarSeparator(),
-                                  ],
-                                  Expanded(
-                                    child: SingleChildScrollView(
-                                      scrollDirection: Axis.horizontal,
-                                      child: SegmentedButton<bool>(
-                                        showSelectedIcon: false,
-                                        style: ButtonStyle(
-                                          visualDensity: VisualDensity.compact,
-                                          minimumSize: WidgetStatePropertyAll(
-                                            Size(
-                                              0,
-                                              NoterTheme.desktopControls(
-                                                    context,
-                                                  )
-                                                  ? 32
-                                                  : 44,
-                                            ),
-                                          ),
-                                          iconSize:
-                                              const WidgetStatePropertyAll(16),
+            body: Stack(
+              children: [
+                SafeArea(
+                  child: Row(
+                    children: [
+                      if (desktop && _showChrome)
+                        SizedBox(width: 196, child: _rail()),
+                      if (desktop && _showChrome && _showNotes)
+                        SizedBox(width: 244, child: _list()),
+                      Expanded(
+                        child: Column(
+                          children: [
+                            if (_busy || _loadingNotes)
+                              const LinearProgressIndicator(),
+                            if (_showChrome)
+                              WorkspaceToolbar(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      if (!phone) ...[
+                                        Expanded(
+                                          flex: 2,
+                                          child: _toolbarContents(),
                                         ),
-                                        segments: const [
-                                          ButtonSegment(
-                                            value: false,
-                                            label: Text('Formatted'),
-                                            icon: Icon(Icons.article_outlined),
+                                        const ToolbarSeparator(),
+                                      ],
+                                      Expanded(
+                                        child: SingleChildScrollView(
+                                          scrollDirection: Axis.horizontal,
+                                          child: SegmentedButton<bool>(
+                                            showSelectedIcon: false,
+                                            style: ButtonStyle(
+                                              visualDensity:
+                                                  VisualDensity.compact,
+                                              minimumSize:
+                                                  WidgetStatePropertyAll(
+                                                    Size(
+                                                      0,
+                                                      NoterTheme.desktopControls(
+                                                            context,
+                                                          )
+                                                          ? 32
+                                                          : 44,
+                                                    ),
+                                                  ),
+                                              iconSize:
+                                                  const WidgetStatePropertyAll(
+                                                    16,
+                                                  ),
+                                            ),
+                                            segments: const [
+                                              ButtonSegment(
+                                                value: false,
+                                                label: Text('Formatted'),
+                                                icon: Icon(
+                                                  Icons.article_outlined,
+                                                ),
+                                              ),
+                                              ButtonSegment(
+                                                value: true,
+                                                label: Text('Markdown'),
+                                                icon: Icon(Icons.code),
+                                              ),
+                                            ],
+                                            selected: {_source},
+                                            onSelectionChanged: (value) {
+                                              setState(
+                                                () => _source = value.single,
+                                              );
+                                              if (!_source) {
+                                                _focus.unfocus();
+                                                _session.save();
+                                                _reload();
+                                              }
+                                            },
                                           ),
-                                          ButtonSegment(
-                                            value: true,
-                                            label: Text('Markdown'),
-                                            icon: Icon(Icons.code),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Tooltip(
+                                        message: _session.status,
+                                        child: Semantics(
+                                          label: _session.status,
+                                          liveRegion: true,
+                                          child: Icon(
+                                            _session.error != null
+                                                ? Icons.error_outline
+                                                : _session.saving
+                                                ? Icons.sync
+                                                : _session.dirty
+                                                ? Icons.edit_outlined
+                                                : Icons.check_circle_outline,
+                                            size: 18,
+                                            color: _session.error != null
+                                                ? Theme.of(
+                                                    context,
+                                                  ).colorScheme.error
+                                                : NoterTheme.accent,
                                           ),
-                                        ],
-                                        selected: {_source},
-                                        onSelectionChanged: (value) {
-                                          setState(
-                                            () => _source = value.single,
-                                          );
-                                          if (!_source) {
-                                            _focus.unfocus();
-                                            _session.save();
-                                            _reload();
-                                          }
-                                        },
+                                        ),
                                       ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Tooltip(
-                                    message: _session.status,
-                                    child: Semantics(
-                                      label: _session.status,
-                                      liveRegion: true,
-                                      child: Icon(
-                                        _session.error != null
-                                            ? Icons.error_outline
-                                            : _session.saving
-                                            ? Icons.sync
-                                            : _session.dirty
-                                            ? Icons.edit_outlined
-                                            : Icons.check_circle_outline,
-                                        size: 18,
-                                        color: _session.error != null
-                                            ? Theme.of(
-                                                context,
-                                              ).colorScheme.error
-                                            : NoterTheme.accent,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        if (_session.error != null || _message != null)
-                          Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    _session.error ?? _message!,
-                                    style: TextStyle(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.error,
-                                    ),
+                                    ],
                                   ),
                                 ),
-                                if (_session.error != null)
-                                  TextButton(
-                                    onPressed: () => _session.save(),
-                                    child: const Text('Retry'),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        Expanded(child: paper),
-                        if (phone && _showChrome) _toolbar(),
-                      ],
+                              ),
+                            if (_session.error != null || _message != null)
+                              Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        _session.error ?? _message!,
+                                        style: TextStyle(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.error,
+                                        ),
+                                      ),
+                                    ),
+                                    if (_session.error != null)
+                                      TextButton(
+                                        onPressed: () => _session.save(),
+                                        child: const Text('Retry'),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            Expanded(child: paper),
+                            if (phone && _showChrome) _toolbar(),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (!_showChrome && DocumentTabsChrome.action(context) != null)
+                  Positioned(
+                    left: 8,
+                    top: 8,
+                    child: SafeArea(
+                      child: IconButton.filledTonal(
+                        tooltip: 'Show document tabs',
+                        onPressed: DocumentTabsChrome.action(context),
+                        icon: const Icon(Icons.tab),
+                      ),
                     ),
                   ),
-                ],
-              ),
+              ],
             ),
           );
         },

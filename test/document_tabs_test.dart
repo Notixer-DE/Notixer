@@ -57,6 +57,10 @@ void main() {
       (tester) async {
         tester.view.physicalSize = Size(width, 900);
         tester.view.devicePixelRatio = 1;
+        tester.view.padding = const FakeViewPadding(top: 24);
+        tester.view.viewPadding = const FakeViewPadding(top: 24);
+        addTearDown(tester.view.resetPadding);
+        addTearDown(tester.view.resetViewPadding);
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
         final fixture = (await tester.runAsync(() async {
@@ -110,10 +114,32 @@ void main() {
         pane.viewer.setZoom(1.8);
         await io();
         final zoom = pane.viewer.zoom;
+        final tabsBar = find.byKey(const ValueKey('document-tabs-bar'));
+        expect(tester.getSize(tabsBar).height, 44);
+        // The tab strip consumes the status inset once. The editor must start
+        // immediately below it rather than reserving another empty status bar.
+        final header = find.byType(AppBar);
+        expect(
+          tester.getSize(header).height,
+          NoterTheme.headerHeight(tester.element(header)),
+        );
+        expect(
+          tester.getTopLeft(header).dy,
+          tester.getBottomLeft(tabsBar).dy + 2,
+        );
         await tester.tap(find.byTooltip('Hide document tabs'));
         await tester.pump();
         expect(find.byKey(ValueKey('document-tab-${a.id}')), findsNothing);
         expect(find.byTooltip('Show document tabs'), findsOneWidget);
+        final restorePosition = tester.getTopLeft(
+          find.byTooltip('Show document tabs'),
+        );
+        expect(restorePosition.dx, lessThan(50));
+        expect(restorePosition.dy, lessThan(80));
+        expect(
+          tester.getTopLeft(find.byTooltip('Back to library')).dx,
+          greaterThanOrEqualTo(48),
+        );
         expect(
           tester.state<EditorPaneState>(find.byType(EditorPane)),
           same(pane),

@@ -93,3 +93,41 @@ class DocumentTypeBadge extends StatelessWidget {
     ),
   );
 }
+
+/// Shares the tab restore action without remounting document editors.
+class DocumentTabsChrome extends InheritedWidget {
+  const DocumentTabsChrome({
+    super.key,
+    required this.onShowTabs,
+    required super.child,
+  });
+  final VoidCallback? onShowTabs;
+  static VoidCallback? action(BuildContext context) => context
+      .dependOnInheritedWidgetOfExactType<DocumentTabsChrome>()
+      ?.onShowTabs;
+  static double? leadingWidth(BuildContext context) =>
+      action(context) == null ? null : 96;
+  @override
+  bool updateShouldNotify(DocumentTabsChrome oldWidget) =>
+      onShowTabs != oldWidget.onShowTabs;
+}
+
+class DocumentNavigation extends StatelessWidget {
+  const DocumentNavigation({super.key, required this.child});
+  final Widget child;
+  @override
+  Widget build(BuildContext context) {
+    final restore = DocumentTabsChrome.action(context);
+    if (restore == null) return child;
+    return Row(
+      children: [
+        IconButton(
+          tooltip: 'Show document tabs',
+          onPressed: restore,
+          icon: const Icon(Icons.tab),
+        ),
+        Expanded(child: child),
+      ],
+    );
+  }
+}

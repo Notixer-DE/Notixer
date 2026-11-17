@@ -16,6 +16,7 @@ import 'editor_toolbar.dart';
 import 'template_library.dart';
 import 'noter_theme.dart';
 import 'document_tab.dart';
+import 'workspace_chrome.dart';
 
 class EditorPage extends StatefulWidget {
   const EditorPage({
@@ -714,10 +715,13 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
           ? null
           : AppBar(
               toolbarHeight: NoterTheme.headerHeight(context),
-              leading: IconButton(
-                tooltip: 'Back to library',
-                onPressed: _leave,
-                icon: const Icon(Icons.arrow_back),
+              leadingWidth: DocumentTabsChrome.leadingWidth(context),
+              leading: DocumentNavigation(
+                child: IconButton(
+                  tooltip: 'Back to library',
+                  onPressed: _leave,
+                  icon: const Icon(Icons.arrow_back),
+                ),
               ),
               title: Text(session.note.title, overflow: TextOverflow.ellipsis),
               actions: [
@@ -928,6 +932,18 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
               ],
             ),
           ),
+          if (!_showChrome && DocumentTabsChrome.action(context) != null)
+            Positioned(
+              left: 8,
+              top: 8,
+              child: SafeArea(
+                child: IconButton.filledTonal(
+                  tooltip: 'Show document tabs',
+                  onPressed: DocumentTabsChrome.action(context),
+                  icon: const Icon(Icons.tab),
+                ),
+              ),
+            ),
           if (!_showChrome)
             PositionedDirectional(
               top: 8,
