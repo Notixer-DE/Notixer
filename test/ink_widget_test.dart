@@ -17,6 +17,94 @@ import 'package:noter/ui/ink_layer.dart';
 import 'package:noter/ui/eraser_cursor.dart';
 
 void main() {
+  for (final color in [0xff123456, 0x80123456]) {
+    testWidgets('ink has no tile seams at fractional zoom: $color', (
+      tester,
+    ) async {
+      tester.view.devicePixelRatio = 1.25;
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final ink = InkController(
+        InkDocument(
+          generation: 'seams',
+          strokes: [
+            InkStroke(
+              id: 'wide',
+              page: '1:0',
+              order: 0,
+              color: color,
+              width: 18,
+              points: Float32List.fromList([0, 100, .5, 512, 100, .5]),
+            ),
+          ],
+        ),
+      );
+      final cache = InkPathCache();
+      final key = GlobalKey();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Center(
+            child: RepaintBoundary(
+              key: key,
+              child: SizedBox(
+                width: 529.92,
+                height: 264.96,
+                child: ColoredBox(
+                  color: Colors.white,
+                  child: InkLayer(
+                    controller: ink,
+                    page: '1:0',
+                    cache: cache,
+                    geometry: const PdfPageGeometry(
+                      cropBox: PdfRect(0, 0, 512, 256),
+                      rotation: 0,
+                      viewSize: Size(529.92, 264.96),
+                    ),
+                    visible: const Rect.fromLTWH(0, 0, 1, 1),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      Future<void> checkLine() async {
+        final boundary =
+            key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+        await tester.runAsync(() async {
+          final image = await boundary.toImage(pixelRatio: 1.25);
+          final data = (await image.toByteData(
+            format: ui.ImageByteFormat.rawRgba,
+          ))!;
+          final y = (156 * 1.035 * 1.25).round();
+          final expected = data.getUint32((y * image.width + 40) * 4);
+          for (var x = 40; x < image.width - 40; x++) {
+            expect(
+              data.getUint32((y * image.width + x) * 4),
+              expected,
+              reason:
+                  'Ink must stay uniform at pixel $x, including tile edges.',
+            );
+          }
+          image.dispose();
+        });
+      }
+
+      await checkLine();
+      for (var i = 0; i < 250 && cache.debugRasterBusy; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(cache.debugRasterBusy, isFalse);
+      await tester.pump();
+      await checkLine();
+      await tester.pumpWidget(const SizedBox());
+      ink.dispose();
+      cache.clear();
+    });
+  }
+
   testWidgets(
     'adding ink rasterizes only the delta, not the dense tile history',
     (tester) async {

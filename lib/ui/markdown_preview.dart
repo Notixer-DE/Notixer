@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:markdown/markdown.dart' as md;
 
@@ -325,14 +326,39 @@ class _MarkdownBlockState extends State<_MarkdownBlock>
       },
       checkboxBuilder: (checked) {
         final index = checkbox++;
-        return SizedBox(
-          width: 44,
-          height: 44,
-          child: Checkbox(
-            value: checked,
-            onChanged: index >= widget.offsets.length
-                ? null
-                : (value) => widget.onToggle(widget.offsets[index], value!),
+        // A Checkbox has no text baseline: the Row otherwise uses the bottom
+        // of its touch target. Align its centre with the first text line.
+        final metrics = TextPainter(
+          text: TextSpan(
+            text: 'x',
+            style: DefaultTextStyle.of(context).style.merge(style.p),
+          ),
+          textDirection: Directionality.of(context),
+          textScaler: style.textScaler ?? MediaQuery.textScalerOf(context),
+          strutStyle: StrutStyle(
+            fontFamily: style.p?.fontFamily,
+            fontSize: style.p?.fontSize,
+            height: style.p?.height,
+            leading: 0,
+            forceStrutHeight: true,
+          ),
+        )..layout();
+        final baseline =
+            22 +
+            metrics.computeDistanceToActualBaseline(TextBaseline.alphabetic) -
+            metrics.height / 2;
+        metrics.dispose();
+        return _CheckboxBaseline(
+          baseline: baseline,
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Checkbox(
+              value: checked,
+              onChanged: index >= widget.offsets.length
+                  ? null
+                  : (value) => widget.onToggle(widget.offsets[index], value!),
+            ),
           ),
         );
       },
@@ -393,4 +419,41 @@ class _HeadingBuilder extends MarkdownElementBuilder {
     padding: const EdgeInsets.only(top: 12, bottom: 8),
     child: Text(element.textContent, style: preferredStyle),
   );
+}
+
+// Advertise a text baseline without moving or shrinking the 44px hit target.
+class _CheckboxBaseline extends SingleChildRenderObjectWidget {
+  const _CheckboxBaseline({required this.baseline, required super.child});
+  final double baseline;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderCheckboxBaseline(baseline);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderCheckboxBaseline renderObject,
+  ) {
+    renderObject.baseline = baseline;
+  }
+}
+
+class _RenderCheckboxBaseline extends RenderProxyBox {
+  _RenderCheckboxBaseline(this._baseline);
+  double _baseline;
+  set baseline(double value) {
+    if (_baseline == value) return;
+    _baseline = value;
+    markNeedsLayout();
+  }
+
+  @override
+  double computeDistanceToActualBaseline(TextBaseline baseline) => _baseline;
+
+  @override
+  double computeDryBaseline(
+    BoxConstraints constraints,
+    TextBaseline baseline,
+  ) => _baseline;
 }
