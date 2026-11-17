@@ -45,14 +45,14 @@ Future<void> verifySync(Directory root) async {
   final remote = MemoryRemote();
   Future<SyncReport> sync(LocalNotebookRepository repo) =>
       NotebookSync(repo, remote).run();
-  final folder = await a.catalog.ensureFolder('Studium');
+  final folder = await a.catalog.ensureFolder('Studies');
   var note = await a.create(
     'Analysis',
     await createPaper('grid'),
     paper: 'grid',
   );
   note = await a.save(
-    note.copy(folderId: folder.id, folderName: folder.name, tags: ['Mathe']),
+    note.copy(folderId: folder.id, folderName: folder.name, tags: ['Maths']),
     await a.load(note.id),
   );
   expectSync((await sync(a)).uploaded == 1, 'First sync uploads once');
@@ -60,8 +60,8 @@ Future<void> verifySync(Directory root) async {
   var other = (await b.list()).single;
   expectSync(
     other.id == note.id &&
-        other.tags.single == 'Mathe' &&
-        b.catalog.folderName(other.folderId) == 'Studium',
+        other.tags.single == 'Maths' &&
+        b.catalog.folderName(other.folderId) == 'Studies',
     'Portable metadata',
   );
   final count = remote.revisions.length;

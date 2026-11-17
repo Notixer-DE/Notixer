@@ -47,7 +47,7 @@ class NoteTemplate {
         pages > 10000 ||
         !['page', 'notebook'].contains(json['kind']) ||
         (json['kind'] == 'page' && pages != 1)) {
-      throw const FormatException('Ungültige Vorlage.');
+      throw const FormatException('Invalid template.');
     }
     return NoteTemplate(
       id: id,
@@ -63,7 +63,9 @@ String templateName(String value) {
   if (name.isEmpty ||
       name.length > 120 ||
       RegExp(r'[\x00-\x1F\x7F]').hasMatch(name)) {
-    throw const FormatException('Vorlagennamen mit 1 bis 120 Zeichen angeben.');
+    throw const FormatException(
+      'Enter a template name with 1 to 120 characters.',
+    );
   }
   return name;
 }
@@ -71,21 +73,21 @@ String templateName(String value) {
 const starterTemplates = [
   NoteTemplate(
     id: 'starter_cornell',
-    name: 'Cornell-Notizen',
+    name: 'Cornell notes',
     kind: TemplateKind.page,
     pageCount: 1,
     builtIn: true,
   ),
   NoteTemplate(
     id: 'starter_meeting',
-    name: 'Besprechung',
+    name: 'Meeting',
     kind: TemplateKind.page,
     pageCount: 1,
     builtIn: true,
   ),
   NoteTemplate(
     id: 'starter_week',
-    name: 'Wochenplanung',
+    name: 'Weekly planner',
     kind: TemplateKind.page,
     pageCount: 1,
     builtIn: true,
@@ -105,7 +107,7 @@ class TemplateRepository {
   String _path(String id) {
     if (!RegExp(r'^[a-zA-Z0-9_-]{1,100}$').hasMatch(id) ||
         id.startsWith('starter_')) {
-      throw const FormatException('Ungültige eigene Vorlagen-ID.');
+      throw const FormatException('Invalid custom template ID.');
     }
     return p.join(directory.path, '$id.template');
   }
@@ -150,7 +152,9 @@ class TemplateRepository {
   }) {
     name = templateName(name);
     if (pdf.length > maxBytes) {
-      throw const FormatException('Vorlage zu groß (maximal 256 MB).');
+      throw const FormatException(
+        'The template is too large (maximum 256 MB).',
+      );
     }
     final transfer = TransferableTypedData.fromList([pdf]);
     final id = LocalNotebookRepository.newId();
@@ -280,7 +284,7 @@ Uint8List _freshTemplatePdf(Uint8List bytes, {int? page}) {
   validatePdf(bytes);
   final source = PdfDocument.open(bytes);
   if (source.pageCount > 10000) {
-    throw const FormatException('Zu viele Vorlagenseiten.');
+    throw const FormatException('Too many template pages.');
   }
   final indices = page == null
       ? List.generate(source.pageCount, (i) => i)
@@ -308,7 +312,7 @@ Uint8List _freshTemplatePdf(Uint8List bytes, {int? page}) {
 }) {
   final file = File(path);
   if (file.lengthSync() > TemplateRepository.maxBytes) {
-    throw const FormatException('Vorlage zu groß.');
+    throw const FormatException('The template is too large.');
   }
   final stream = InputFileStream(path, bufferSize: 64 * 1024);
   try {
@@ -322,19 +326,19 @@ Uint8List _freshTemplatePdf(Uint8List bytes, {int? page}) {
         manifest.size > 65536 ||
         pdf.size > TemplateRepository.maxBytes ||
         (inkFile != null && inkFile.size > InkDocument.maxBytes)) {
-      throw const FormatException('Ungültiges Vorlagenarchiv.');
+      throw const FormatException('Invalid template archive.');
     }
     final entry = NoteTemplate.fromJson(
       jsonDecode(utf8.decode(manifest.content)) as Map<String, dynamic>,
     );
     if (p.basenameWithoutExtension(path) != entry.id) {
-      throw const FormatException('Falsche Vorlagen-ID.');
+      throw const FormatException('Incorrect template ID.');
     }
     if (metadataOnly) return (entry, null, null);
     final bytes = Uint8List.fromList(pdf.content);
     validatePdf(bytes);
     if (PdfDocument.open(bytes).pageCount != entry.pageCount) {
-      throw const FormatException('Falsche Seitenzahl.');
+      throw const FormatException('Incorrect page count.');
     }
     return (
       entry,
@@ -366,7 +370,7 @@ void _writeTemplate(
   }
   final bytes = ZipEncoder().encodeBytes(archive);
   if (bytes.length > TemplateRepository.maxBytes) {
-    throw const FormatException('Vorlage zu groß (maximal 256 MB).');
+    throw const FormatException('The template is too large (maximum 256 MB).');
   }
   File(path).parent.createSync(recursive: true);
   final temp = File('$path.tmp');

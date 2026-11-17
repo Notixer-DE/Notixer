@@ -39,7 +39,7 @@ void main() {
     directory = await Directory.systemTemp.createTemp('noter-ui-');
     repository = LocalNotebookRepository(directory);
     await repository.create(
-      'Vorlesung',
+      'Lecture',
       await createPaper('lined'),
       paper: 'lined',
     );
@@ -56,20 +56,20 @@ void main() {
       await settleFileIo(
         tester,
         () => find
-            .text('1 Notiz · Zuletzt geändert zuerst')
+            .text('1 note · Most recently modified first')
             .evaluate()
             .isNotEmpty,
       );
       await tester.scrollUntilVisible(
-        find.text('Vorlesung'),
+        find.text('Lecture'),
         200,
         scrollable: find.byType(Scrollable).first,
       );
-      expect(find.text('Vorlesung'), findsOneWidget);
+      expect(find.text('Lecture'), findsOneWidget);
       await Scrollable.ensureVisible(tester.element(find.byType(TextField)));
       await tester.enterText(find.byType(TextField), 'unbekannt');
       await tester.pumpAndSettle();
-      expect(find.text('Keine passende Notiz gefunden.'), findsOneWidget);
+      expect(find.text('No matching notes found.'), findsOneWidget);
       await tester.enterText(find.byType(TextField), '');
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
@@ -78,18 +78,18 @@ void main() {
         scrollable: find.byType(Scrollable).first,
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Notizaktionen'));
+      await tester.tap(find.byTooltip('Note actions'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Umbenennen'));
+      await tester.tap(find.text('Rename'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, 'Mathematik');
+      await tester.enterText(find.byType(TextField).last, 'Mathsmatics');
       await tester.pump();
-      await tester.tap(find.text('Speichern'));
+      await tester.tap(find.text('Save'));
       await settleFileIo(
         tester,
-        () => find.text('Mathematik').evaluate().isNotEmpty,
+        () => find.text('Mathsmatics').evaluate().isNotEmpty,
       );
-      expect(find.text('Mathematik'), findsOneWidget);
+      expect(find.text('Mathsmatics'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
     timeout: const Timeout(Duration(seconds: 30)),
@@ -113,12 +113,12 @@ void main() {
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
       await tester.runAsync(() async {
         final note = (await repository.list()).single;
-        final folder = await repository.catalog.ensureFolder('Studium');
+        final folder = await repository.catalog.ensureFolder('Studies');
         await repository.save(
           note.copy(
-            title: 'Vorlesung mit einem sehr langen Titel für mehrere Zeilen',
+            title: 'Lecture with a very long title spanning multiple lines',
             folderId: folder.id,
-            tags: ['Mathematik', 'Prüfungsvorbereitung'],
+            tags: ['Mathsmatics', 'Exam preparation'],
           ),
           await repository.load(note.id),
         );
@@ -127,20 +127,20 @@ void main() {
       await settleFileIo(
         tester,
         () => find
-            .text('1 Notiz · Zuletzt geändert zuerst')
+            .text('1 note · Most recently modified first')
             .evaluate()
             .isNotEmpty,
       );
       expect(
         scenario.size.width < 600
-            ? find.byTooltip('Neue Notiz')
-            : find.text('Neue Notiz'),
+            ? find.byTooltip('New note')
+            : find.text('New note'),
         findsOneWidget,
       );
       expect(
         scenario.size.width < 600
-            ? find.byTooltip('Bibliotheksaktionen')
-            : find.text('Datei importieren'),
+            ? find.byTooltip('Library actions')
+            : find.text('Import file'),
         findsOneWidget,
       );
       expect(
@@ -150,11 +150,11 @@ void main() {
       // Previews remain available in an explicitly chosen grid; the default
       // library now uses compact file rows.
       if (scenario.size.width < 600) {
-        await tester.tap(find.byTooltip('Bibliotheksaktionen'));
+        await tester.tap(find.byTooltip('Library actions'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Rasteransicht'));
+        await tester.tap(find.text('Grid view'));
       } else {
-        await tester.tap(find.byTooltip('Rasteransicht'));
+        await tester.tap(find.byTooltip('Grid view'));
       }
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
@@ -167,16 +167,16 @@ void main() {
         alignment: .5,
       );
       await tester.pumpAndSettle();
-      expect(find.text('Liniert'), findsOneWidget);
+      expect(find.text('Ruled'), findsOneWidget);
       expect(
-        find.text('Studium · #Mathematik · #Prüfungsvorbereitung'),
+        find.text('Studies · #Mathsmatics · #Exam preparation'),
         findsOneWidget,
       );
-      await tester.tap(find.byTooltip('Notizaktionen'));
+      await tester.tap(find.byTooltip('Note actions'));
       await tester.pumpAndSettle();
-      expect(find.text('Umbenennen'), findsOneWidget);
-      expect(find.text('Ordner und Tags'), findsOneWidget);
-      expect(find.text('Löschen'), findsOneWidget);
+      expect(find.text('Rename'), findsOneWidget);
+      expect(find.text('Folders and tags'), findsOneWidget);
+      expect(find.text('Delete'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }
@@ -190,10 +190,10 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       await tester.runAsync(() async {
         final note = (await repository.list()).single;
-        final folder = await repository.catalog.ensureFolder('Studium');
+        final folder = await repository.catalog.ensureFolder('Studies');
         await repository.catalog.ensureFolder('Arbeit');
         await repository.save(
-          note.copy(folderId: folder.id, tags: ['Mathematik']),
+          note.copy(folderId: folder.id, tags: ['Mathsmatics']),
           await repository.load(note.id),
         );
       });
@@ -201,21 +201,27 @@ void main() {
       await settleFileIo(
         tester,
         () => find
-            .text('1 Notiz · Zuletzt geändert zuerst')
+            .text('1 note · Most recently modified first')
             .evaluate()
             .isNotEmpty,
       );
-      await tester.tap(find.text('Studium').first);
+      await tester.tap(find.text('Studies').first);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('#Mathematik'));
+      await tester.tap(find.text('#Mathsmatics'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'Vorlesung');
+      await tester.enterText(find.byType(TextField), 'Lecture');
       await tester.pumpAndSettle();
-      expect(find.text('1 Notiz · Zuletzt geändert zuerst'), findsOneWidget);
+      expect(
+        find.text('1 note · Most recently modified first'),
+        findsOneWidget,
+      );
       await tester.tap(find.text('Arbeit').first);
       await tester.pumpAndSettle();
-      expect(find.text('0 Notizen · Zuletzt geändert zuerst'), findsOneWidget);
-      expect(find.text('Keine passende Notiz gefunden.'), findsOneWidget);
+      expect(
+        find.text('0 notes · Most recently modified first'),
+        findsOneWidget,
+      );
+      expect(find.text('No matching notes found.'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.linux),
@@ -230,7 +236,7 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       await tester.runAsync(() async {
         final note = (await repository.list()).single;
-        final folder = await repository.catalog.ensureFolder('Studium');
+        final folder = await repository.catalog.ensureFolder('Studies');
         await repository.save(
           note.copy(folderId: folder.id),
           await repository.load(note.id),
@@ -241,15 +247,15 @@ void main() {
       await settleFileIo(
         tester,
         () => find
-            .text('2 Notizen · Zuletzt geändert zuerst')
+            .text('2 notes · Most recently modified first')
             .evaluate()
             .isNotEmpty,
       );
-      expect(find.text('Dein Platz für Gedanken.'), findsNothing);
+      expect(find.text('Your space for thoughts.'), findsNothing);
       expect(find.byType(SliverGrid), findsNothing);
-      await tester.tap(find.byTooltip('Bibliotheksaktionen'));
+      await tester.tap(find.byTooltip('Library actions'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Rasteransicht'));
+      await tester.tap(find.text('Grid view'));
       await tester.pumpAndSettle();
       final grid = tester.widget<SliverGrid>(find.byType(SliverGrid));
       expect(
@@ -262,22 +268,31 @@ void main() {
       await tester.tap(
         find.descendant(
           of: find.byType(Drawer),
-          matching: find.text('Studium'),
+          matching: find.text('Studies'),
         ),
       );
       await tester.pumpAndSettle();
       expect(find.byType(Drawer), findsNothing);
-      expect(find.text('1 Notiz · Zuletzt geändert zuerst'), findsOneWidget);
+      expect(
+        find.text('1 note · Most recently modified first'),
+        findsOneWidget,
+      );
       await tester.tap(find.text('PDFs'));
       await tester.pumpAndSettle();
-      expect(find.text('0 Notizen · Zuletzt geändert zuerst'), findsOneWidget);
-      await tester.tap(find.text('Filter zurücksetzen'));
+      expect(
+        find.text('0 notes · Most recently modified first'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Reset filters'));
       await tester.pumpAndSettle();
-      expect(find.text('2 Notizen · Zuletzt geändert zuerst'), findsOneWidget);
-      await tester.tap(find.byTooltip('Bibliotheksaktionen'));
+      expect(
+        find.text('2 notes · Most recently modified first'),
+        findsOneWidget,
+      );
+      await tester.tap(find.byTooltip('Library actions'));
       await tester.pumpAndSettle();
-      expect(find.text('Datei importieren'), findsOneWidget);
-      expect(find.text('In PDFs suchen'), findsOneWidget);
+      expect(find.text('Import file'), findsOneWidget);
+      expect(find.text('Search PDFs'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();

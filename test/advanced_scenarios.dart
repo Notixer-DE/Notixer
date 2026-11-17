@@ -24,7 +24,7 @@ Future<void> verifyAdvanced(Directory directory) async {
       pw.Page(build: (_) => pw.Text('Original searchable lesson 6789')),
     );
   final original = await source.save();
-  final note = await repo.create('Vorlesung', original);
+  final note = await repo.create('Lecture', original);
   // Read old archives without eagerly rewriting them.
   final legacy = note.toJson()
     ..['version'] = 1
@@ -43,19 +43,19 @@ Future<void> verifyAdvanced(Directory directory) async {
     'Version 1 default metadata',
   );
   final folders = await Future.wait([
-    repo.catalog.ensureFolder('Mathe'),
-    repo.catalog.ensureFolder('Mathe'),
+    repo.catalog.ensureFolder('Maths'),
+    repo.catalog.ensureFolder('Maths'),
   ]);
   verify(
     folders[0].id == folders[1].id && repo.catalog.folders.length == 1,
     'Concurrent folder creation',
   );
-  await repo.catalog.renameFolder(folders[0].id, 'Mathematik');
+  await repo.catalog.renameFolder(folders[0].id, 'Mathsmatics');
   final organized = await repo.save(
     note.copy(
       folderId: folders[0].id,
-      folderName: 'Mathe',
-      tags: ['Prüfung', 'Semester 1'],
+      folderName: 'Maths',
+      tags: ['Exam', 'Semester 1'],
     ),
     original,
   );
@@ -66,13 +66,13 @@ Future<void> verifyAdvanced(Directory directory) async {
     await repo.exportArchive(organized),
   );
   verify(
-    other.catalog.folderName(imported.folderId) == 'Mathematik' &&
+    other.catalog.folderName(imported.folderId) == 'Mathsmatics' &&
         imported.tags.length == 2,
     'Folder rename and tags survive archive transfer',
   );
   await repo.catalog.setPreset(
     0,
-    const PenPreset('Blau', 'ink', 0xFF2468B0, 3, .8),
+    const PenPreset('Blue', 'ink', 0xFF2468B0, 3, .8),
   );
   final reloaded = LibraryCatalog(repo.catalog.file);
   await reloaded.load();
@@ -92,7 +92,7 @@ Future<void> verifyAdvanced(Directory directory) async {
     failed = true;
   }
   verify(
-    failed && repo.catalog.presets[0].name == 'Blau',
+    failed && repo.catalog.presets[0].name == 'Blue',
     'Settings failures keep previous state',
   );
   await obstacle.delete();

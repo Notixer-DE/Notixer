@@ -25,8 +25,8 @@ class NoterApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
     title: 'Notixer',
     debugShowCheckedModeBanner: false,
-    locale: const Locale('de'),
-    supportedLocales: const [Locale('de')],
+    locale: const Locale('en'),
+    supportedLocales: const [Locale('en')],
     localizationsDelegates: const [
       GlobalMaterialLocalizations.delegate,
       GlobalWidgetsLocalizations.delegate,
@@ -96,9 +96,7 @@ class _StartupState extends State<_Startup> {
       if (snapshot.hasError) {
         return Scaffold(
           body: Center(
-            child: SelectableText(
-              'Speicher konnte nicht geöffnet werden: ${snapshot.error}',
-            ),
+            child: SelectableText('Could not open storage: ${snapshot.error}'),
           ),
         );
       }

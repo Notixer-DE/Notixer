@@ -16,7 +16,7 @@ void main() {
     PdfViewer.debugAutoRenderWorkerEnabled = false;
     directory = await Directory.systemTemp.createTemp('noter-recovery-ui-');
     repository = LocalNotebookRepository(directory);
-    note = await repository.create('Vorlesung', await createPaper('lined'));
+    note = await repository.create('Lecture', await createPaper('lined'));
   });
   tearDown(() async {
     PdfViewer.debugAutoRenderWorkerEnabled = true;
@@ -34,51 +34,51 @@ void main() {
       await settleFileIo(
         tester,
         () => find
-            .text('1 Notiz · Zuletzt geändert zuerst')
+            .text('1 note · Most recently modified first')
             .evaluate()
             .isNotEmpty,
       );
       await tester.scrollUntilVisible(
-        find.byTooltip('Notizaktionen'),
+        find.byTooltip('Note actions'),
         200,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.tap(find.byTooltip('Notizaktionen'));
+      await tester.tap(find.byTooltip('Note actions'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Löschen'));
+      await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Löschen'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
       await settleFileIo(
         tester,
         () => find
-            .text('0 Notizen · Zuletzt geändert zuerst')
+            .text('0 notes · Most recently modified first')
             .evaluate()
             .isNotEmpty,
       );
-      await tester.tap(find.byTooltip('Bibliotheksaktionen'));
+      await tester.tap(find.byTooltip('Library actions'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Papierkorb'));
+      await tester.tap(find.text('Trash'));
       await settleFileIo(
         tester,
-        () => find.text('Vorlesung').evaluate().isNotEmpty,
+        () => find.text('Lecture').evaluate().isNotEmpty,
       );
-      await tester.tap(find.byTooltip('Papierkorbaktionen'));
+      await tester.tap(find.byTooltip('Trash actions'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Endgültig löschen'));
+      await tester.tap(find.text('Delete permanently'));
       await tester.pumpAndSettle();
-      expect(find.text('Endgültig löschen?'), findsOneWidget);
-      await tester.tap(find.text('Abbrechen'));
+      expect(find.text('Delete permanently?'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
-      expect(find.text('Vorlesung'), findsOneWidget);
+      expect(find.text('Lecture'), findsOneWidget);
       expect(await tester.runAsync(() => repository.recovery()), hasLength(1));
-      await tester.tap(find.byTooltip('Papierkorbaktionen'));
+      await tester.tap(find.byTooltip('Trash actions'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Endgültig löschen'));
+      await tester.tap(find.text('Delete permanently'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Endgültig löschen'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete permanently'));
       await settleFileIo(
         tester,
-        () => find.text('Der Papierkorb ist leer.').evaluate().isNotEmpty,
+        () => find.text('The trash is empty.').evaluate().isNotEmpty,
       );
       expect(await tester.runAsync(() => repository.recovery()), isEmpty);
       expect(tester.takeException(), isNull);
@@ -110,13 +110,13 @@ void main() {
                     ),
                   );
                 },
-                child: const Text('Historie öffnen'),
+                child: const Text('Open history'),
               ),
             ),
           ),
         ),
       );
-      await tester.tap(find.text('Historie öffnen'));
+      await tester.tap(find.text('Open history'));
       await settleFileIo(
         tester,
         () => find.byType(ListTile).evaluate().isNotEmpty,
@@ -130,7 +130,7 @@ void main() {
       expect(viewer.editing, isNull);
       expect(viewer.interactiveForms, isFalse);
       expect(viewer.contextMenuEnabled, isFalse);
-      await tester.tap(find.text('Als neue Notiz wiederherstellen'));
+      await tester.tap(find.text('Restore as a new note'));
       await settleFileIo(tester, () => restored != null);
       expect(restored!.id, isNot(note.id));
       expect(

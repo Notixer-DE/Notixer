@@ -23,7 +23,7 @@ Uri validateServerUrl(String value, {bool allowInsecureHttp = false}) {
       (uri.scheme != 'https' &&
           !(uri.scheme == 'http' && (loopback || allowInsecureHttp)))) {
     throw const SyncFailure(
-      'Serveradresse ohne Pfad angeben. HTTPS verwenden oder HTTP ausdrücklich erlauben.',
+      'Enter a server address without a path. Use HTTPS or explicitly allow HTTP.',
     );
   }
   return uri.replace(path: '');
@@ -92,7 +92,7 @@ class ServerRemote implements RevisionRemote {
     if (session['account'] != crypto.account ||
         session['key_check'] != crypto.keyCheck) {
       throw const SyncFailure(
-        'Serverkonto oder Verschlüsselungsschlüssel stimmt nicht überein.',
+        'The server account or encryption key does not match.',
       );
     }
     return '$server:${crypto.account}:${crypto.keyCheck}';
@@ -108,7 +108,7 @@ class ServerRemote implements RevisionRemote {
   Future<SyncRevision> _inspect(Map<String, dynamic> envelope) async {
     final id = envelope['id'] as String;
     if (!syncHashPattern.hasMatch(id)) {
-      throw const FormatException('Ungültige Kennung.');
+      throw const FormatException('Invalid identifier.');
     }
     final decoded =
         jsonDecode(
@@ -128,14 +128,14 @@ class ServerRemote implements RevisionRemote {
         jsonEncode(parents) != jsonEncode(envelope['parents']) ||
         jsonEncode(decoded['blobs']) != jsonEncode(envelope['blobs'])) {
       throw const SyncFailure(
-        'Revision wurde verändert. Lokale Daten bleiben erhalten.',
+        'The revision has changed. Local data is preserved.',
       );
     }
     final blobs = (envelope['blobs'] as List).cast<String>();
     if (blobs.length > 64 ||
         blobs.any((b) => !syncHashPattern.hasMatch(b)) ||
         (revision.deleted && blobs.isNotEmpty)) {
-      throw const FormatException('Ungültige Blockliste.');
+      throw const FormatException('Invalid block list.');
     }
     _envelopes[revision.revision] = envelope;
     return revision;
@@ -161,7 +161,7 @@ class ServerRemote implements RevisionRemote {
         : 0;
     if (cursor < 0 || all.length < cursor) {
       throw const SyncFailure(
-        'Lokales Sync-Journal ist unvollständig. Cache vor erneutem Vollabgleich prüfen.',
+        'The local sync journal is incomplete. Check the cache before running a full sync again.',
       );
     }
     while (true) {
@@ -173,7 +173,7 @@ class ServerRemote implements RevisionRemote {
       final items = page['items'] as List;
       final next = page['cursor'] as int;
       if (next != cursor + items.length) {
-        throw const SyncFailure('Ungültiger Sync-Cursor.');
+        throw const SyncFailure('Invalid sync cursor.');
       }
       for (final raw in items) {
         final envelope = raw as Map<String, dynamic>;
@@ -195,7 +195,7 @@ class ServerRemote implements RevisionRemote {
   @override
   Future<void> upload(SyncRevision revision, Uint8List bytes) async {
     if (bytes.length > maxSyncBytes || (revision.deleted && bytes.isNotEmpty)) {
-      throw const SyncFailure('Notiz überschreitet das Sync-Limit.');
+      throw const SyncFailure('The note exceeds the sync limit.');
     }
     final blobs = <String>[];
     final files = <String, File>{};
@@ -241,7 +241,7 @@ class ServerRemote implements RevisionRemote {
     for (final id in missing.cast<String>()) {
       final file = files[id];
       if (file == null) {
-        throw const SyncFailure('Server fordert unbekannten Block an.');
+        throw const SyncFailure('The server requested an unknown block.');
       }
       await _request('PUT', '/blobs/$id', bytes: await file.readAsBytes());
     }
@@ -270,7 +270,7 @@ class ServerRemote implements RevisionRemote {
             as Map<String, dynamic>;
     final accepted = await _inspect(canonical);
     if (accepted.revision != revision.revision) {
-      throw const SyncFailure('Server bestätigte eine andere Revision.');
+      throw const SyncFailure('The server confirmed a different revision.');
     }
   }
 
@@ -278,7 +278,7 @@ class ServerRemote implements RevisionRemote {
   Future<Uint8List> download(SyncRevision revision) async {
     final envelope = _envelopes[revision.revision];
     if (envelope == null) {
-      throw const SyncFailure('Revision fehlt im lokalen Journal.');
+      throw const SyncFailure('Revision missing from the local journal.');
     }
     final output = BytesBuilder(copy: false);
     for (final id in (envelope['blobs'] as List).cast<String>()) {
@@ -288,11 +288,11 @@ class ServerRemote implements RevisionRemote {
         limit: syncBlockBytes + 28,
       );
       if (sha256.convert(encrypted).toString() != id) {
-        throw const SyncFailure('Verschlüsselter Block ist beschädigt.');
+        throw const SyncFailure('An encrypted block is corrupted.');
       }
       final plain = await crypto.decrypt(encrypted, 'chunk');
       if (output.length + plain.length > maxSyncBytes) {
-        throw const SyncFailure('Notiz überschreitet das Sync-Limit.');
+        throw const SyncFailure('The note exceeds the sync limit.');
       }
       final lookup = crypto.identify('chunk:${sha256.convert(plain)}');
       await _write(File('${cache.path}/chunks/$lookup'), encrypted);
@@ -337,7 +337,7 @@ class _ServerHttp {
       )) {
         if (output.length + chunk.length > limit) {
           throw const SyncFailure(
-            'Serverantwort überschreitet das Größenlimit.',
+            'The server response exceeds the size limit.',
           );
         }
         output.add(chunk);
@@ -352,12 +352,12 @@ class _ServerHttp {
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw SyncFailure(switch (response.statusCode) {
           401 ||
-          403 => 'Gerätezugang ungültig oder widerrufen. Bitte neu verbinden.',
+          403 => 'Device access is invalid or revoked. Please reconnect.',
           409 =>
-            'Schlüssel oder Sync-Stand passen nicht zum Server. Nicht automatisch zurücksetzen.',
-          507 => 'Speicher- oder Revisionskontingent ausgeschöpft.',
+            'The key or sync state does not match the server. Do not reset automatically.',
+          507 => 'Storage or revision quota exceeded.',
           _ =>
-            'Serveranfrage fehlgeschlagen (${response.statusCode}). Später erneut versuchen.',
+            'Server request failed (${response.statusCode}). Please try again later.',
         });
       }
       return output.takeBytes();

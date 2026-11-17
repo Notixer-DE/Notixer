@@ -68,14 +68,9 @@ class LibraryNavigation extends StatelessWidget {
                   ),
                 ),
               ),
+              entry('All notes', Icons.grid_view_outlined, null, notes.length),
               entry(
-                'Alle Notizen',
-                Icons.grid_view_outlined,
-                null,
-                notes.length,
-              ),
-              entry(
-                'Ohne Ordner',
+                'Unfiled',
                 Icons.folder_outlined,
                 '',
                 notes
@@ -95,7 +90,7 @@ class LibraryNavigation extends StatelessWidget {
                   ),
                 ),
                 trailing: IconButton(
-                  tooltip: 'Ordner verwalten',
+                  tooltip: 'Manage folders',
                   onPressed: enabled ? onManage : null,
                   icon: const Icon(Icons.create_new_folder_outlined, size: 20),
                 ),
@@ -141,7 +136,7 @@ class LibraryNavigation extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.delete_outline),
                 title: const Text(
-                  'Papierkorb',
+                  'Trash',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -150,7 +145,7 @@ class LibraryNavigation extends StatelessWidget {
               ListTile(
                 leading: const Icon(Icons.cloud_sync_outlined),
                 title: const Text(
-                  'Synchronisierung',
+                  'Sync',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),

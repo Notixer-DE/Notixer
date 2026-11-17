@@ -83,8 +83,7 @@ Future<void> command(String action) async {
   final menu =
       find(
             (w) =>
-                w is PopupMenuButton<String> &&
-                w.tooltip == 'Werkzeuge und Export',
+                w is PopupMenuButton<String> && w.tooltip == 'Tools and export',
           ).widget
           as PopupMenuButton<String>;
   menu.onSelected!(action);
@@ -226,7 +225,7 @@ Future<void> main() async {
     for (
       var step = 0;
       step < 12 &&
-          findAll((w) => w is Text && w.data == 'Mit Server verbinden').isEmpty;
+          findAll((w) => w is Text && w.data == 'Connect to server').isEmpty;
       step++
     ) {
       ScrollableState? scroll;
@@ -244,9 +243,9 @@ Future<void> main() async {
       );
       await pause();
     }
-    find((w) => w is Text && w.data == 'Mit Server verbinden');
-    await tap('Mit Server verbinden');
-    await tap('Sicher gespeichert');
+    find((w) => w is Text && w.data == 'Connect to server');
+    await tap('Connect to server');
+    await tap('Safely saved');
     ScrollableState? syncScroll;
     void findSyncScroll(Element e) {
       if (e is StatefulElement && e.state is ScrollableState) {
@@ -262,7 +261,7 @@ Future<void> main() async {
       (w) =>
           w is Text &&
           w.data ==
-              'HTTPS-Serveradresse ohne Pfad angeben. HTTP ist nur lokal erlaubt.',
+              'HTTPS-Server address ohne Pfad angeben. HTTP ist nur lokal erlaubt.',
     );
     await capture(
       'sync-${largeText
@@ -285,10 +284,10 @@ Future<void> main() async {
       );
       exit(0);
     }
-    await tap('Neue Notiz');
-    await tap('Erstellen');
+    await tap('New note');
+    await tap('Create');
     await pause();
-    find((w) => w is Text && w.data == 'Neue Notiz');
+    find((w) => w is Text && w.data == 'New note');
     final focusedPaneElement = find((w) => w is EditorPane) as StatefulElement;
     final focusedPane = focusedPaneElement.state as EditorPaneState;
     final initialView =
@@ -299,7 +298,7 @@ Future<void> main() async {
     final initialZoom = focusedPane.viewer.zoom;
     final initialTool = focusedPane.editing.tool;
     await tapElement(
-      find((w) => w is IconButton && w.tooltip == 'Leisten ausblenden'),
+      find((w) => w is IconButton && w.tooltip == 'Hide toolbars'),
     );
     final hiddenPane = find((w) => w is EditorPane) as StatefulElement;
     final focusedView =
@@ -310,8 +309,7 @@ Future<void> main() async {
         focusedPane.editing.tool != initialTool ||
         findAll(
           (w) =>
-              w is PopupMenuButton<String> &&
-              w.tooltip == 'Werkzeuge und Export',
+              w is PopupMenuButton<String> && w.tooltip == 'Tools and export',
         ).isNotEmpty) {
       throw StateError(
         'Focus mode lost editor state or did not enlarge the PDF: '
@@ -350,7 +348,7 @@ Future<void> main() async {
           : 'desktop'}',
     );
     await tapElement(
-      find((w) => w is IconButton && w.tooltip == 'Leisten einblenden'),
+      find((w) => w is IconButton && w.tooltip == 'Show toolbars'),
     );
     if (!identical(
           (find((w) => w is EditorPane) as StatefulElement).state,
@@ -429,7 +427,7 @@ Future<void> main() async {
     }
 
     expectStableCanvas();
-    await tap('Speichern');
+    await tap('Save');
     expectStableCanvas();
     final note = (await repo.list()).single;
     final saved = PdfDocument.open(await repo.load(note.id));
@@ -475,7 +473,7 @@ Future<void> main() async {
         throw StateError('Pen was not restored');
       }
       await pause();
-      await tap('Speichern');
+      await tap('Save');
       if (PdfDocument.open(
         await repo.load(note.id),
       ).page(0).annotations.isNotEmpty) {
@@ -525,11 +523,11 @@ Future<void> main() async {
       ),
     );
     await pause();
-    await tap('Speichern');
+    await tap('Save');
     // Exercise new tools through the actual page overlays.
     final paneElement = find((w) => w is EditorPane) as StatefulElement;
     final pane = paneElement.state as EditorPaneState;
-    await tap('Markieren');
+    await tap('Highlight');
     if (editing.tool != PdfEditTool.highlight ||
         editing.preferences.strokeWidth != 14) {
       throw StateError('Pen favorite did not apply');
@@ -556,9 +554,9 @@ Future<void> main() async {
     pane.toggleLearning();
     await pause();
     await tapElement(
-      find((w) => w is Semantics && w.properties.label == 'Antwort aufdecken'),
+      find((w) => w is Semantics && w.properties.label == 'Reveal answer'),
     );
-    find((w) => w is Semantics && w.properties.label == 'Antwort verdecken');
+    find((w) => w is Semantics && w.properties.label == 'Hide answer');
     await capture(
       landscape
           ? 'learning-landscape'
@@ -570,15 +568,15 @@ Future<void> main() async {
     );
     // Learning input must not swallow the floating reveal button.
     await tapElement(
-      find((w) => w is IconButton && w.tooltip == 'Leisten ausblenden'),
+      find((w) => w is IconButton && w.tooltip == 'Hide toolbars'),
     );
     await tapElement(
-      find((w) => w is IconButton && w.tooltip == 'Leisten einblenden'),
+      find((w) => w is IconButton && w.tooltip == 'Show toolbars'),
     );
-    find((w) => w is Semantics && w.properties.label == 'Antwort verdecken');
+    find((w) => w is Semantics && w.properties.label == 'Hide answer');
     // Two views of one document share edits while retaining independent modes.
     await command('split');
-    await tap('Dieselbe Notiz erneut öffnen');
+    await tap('Open the same note again');
     await pause();
     final paneElements = findAll(
       (w) => w is EditorPane,
@@ -602,13 +600,13 @@ Future<void> main() async {
       splitArea.center + const Offset(8, 2),
       splitArea.center + const Offset(16, 4),
     ], pointer: 21);
-    await tap('Speichern');
+    await tap('Save');
     if (editing.document.page(right.viewer.currentPage).annotations.length <=
         before) {
       throw StateError('Writing in second view failed');
     }
     // A cover revealed in the left pane must remain revealed when right writes.
-    find((w) => w is Semantics && w.properties.label == 'Antwort verdecken');
+    find((w) => w is Semantics && w.properties.label == 'Hide answer');
     right.toggleLoupe();
     await pause();
     await capture(
@@ -623,7 +621,7 @@ Future<void> main() async {
     right.toggleLoupe();
     await pause();
     await tapElement(
-      find((w) => w is IconButton && w.tooltip == 'Leisten ausblenden'),
+      find((w) => w is IconButton && w.tooltip == 'Hide toolbars'),
     );
     final hiddenSplit = findAll((w) => w is EditorPane).cast<StatefulElement>();
     if (!identical(hiddenSplit[0].state, left) ||
@@ -631,18 +629,18 @@ Future<void> main() async {
       throw StateError('Hiding bars recreated split panes');
     }
     await tapElement(
-      find((w) => w is IconButton && w.tooltip == 'Leisten einblenden'),
+      find((w) => w is IconButton && w.tooltip == 'Show toolbars'),
     );
     await command('closeSplit');
     await pause();
     // A second document owns a separate controller/save queue. Erasing in it
     // must never remove ink from the first document.
     final another = await repo.create(
-      'Zweite Notiz',
+      'Second Note',
       await createPaper('blank'),
     );
     await command('split');
-    await tap('Zweite Notiz');
+    await tap('Second Note');
     await pause();
     final independent = findAll((w) => w is EditorPane).cast<StatefulElement>();
     final reference = independent[0].state as EditorPaneState;
@@ -658,7 +656,7 @@ Future<void> main() async {
       targetArea.center + const Offset(16, 4),
     ];
     await draw(targetStroke, pointer: 30);
-    await tap('Speichern');
+    await tap('Save');
     if (PdfDocument.open(
       await repo.load(another.id),
     ).page(0).annotations.isEmpty) {
@@ -669,7 +667,7 @@ Future<void> main() async {
       pointer: 31,
       buttons: kStylusContact | kPrimaryStylusButton,
     );
-    await tap('Speichern');
+    await tap('Save');
     if (separate.editing.document.page(0).annotations.isNotEmpty ||
         reference.editing.document.page(0).annotations.length !=
             originalCount) {
@@ -679,18 +677,18 @@ Future<void> main() async {
     await command('pages');
     await tapElement(
       find(
-        (w) => w is IconButton && w.tooltip == 'In andere Notiz kopieren',
+        (w) => w is IconButton && w.tooltip == 'Copy to another note',
         last: true,
       ),
     );
-    await tap('Zweite Notiz');
+    await tap('Second Note');
     await pause();
     if (separate.editing.document.pageCount != 2 ||
         PdfDocument.open(await repo.load(another.id)).pageCount != 2) {
       throw StateError('Page copy into live session failed');
     }
     await tapElement(
-      find((w) => w is IconButton && w.tooltip == 'Schließen', last: true),
+      find((w) => w is IconButton && w.tooltip == 'Close', last: true),
     );
     await command('closeSplit');
     await pause();
@@ -719,7 +717,7 @@ Future<void> main() async {
     await command('pages');
     await tapElement(
       find(
-        (w) => w is IconButton && w.tooltip == 'Seiten duplizieren',
+        (w) => w is IconButton && w.tooltip == 'Duplicate pages',
         last: true,
       ),
     );
@@ -727,40 +725,40 @@ Future<void> main() async {
       throw StateError('Page management duplication failed');
     }
     await tapElement(
-      find((w) => w is IconButton && w.tooltip == 'Schließen', last: true),
+      find((w) => w is IconButton && w.tooltip == 'Close', last: true),
     );
-    await tap('Speichern');
+    await tap('Save');
     // Organization dialog and persistence after leaving the workspace.
     await tapElement(
-      find((w) => w is IconButton && w.tooltip == 'Zur Notizübersicht'),
+      find((w) => w is IconButton && w.tooltip == 'Back to library'),
     );
     await pause();
     final folder = await repo.catalog.ensureFolder('Schule');
     await tapElement(
-      find((w) => w is PopupMenuButton<String> && w.tooltip == 'Notizaktionen'),
+      find((w) => w is PopupMenuButton<String> && w.tooltip == 'Note actions'),
     );
-    await tap('Ordner und Tags');
+    await tap('Folders and tags');
     final field =
         find(
               (w) =>
                   w is DropdownButtonFormField<String> &&
-                  w.decoration.labelText == 'Ordner',
+                  w.decoration.labelText == 'Folder',
             ).widget
             as DropdownButtonFormField<String>;
     field.onChanged!(folder.id);
     final tagField =
         find((w) => w is TextField && w.decoration?.labelText == 'Tags').widget
             as TextField;
-    tagField.controller!.text = 'Mathe, Prüfung';
-    await tap('Speichern');
+    tagField.controller!.text = 'Maths, Exam';
+    await tap('Save');
     await pause();
-    if (findAll((w) => w is Text && w.data == '#Mathe').isEmpty) {
+    if (findAll((w) => w is Text && w.data == '#Maths').isEmpty) {
       await tapElement(find((w) => w is DrawerButton));
     }
-    await tap('#Mathe');
+    await tap('#Maths');
     await pause();
-    find((w) => w is Text && w.data == 'Neue Notiz');
-    await tap('Filter zurücksetzen');
+    find((w) => w is Text && w.data == 'New note');
+    await tap('Reset filters');
     await pause();
     final organized = (await repo.list()).single;
     if (organized.tags.length != 2 || organized.folderId != folder.id) {

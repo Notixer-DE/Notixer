@@ -89,7 +89,7 @@ Future<void> main() async {
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               pw.Text(
-                'Grundlagen der Analysis',
+                'Foundations of analysis',
                 style: pw.TextStyle(
                   fontSize: 25,
                   fontWeight: pw.FontWeight.bold,
@@ -97,7 +97,7 @@ Future<void> main() async {
               ),
               pw.SizedBox(height: 16),
               pw.Text(
-                'VORLESUNG 03  /  DIFFERENTIALRECHNUNG',
+                'LECTURE 03  /  DIFFERENTIAL CALCULUS',
                 style: const pw.TextStyle(
                   fontSize: 10,
                   color: PdfColors.grey600,
@@ -105,7 +105,7 @@ Future<void> main() async {
               ),
               pw.SizedBox(height: 36),
               pw.Text(
-                '1. Ableitungen verstehen',
+                '1. Understanding derivatives',
                 style: pw.TextStyle(
                   fontSize: 18,
                   fontWeight: pw.FontWeight.bold,
@@ -113,8 +113,8 @@ Future<void> main() async {
               ),
               pw.SizedBox(height: 20),
               pw.Text(
-                'Die Ableitung beschreibt die momentane Steigung einer Funktion. '
-                'Sie hilft uns, lokale Veraenderungen praezise zu beschreiben.',
+                'A derivative describes the instantaneous slope of a function. '
+                'It helps us describe local changes precisely.',
                 style: const pw.TextStyle(fontSize: 14, lineSpacing: 7),
               ),
               pw.SizedBox(height: 24),
@@ -122,13 +122,13 @@ Future<void> main() async {
                 color: PdfColor.fromHex('#FFE481'),
                 padding: const pw.EdgeInsets.all(8),
                 child: pw.Text(
-                  'f(x) = x²     /     Ableitung: 2x',
+                  'f(x) = x²     /     Derivative: 2x',
                   style: const pw.TextStyle(fontSize: 16),
                 ),
               ),
               pw.SizedBox(height: 32),
               pw.Text(
-                '2. Gemeinsam weiterdenken',
+                '2. Think it through',
                 style: pw.TextStyle(
                   fontSize: 18,
                   fontWeight: pw.FontWeight.bold,
@@ -136,8 +136,8 @@ Future<void> main() async {
               ),
               pw.SizedBox(height: 16),
               pw.Text(
-                'Welche Steigung hat die Funktion an der Stelle x = 2? '
-                'Notiere deinen Rechenweg und markiere wichtige Begriffe.',
+                'What is the slope of the function at x = 2? '
+                'Write down your steps and highlight important terms.',
                 style: const pw.TextStyle(fontSize: 14, lineSpacing: 7),
               ),
             ],
@@ -145,27 +145,27 @@ Future<void> main() async {
         ),
       );
     final bytes = await pdf.save();
-    final folder = await repository.catalog.ensureFolder('Studium');
-    var pdfNote = await repository.create('Analysis · Vorlesung 03', bytes);
+    final folder = await repository.catalog.ensureFolder('Studies');
+    var pdfNote = await repository.create('Analysis · Lecture 03', bytes);
     pdfNote = await repository.save(
-      pdfNote.copy(folderId: folder.id, tags: ['Vorlesung']),
+      pdfNote.copy(folderId: folder.id, tags: ['Lecture']),
       bytes,
     );
     final markdownNote = await MarkdownLibrary(
       repository,
-    ).create('Projektbesprechung');
+    ).create('Project meeting');
     final markdown = MarkdownDocument(
-      '## Klarheit im nächsten Schritt\n\n'
-      'Ein gemeinsamer Ort für **Gedanken, Dokumente und Entscheidungen**.\n\n'
-      '> Gute Werkzeuge lassen den Inhalt im Mittelpunkt stehen.\n\n'
-      '### Entscheidungen\n\n- [x] Entwurf besprochen\n- [ ] Nächste Schritte festhalten\n\n'
-      '| Bereich | Stand |\n| --- | --- |\n| Konzept | Abgestimmt |\n| Umsetzung | In Arbeit |\n\n'
-      '```dart\nfinal nextStep = "Einfach weiterdenken";\n```\n\n'
-      '[Zur Vorlesung](${pdfNote.documentPath})',
+      '## A clearer next step\n\n'
+      'One place for **thoughts, documents and decisions**.\n\n'
+      '> Good tools keep the content in focus.\n\n'
+      '### Decisions\n\n- [x] Draft discussed\n- [ ] Record next steps\n\n'
+      '| Area | Status |\n| --- | --- |\n| Concept | Agreed |\n| Implementation | In progress |\n\n'
+      '```dart\nfinal nextStep = "Keep thinking";\n```\n\n'
+      '[Back to lecture](${pdfNote.documentPath})',
     ).encode();
     await repository.save(markdownNote, markdown);
-    await MarkdownLibrary(repository).create('Leseliste', checklist: true);
-    await repository.create('Übungsblatt · Woche 03', bytes);
+    await MarkdownLibrary(repository).create('Reading list', checklist: true);
+    await repository.create('Worksheet · week 03', bytes);
 
     await _show(NoterApp(repository: repository));
     await _capture('library-$device');

@@ -15,9 +15,9 @@ void main() {
       String? followed;
       int? toggled;
       const source =
-          '7. Sieben\n8. Acht\n   - Kind\n\n'
-          '- [ ] [Aufgabe][ziel]\n\n'
-          '[ziel]: https://example.org/target\n';
+          '7. Seven\n8. Eight\n   - Child\n\n'
+          '- [ ] [Task][target]\n\n'
+          '[target]: https://example.org/target\n';
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -37,8 +37,8 @@ void main() {
       );
       expect(find.text('7.'), findsOneWidget);
       expect(find.text('8.'), findsOneWidget);
-      expect(find.text('Kind', findRichText: true), findsOneWidget);
-      await tester.tap(find.text('Aufgabe', findRichText: true));
+      expect(find.text('Child', findRichText: true), findsOneWidget);
+      await tester.tap(find.text('Task', findRichText: true));
       await tester.pump();
       expect(followed, 'https://example.org/target');
       await tester.tap(find.byType(Checkbox));
@@ -80,8 +80,8 @@ void main() {
       );
       await tester.pumpWidget(page());
       await previewReady(tester);
-      expect(find.text('Lange Textnotiz'), findsOneWidget);
-      expect(find.text('Abschnitt 999'), findsNothing);
+      expect(find.text('Long text note'), findsOneWidget);
+      expect(find.text('Section 999'), findsNothing);
       final sliver = find.descendant(
         of: find.byType(MarkdownPreview),
         matching: find.byType(SliverList),
@@ -96,7 +96,7 @@ void main() {
         expect(find.byType(Checkbox).evaluate().length, lessThan(40));
         expect(tester.widget<SliverList>(sliver).delegate, same(initial));
       }
-      expect(find.text('Lange Textnotiz'), findsNothing);
+      expect(find.text('Long text note'), findsNothing);
       // An unrelated parent rebuild must reuse parsed/built Markdown blocks.
       final before = (initial as SliverChildBuilderDelegate).builder(
         key.currentContext!,
@@ -108,10 +108,10 @@ void main() {
               as SliverChildBuilderDelegate;
       expect(after.builder(key.currentContext!, 0), same(before));
       // Lazy headings must still be reachable even at the end of a long note.
-      final navigation = key.currentState!.scrollToHeading('abschnitt-999');
+      final navigation = key.currentState!.scrollToHeading('section-999');
       await tester.pumpAndSettle();
       expect(await navigation, isTrue);
-      expect(find.text('Abschnitt 999'), findsOneWidget);
+      expect(find.text('Section 999'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     });
@@ -123,8 +123,8 @@ void main() {
       final scroll = ScrollController();
       addTearDown(scroll.dispose);
       final source = [
-        '```\n- [ ] Nur Code\n```\n',
-        for (var i = 0; i < 2000; i++) '- [ ] Aufgabe $i',
+        '```\n- [ ] Code only\n```\n',
+        for (var i = 0; i < 2000; i++) '- [ ] Task $i',
       ].join('\n');
       int? toggled;
       await tester.pumpWidget(
@@ -154,7 +154,7 @@ void main() {
           find.byType(Checkbox).evaluate().first.widget as Checkbox;
       checkbox.onChanged!(true);
       expect(toggled, isNotNull);
-      expect(toggled, greaterThan(source.indexOf('Aufgabe 100')));
+      expect(toggled, greaterThan(source.indexOf('Task 100')));
       expect(markdownTaskOffsets(source), contains(toggled));
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());

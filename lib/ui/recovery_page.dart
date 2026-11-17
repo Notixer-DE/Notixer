@@ -47,7 +47,7 @@ class _RecoveryPageState extends State<RecoveryPage> {
     try {
       await action();
     } catch (e) {
-      if (mounted) setState(() => _error = 'Aktion fehlgeschlagen: $e');
+      if (mounted) setState(() => _error = 'Action failed: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -63,7 +63,7 @@ class _RecoveryPageState extends State<RecoveryPage> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Abbrechen'),
+              child: const Text('Cancel'),
             ),
             FilledButton(
               style: FilledButton.styleFrom(
@@ -71,7 +71,7 @@ class _RecoveryPageState extends State<RecoveryPage> {
                 foregroundColor: Theme.of(context).colorScheme.onError,
               ),
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Endgültig löschen'),
+              child: const Text('Delete permanently'),
             ),
           ],
         ),
@@ -80,9 +80,9 @@ class _RecoveryPageState extends State<RecoveryPage> {
 
   Future<void> _purge(RecoveryEntry entry) async {
     if (!await _confirm(
-          'Endgültig löschen?',
-          '„${entry.note.title}“ und alle lokalen früheren Stände werden '
-              'unwiderruflich gelöscht. Server-Versionen werden nicht entfernt.',
+          'Delete permanently?',
+          '„${entry.note.title}“ and all previous local versions will be '
+              'permanently deleted. Server versions will not be removed.',
         ) ||
         !mounted) {
       return;
@@ -95,9 +95,9 @@ class _RecoveryPageState extends State<RecoveryPage> {
 
   Future<void> _clearHistory() async {
     if (!await _confirm(
-          'Versionshistorie löschen?',
-          'Alle lokalen früheren Stände dieser Notiz werden unwiderruflich '
-              'gelöscht. Die aktuelle Notiz und Server-Versionen bleiben erhalten.',
+          'Clear version history?',
+          'All previous local versions of this note will be permanently '
+              'deleted. The current note and server versions are preserved.',
         ) ||
         !mounted) {
       return;
@@ -140,16 +140,16 @@ class _RecoveryPageState extends State<RecoveryPage> {
       canPop: !_busy,
       child: Scaffold(
         appBar: AppBar(
-          title: Text(history ? 'Versionshistorie' : 'Papierkorb'),
+          title: Text(history ? 'Version history' : 'Trash'),
           actions: [
             if (history)
               IconButton(
-                tooltip: 'Versionshistorie löschen',
+                tooltip: 'Clear version history',
                 onPressed: _busy || _entries.isEmpty ? null : _clearHistory,
                 icon: const Icon(Icons.delete_sweep_outlined),
               ),
             IconButton(
-              tooltip: 'Neu laden',
+              tooltip: 'Reload',
               onPressed: _busy ? null : () => _run(_refresh),
               icon: const Icon(Icons.refresh),
             ),
@@ -162,19 +162,19 @@ class _RecoveryPageState extends State<RecoveryPage> {
                 padding: const EdgeInsets.all(16),
                 child: Text(
                   history
-                      ? '${widget.note!.title}\nVor dem Überschreiben wird höchstens '
-                            'alle fünf Minuten ein früherer Stand gesichert; bei '
-                            'Sync-Ersetzungen immer. Maximal 20 Stände / 512 MiB je '
-                            'Notiz. Wiederherstellen erzeugt eine neue Kopie.'
-                      : 'Gelöschte Notizen bleiben hier ohne Zeitlimit. '
-                            'Wiederherstellen erzeugt eine neue Kopie; das Original '
-                            'bleibt im Papierkorb. Papierkorb und Historie sind nur '
-                            'auf diesem Gerät verfügbar.',
+                      ? '${widget.note!.title}\nBefore overwriting, a previous version is saved at most '
+                            'once every five minutes; before '
+                            'sync replacements, always. Maximum 20 versions / 512 MiB per '
+                            'note. Restoring creates a new copy.'
+                      : 'Deleted notes stay here without a time limit. '
+                            'Restoring creates a new copy; the original '
+                            'stays in the trash. Trash and history are only '
+                            'available on this device.',
                 ),
               ),
               if (_entries.isNotEmpty)
                 Text(
-                  '${_entries.length} ${_entries.length == 1 ? 'Eintrag' : 'Einträge'} · '
+                  '${_entries.length} ${_entries.length == 1 ? 'entry' : 'entries'} · '
                   '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MiB',
                 ),
               if (_busy) const LinearProgressIndicator(),
@@ -193,8 +193,8 @@ class _RecoveryPageState extends State<RecoveryPage> {
                     ? Center(
                         child: Text(
                           history
-                              ? 'Noch keine früheren Stände vorhanden.'
-                              : 'Der Papierkorb ist leer.',
+                              ? 'No previous versions yet.'
+                              : 'The trash is empty.',
                         ),
                       )
                     : ListView.builder(
@@ -207,7 +207,7 @@ class _RecoveryPageState extends State<RecoveryPage> {
                             subtitle: Text(
                               '${history ? 'Gesichert' : 'Zuletzt bearbeitet'}: '
                               '${_date(history ? entry.recorded : entry.note.modified)}\n'
-                              'Vorschau öffnen und als neue Notiz wiederherstellen',
+                              'Open a preview and restore as a new note',
                             ),
                             isThreeLine: true,
                             onTap: _busy ? null : () => _preview(entry),
@@ -215,18 +215,18 @@ class _RecoveryPageState extends State<RecoveryPage> {
                                 ? null
                                 : PopupMenuButton<String>(
                                     enabled: !_busy,
-                                    tooltip: 'Papierkorbaktionen',
+                                    tooltip: 'Trash actions',
                                     onSelected: (value) => value == 'history'
                                         ? _history(entry)
                                         : _purge(entry),
                                     itemBuilder: (_) => const [
                                       PopupMenuItem(
                                         value: 'history',
-                                        child: Text('Versionshistorie'),
+                                        child: Text('Version history'),
                                       ),
                                       PopupMenuItem(
                                         value: 'purge',
-                                        child: Text('Endgültig löschen'),
+                                        child: Text('Delete permanently'),
                                       ),
                                     ],
                                   ),
@@ -262,7 +262,7 @@ class _RecoveryPreviewState extends State<_RecoveryPreview> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text('Vorschau: ${widget.entry.note.title}')),
+    appBar: AppBar(title: Text('Preview: ${widget.entry.note.title}')),
     body: SafeArea(
       child: FutureBuilder<Object>(
         future: _document,
@@ -271,9 +271,7 @@ class _RecoveryPreviewState extends State<_RecoveryPreview> {
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Text(
-                  'Vorschau konnte nicht geladen werden: ${snapshot.error}',
-                ),
+                child: Text('Could not load the preview: ${snapshot.error}'),
               ),
             );
           }
@@ -285,8 +283,8 @@ class _RecoveryPreviewState extends State<_RecoveryPreview> {
               const Padding(
                 padding: EdgeInsets.all(12),
                 child: Text(
-                  'Schreibgeschützte Vorschau. Der aktuelle Stand '
-                  'und die Sicherung bleiben unverändert.',
+                  'Read-only preview. The current version '
+                  'and backup remain unchanged.',
                 ),
               ),
               Expanded(
@@ -298,7 +296,7 @@ class _RecoveryPreviewState extends State<_RecoveryPreview> {
                           data: (snapshot.data! as MarkdownDocument).source,
                           selectable: true,
                           imageBuilder: (_, _, _) =>
-                              const Text('[Bild in Sicherung]'),
+                              const Text('[Image in backup]'),
                         ),
                       )
                     : PdfViewerTheme(
@@ -321,7 +319,7 @@ class _RecoveryPreviewState extends State<_RecoveryPreview> {
                 child: FilledButton.icon(
                   onPressed: () => Navigator.pop(context, true),
                   icon: const Icon(Icons.restore),
-                  label: const Text('Als neue Notiz wiederherstellen'),
+                  label: const Text('Restore as a new note'),
                 ),
               ),
             ],

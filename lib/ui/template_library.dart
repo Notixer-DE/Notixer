@@ -16,7 +16,7 @@ Future<NoteTemplate?> pickTemplate(
 
 Future<String?> askTemplateName(
   BuildContext context, {
-  String initial = 'Eigene Vorlage',
+  String initial = 'Custom template',
   bool rename = false,
 }) => showDialog<String>(
   context: context,
@@ -52,7 +52,7 @@ class _TemplateLibraryState extends State<TemplateLibrary> {
       _entries = entries;
       _error = widget.repository.readErrors.isEmpty
           ? null
-          : 'Einige Vorlagen konnten nicht gelesen werden: ${widget.repository.readErrors.join(', ')}';
+          : 'Some templates could not be read: ${widget.repository.readErrors.join(', ')}';
     });
   }
 
@@ -66,7 +66,7 @@ class _TemplateLibraryState extends State<TemplateLibrary> {
     try {
       await action();
     } catch (e) {
-      if (mounted) setState(() => _error = 'Vorlagenaktion fehlgeschlagen: $e');
+      if (mounted) setState(() => _error = 'Template action failed: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -102,18 +102,18 @@ class _TemplateLibraryState extends State<TemplateLibrary> {
       context: context,
       builder: (context) => AlertDialog(
         scrollable: true,
-        title: const Text('Vorlage löschen?'),
+        title: const Text('Delete template?'),
         content: Text(
-          '„${entry.name}“ wird gelöscht. Bereits erstellte Notizen bleiben unverändert.',
+          '„${entry.name}“will be deleted. Existing notes remain unchanged.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Abbrechen'),
+            child: const Text('Cancel'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Löschen'),
+            child: const Text('Delete'),
           ),
         ],
       ),
@@ -144,21 +144,21 @@ class _TemplateLibraryState extends State<TemplateLibrary> {
               ),
               if (!entry.builtIn)
                 PopupMenuButton<String>(
-                  tooltip: 'Vorlagenaktionen',
+                  tooltip: 'Template actions',
                   enabled: !_busy,
                   onSelected: (value) =>
                       value == 'rename' ? _rename(entry) : _delete(entry),
                   itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'rename', child: Text('Umbenennen')),
-                    PopupMenuItem(value: 'delete', child: Text('Löschen')),
+                    PopupMenuItem(value: 'rename', child: Text('Rename')),
+                    PopupMenuItem(value: 'delete', child: Text('Delete')),
                   ],
                 ),
             ],
           ),
           const SizedBox(height: 4),
           Text(
-            '${entry.kind == TemplateKind.page ? 'Seitenvorlage' : 'Notizvorlage'} · '
-            '${entry.pageCount} ${entry.pageCount == 1 ? 'Seite' : 'Seiten'}'
+            '${entry.kind == TemplateKind.page ? 'Pagesvorlage' : 'Notevorlage'} · '
+            '${entry.pageCount} ${entry.pageCount == 1 ? 'Page' : 'Pages'}'
             '${entry.builtIn ? ' · Startvorlage' : ''}',
           ),
           const SizedBox(height: 8),
@@ -169,12 +169,12 @@ class _TemplateLibraryState extends State<TemplateLibrary> {
               TextButton.icon(
                 onPressed: _busy ? null : () => _preview(entry),
                 icon: const Icon(Icons.preview_outlined),
-                label: const Text('Vorschau'),
+                label: const Text('Preview'),
               ),
               if (widget.picking)
                 FilledButton(
                   onPressed: _busy ? null : () => Navigator.pop(context, entry),
-                  child: const Text('Verwenden'),
+                  child: const Text('Use'),
                 ),
             ],
           ),
@@ -188,7 +188,7 @@ class _TemplateLibraryState extends State<TemplateLibrary> {
     canPop: !_busy,
     child: Scaffold(
       appBar: AppBar(
-        title: Text(widget.picking ? 'Vorlage auswählen' : 'Vorlagen'),
+        title: Text(widget.picking ? 'Choose template' : 'Templates'),
         automaticallyImplyLeading: !_busy,
       ),
       body: Align(
@@ -203,15 +203,15 @@ class _TemplateLibraryState extends State<TemplateLibrary> {
                   padding: const EdgeInsets.all(16),
                   children: [
                     const Text(
-                      'Offline auf diesem Gerät. Jede Verwendung erzeugt eine unabhängige Kopie '
-                      'ohne Ordner, Tags oder Lernfortschritt.',
+                      'Offline on this device. Each use creates an independent copy '
+                      'without folders, tags or study progress.',
                     ),
                     if (!_busy && _entries.every((entry) => entry.builtIn))
                       const Padding(
                         padding: EdgeInsets.only(top: 12),
                         child: Text(
-                          'Eigene Vorlagen speicherst du im Editor über '
-                          '„Aktuelle Seite als Vorlage speichern“ oder „Notiz als Vorlage speichern“.',
+                          'Save custom templates in the editor using '
+                          '“Save current page as template” or “Save note as template”.',
                         ),
                       ),
                     if (_error != null)
@@ -264,7 +264,7 @@ class _TemplatePreviewState extends State<TemplatePreview> {
                 ),
               ),
               IconButton(
-                tooltip: 'Vorschau schließen',
+                tooltip: 'Close preview',
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.close),
               ),
@@ -301,18 +301,18 @@ class _TemplatePreviewState extends State<TemplatePreview> {
           Row(
             children: [
               IconButton(
-                tooltip: 'Vorherige Vorlagenseite',
+                tooltip: 'Previous template page',
                 onPressed: _page == 0 ? null : () => setState(() => _page--),
                 icon: const Icon(Icons.chevron_left),
               ),
               Expanded(
                 child: Text(
-                  'Seite ${_page + 1} von ${_document.pageCount}',
+                  'Page ${_page + 1} of ${_document.pageCount}',
                   textAlign: TextAlign.center,
                 ),
               ),
               IconButton(
-                tooltip: 'Nächste Vorlagenseite',
+                tooltip: 'Next template page',
                 onPressed: _page + 1 == _document.pageCount
                     ? null
                     : () => setState(() => _page++),
@@ -354,12 +354,15 @@ class _TemplateNameDialogState extends State<_TemplateNameDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
     scrollable: true,
-    title: Text(widget.rename ? 'Vorlage umbenennen' : 'Vorlage speichern'),
+    title: Text(widget.rename ? 'Rename template' : 'Save template'),
     content: TextField(
       controller: _name,
       autofocus: true,
       maxLength: 120,
-      decoration: InputDecoration(labelText: 'Vorlagenname', errorText: _error),
+      decoration: InputDecoration(
+        labelText: 'Template name',
+        errorText: _error,
+      ),
       onChanged: (_) => setState(() {}),
       onSubmitted: (_) {
         if (_error == null) Navigator.pop(context, templateName(_name.text));
@@ -368,13 +371,13 @@ class _TemplateNameDialogState extends State<_TemplateNameDialog> {
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
-        child: const Text('Abbrechen'),
+        child: const Text('Cancel'),
       ),
       FilledButton(
         onPressed: _error != null
             ? null
             : () => Navigator.pop(context, templateName(_name.text)),
-        child: const Text('Speichern'),
+        child: const Text('Save'),
       ),
     ],
   );

@@ -36,7 +36,7 @@ void main() {
     final document = PdfDocument.open(await createPaper('lined'));
     final editor = PdfEditor(document)
       ..appendPagesFrom(PdfDocument.open(await createPaper('grid')));
-    note = await repository.create('Notiz', editor.save());
+    note = await repository.create('Note', editor.save());
     cache = NotebookPreviewCache(repository);
   });
   tearDown(() async {

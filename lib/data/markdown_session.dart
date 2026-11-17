@@ -20,12 +20,12 @@ class MarkdownSession extends ChangeNotifier {
   bool get dirty => _saved != _revision;
   bool get saving => _saving != null;
   String get status => error != null
-      ? 'Nicht gespeichert'
+      ? 'Not saved'
       : saving
-      ? 'Speichert …'
+      ? 'Saving …'
       : dirty
-      ? 'Ungespeicherte Änderungen'
-      : 'Lokal gespeichert';
+      ? 'Unsaved changes'
+      : 'Saved locally';
 
   void update(MarkdownDocument value) {
     document = value;
@@ -71,7 +71,7 @@ class MarkdownSession extends ChangeNotifier {
       error = null;
       return true;
     } catch (e) {
-      error = 'Speichern fehlgeschlagen: $e';
+      error = 'Could not save: $e';
       return false;
     }
   }

@@ -85,7 +85,7 @@ void main() {
                 child: Row(
                   children: [
                     IconButton(
-                      tooltip: 'Werkzeug',
+                      tooltip: 'Tool',
                       onPressed: () => taps++,
                       icon: const Icon(Icons.edit_outlined),
                     ),
@@ -100,7 +100,7 @@ void main() {
           tester.getSize(find.byType(IconButton)).width,
           greaterThanOrEqualTo(extent),
         );
-        await tester.tap(find.byTooltip('Werkzeug'));
+        await tester.tap(find.byTooltip('Tool'));
         expect(taps, 1);
         expect(tester.takeException(), isNull);
       },
@@ -199,7 +199,7 @@ void main() {
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
                     pw.Text(
-                      'Grundlagen der Analysis',
+                      'Foundations of analysis',
                       style: pw.TextStyle(
                         fontSize: 24,
                         fontWeight: pw.FontWeight.bold,
@@ -207,7 +207,7 @@ void main() {
                     ),
                     pw.SizedBox(height: 16),
                     pw.Text(
-                      'Vorlesung 03 / Differentialrechnung',
+                      'Lecture 03 / Differentialrechnung',
                       style: const pw.TextStyle(
                         fontSize: 12,
                         color: PdfColors.grey600,
@@ -215,7 +215,7 @@ void main() {
                     ),
                     pw.SizedBox(height: 36),
                     pw.Text(
-                      '1. Ableitungen verstehen',
+                      '1. Understanding derivatives',
                       style: pw.TextStyle(
                         fontSize: 18,
                         fontWeight: pw.FontWeight.bold,
@@ -223,8 +223,8 @@ void main() {
                     ),
                     pw.SizedBox(height: 20),
                     pw.Text(
-                      'Die Ableitung beschreibt die momentane Steigung einer Funktion. '
-                      'Sie hilft uns, lokale Veraenderungen praezise zu beschreiben.',
+                      'A derivative describes the instantaneous slope of a function. '
+                      'It helps us describe local changes precisely.',
                       style: const pw.TextStyle(fontSize: 14, lineSpacing: 7),
                     ),
                     pw.SizedBox(height: 24),
@@ -232,13 +232,13 @@ void main() {
                       color: PdfColor.fromHex('#FFE481'),
                       padding: const pw.EdgeInsets.all(8),
                       child: pw.Text(
-                        'f(x) = x²     /     Ableitung: 2x',
+                        'f(x) = x²     /     Derivative: 2x',
                         style: const pw.TextStyle(fontSize: 16),
                       ),
                     ),
                     pw.SizedBox(height: 32),
                     pw.Text(
-                      '2. Gemeinsam weiterdenken',
+                      '2. Think it through',
                       style: pw.TextStyle(
                         fontSize: 18,
                         fontWeight: pw.FontWeight.bold,
@@ -246,8 +246,8 @@ void main() {
                     ),
                     pw.SizedBox(height: 16),
                     pw.Text(
-                      'Welche Steigung hat die Funktion an der Stelle x = 2? '
-                      'Notiere deinen Rechenweg und markiere wichtige Begriffe.',
+                      'What is the slope of the function at x = 2? '
+                      'Write down your steps and highlight important terms.',
                       style: const pw.TextStyle(fontSize: 14, lineSpacing: 7),
                     ),
                   ],
@@ -256,22 +256,22 @@ void main() {
             );
           final pdfBytes = await tester.runAsync(doc.save);
           final pdfNote = await tester.runAsync(
-            () => repository.create('Analysis · Vorlesung 03', pdfBytes!),
+            () => repository.create('Analysis · Lecture 03', pdfBytes!),
           );
           final markdownNote = await tester.runAsync(() async {
             final note = await MarkdownLibrary(
               repository,
-            ).create('Projektbesprechung');
+            ).create('Project meeting');
             return repository.save(
               note,
               MarkdownDocument(
-                '## Klarheit im nächsten Schritt\n\n'
-                'Ein gemeinsamer Ort für **Gedanken, Dokumente und Entscheidungen**.\n\n'
-                '> Gute Werkzeuge lassen den Inhalt im Mittelpunkt stehen.\n\n'
-                '### Entscheidungen\n\n- [x] Entwurf besprochen\n- [ ] Nächste Schritte festhalten\n\n'
-                '| Bereich | Stand |\n| --- | --- |\n| Konzept | Abgestimmt |\n| Umsetzung | In Arbeit |\n\n'
-                '```dart\nfinal nextStep = "Einfach weiterdenken";\n```\n\n'
-                '[Zur Vorlesung](${pdfNote!.documentPath})',
+                '## A clearer next step\n\n'
+                'One place for **thoughts, documents and decisions**.\n\n'
+                '> Good tools keep the content in focus.\n\n'
+                '### Decisions\n\n- [x] Draft discussed\n- [ ] Record next steps\n\n'
+                '| Area | Status |\n| --- | --- |\n| Concept | Agreed |\n| Implementation | In progress |\n\n'
+                '```dart\nfinal nextStep = "Keep thinking";\n```\n\n'
+                '[Back to lecture](${pdfNote!.documentPath})',
               ).encode(),
             );
           });
@@ -279,7 +279,7 @@ void main() {
           await tester.pumpWidget(_frame(NoterApp(repository: repository)));
           await settleFileIo(
             tester,
-            () => find.text('Projektbesprechung').evaluate().isNotEmpty,
+            () => find.text('Project meeting').evaluate().isNotEmpty,
           );
           expect(
             find.byType(NotebookPreview),
@@ -346,9 +346,7 @@ void main() {
           final paragraphFinder = find.byWidgetPredicate(
             (widget) =>
                 widget is SelectableText &&
-                (widget.textSpan?.toPlainText().startsWith(
-                      'Ein gemeinsamer Ort',
-                    ) ??
+                (widget.textSpan?.toPlainText().startsWith('One place for') ??
                     false),
           );
           for (var i = 0; i < 20 && paragraphFinder.evaluate().isEmpty; i++) {
@@ -388,7 +386,7 @@ void main() {
             find.byKey(const ValueKey('markdown-source')),
           );
           expect(source.undoController, isNotNull);
-          expect(source.controller!.text, contains('## Klarheit'));
+          expect(source.controller!.text, contains('## A clearer'));
           expect(tester.takeException(), isNull);
           await _capture(tester, 'markdown-source-${viewport.name}');
           await tester.pumpWidget(const SizedBox());

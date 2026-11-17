@@ -24,7 +24,7 @@ class MainActivity : FlutterActivity() {
                     val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                         addCategory(Intent.CATEGORY_OPENABLE)
                         type = call.argument<String>("mime") ?: "application/octet-stream"
-                        putExtra(Intent.EXTRA_TITLE, call.argument<String>("name") ?: "Notiz.pdf")
+                        putExtra(Intent.EXTRA_TITLE, call.argument<String>("name") ?: "Note.pdf")
                     }
                     startActivityForResult(intent, 701)
                 } catch (error: Exception) {
@@ -47,7 +47,7 @@ class MainActivity : FlutterActivity() {
         Thread {
             try {
                 val stream = contentResolver.openOutputStream(uri, "wt")
-                    ?: throw java.io.IOException("Datei konnte nicht geöffnet werden.")
+                    ?: throw java.io.IOException("Could not open the file.")
                 stream.use { it.write(bytes); it.flush() }
                 runOnUiThread { reply.success(true) }
             } catch (error: Exception) {

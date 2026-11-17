@@ -75,7 +75,7 @@ void main() {
         try {
           final repo = LocalNotebookRepository(root);
           final bytes = await createPaper('blank');
-          final note = await repo.create('Werkzeug', bytes);
+          final note = await repo.create('Tool', bytes);
           final session = DocumentSession(
             note,
             bytes,

@@ -17,7 +17,7 @@ class MarkdownLibrary {
   Future<Notebook> create(String title, {bool checklist = false}) =>
       repository.create(
         title,
-        MarkdownDocument(checklist ? '- [ ] Erste Aufgabe\n' : '').encode(),
+        MarkdownDocument(checklist ? '- [ ] First task\n' : '').encode(),
         paper: 'markdown',
       );
 
@@ -55,13 +55,13 @@ class MarkdownLibrary {
 
   Future<Notebook> importText(String filename, Uint8List bytes) async {
     if (bytes.length > MarkdownDocument.maxTextBytes) {
-      throw const FormatException('Markdown ist zu groß (maximal 4 MB).');
+      throw const FormatException('Markdown is too large (maximum 4 MB).');
     }
     final source = utf8.decode(bytes);
     final id = LocalNotebookRepository.newId();
     final path = '$id/${p.basename(filename)}';
     if (!MarkdownDocument.safePath(path)) {
-      throw const FormatException('Nicht unterstützter Markdown-Dateiname.');
+      throw const FormatException('Unsupported Markdown filename.');
     }
     final now = DateTime.now();
     return repository.save(
@@ -107,18 +107,20 @@ class MarkdownLibrary {
     var total = 0;
     void add(String path, Uint8List bytes) {
       if (!MarkdownDocument.safePath(path)) {
-        throw const FormatException('Unsicherer Exportpfad.');
+        throw const FormatException('Unsafe export path.');
       }
       final previous = files[path];
       if (previous != null) {
         if (base64Encode(previous) != base64Encode(bytes)) {
-          throw FormatException('Mehrdeutiger Exportpfad: $path');
+          throw FormatException('Ambiguous export path: $path');
         }
         return;
       }
       total += bytes.length;
       if (total > 128 * 1024 * 1024 || files.length >= 1000) {
-        throw const FormatException('Export zu groß (128 MB / 1000 Dateien).');
+        throw const FormatException(
+          'Export is too large (128 MB / 1000 files).',
+        );
       }
       files[path] = bytes;
     }
@@ -176,7 +178,7 @@ String _title(String source, String fallback) {
   final match = RegExp(r'^#\s+(.+)$', multiLine: true).firstMatch(source);
   final title = match?.group(1)?.trim() ?? fallback;
   return title.isEmpty
-      ? 'Textnotiz'
+      ? 'Text note'
       : String.fromCharCodes(title.runes.take(120));
 }
 
@@ -189,11 +191,11 @@ typedef _ImportedDocument = ({
 
 List<_ImportedDocument> _readBundle(Uint8List bytes) {
   if (bytes.length > 128 * 1024 * 1024) {
-    throw const FormatException('ZIP zu groß (128 MB).');
+    throw const FormatException('The ZIP archive is too large (128 MB).');
   }
   final archive = ZipDecoder().decodeBytes(bytes, verify: true);
   if (archive.files.length > 1000) {
-    throw const FormatException('Zu viele Dateien.');
+    throw const FormatException('Too many files.');
   }
   final files = <String, Uint8List>{};
   var total = 0;
@@ -202,16 +204,16 @@ List<_ImportedDocument> _readBundle(Uint8List bytes) {
         ? file.name
         : file.name.replaceFirst(RegExp(r'/$'), '');
     if (!MarkdownDocument.safePath(path)) {
-      throw const FormatException('Unsicherer ZIP-Pfad.');
+      throw const FormatException('Unsafe ZIP path.');
     }
     if (!file.isFile) continue;
     if (files.containsKey(path)) {
-      throw const FormatException('Doppelter ZIP-Pfad.');
+      throw const FormatException('Duplicate ZIP path.');
     }
     total += file.size;
     if (total > 128 * 1024 * 1024 ||
         file.size > MarkdownDocument.maxTotalBytes) {
-      throw const FormatException('Entpackter Inhalt zu groß.');
+      throw const FormatException('Extracted content is too large.');
     }
     files[path] = file.content;
   }
@@ -232,7 +234,7 @@ List<_ImportedDocument> _readBundle(Uint8List bytes) {
       continue;
     }
     if (entry.value.length > MarkdownDocument.maxTextBytes) {
-      throw const FormatException('Markdown zu groß.');
+      throw const FormatException('Markdown is too large.');
     }
     final source = utf8.decode(entry.value);
     final assets = <String, Uint8List>{};
@@ -242,7 +244,7 @@ List<_ImportedDocument> _readBundle(Uint8List bytes) {
       final relative = p.posix.relative(path, from: p.posix.dirname(entry.key));
       if (!relative.startsWith('assets/')) {
         throw const FormatException(
-          'Lokale Bilder müssen unter assets/ liegen.',
+          'Local images must be stored under assets/.',
         );
       }
       assets[relative] = files[path]!;
@@ -256,11 +258,11 @@ List<_ImportedDocument> _readBundle(Uint8List bytes) {
     ));
   }
   if (result.isEmpty) {
-    throw const FormatException('Keine Markdown-Notizen im ZIP.');
+    throw const FormatException('No Markdown notes in the ZIP archive.');
   }
   if (consumed.length != files.length) {
     throw const FormatException(
-      'ZIP enthält nicht unterstützte oder unreferenzierte Dateien.',
+      'The ZIP archive contains unsupported or unreferenced files.',
     );
   }
   return result;

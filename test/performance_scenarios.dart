@@ -33,7 +33,7 @@ class CountingRepository extends LocalNotebookRepository {
 Future<void> verifyPerformance(Directory directory) async {
   final repo = LocalNotebookRepository(Directory('${directory.path}/large'));
   final pdf = largeScan(pages: 500, side: 2048);
-  final note = await repo.create('Großer Scan', pdf);
+  final note = await repo.create('Large scan', pdf);
   final file = File('${repo.directory.path}/${note.id}.noter');
   final original = await file.readAsBytes();
   final zip = ZipDecoder().decodeBytes(original, verify: true);
@@ -83,7 +83,7 @@ Future<void> verifyPerformance(Directory directory) async {
 
   final small = await createPaper('lined');
   final counted = CountingRepository(Directory('${directory.path}/session'));
-  final saved = await counted.create('Stift', small);
+  final saved = await counted.create('Pen', small);
   final session = DocumentSession(
     saved,
     small,

@@ -56,16 +56,16 @@ Future<void> main() async {
     editing.tool = PdfEditTool.highlight;
     editing.addInkStroke(0, [(40, 200), (200, 200)]);
     editing.finishInk();
-    editing.addFreeText(0, const PdfRect(40, 300, 250, 350), 'Getippte Notiz');
+    editing.addFreeText(0, const PdfRect(40, 300, 250, 350), 'Getippte Note');
     check(
       editing.document.page(0).annotations.length == 3,
       'pen, highlighter and typed text create editable annotations',
     );
     var note = await repo.create('Übung', editing.bytes, paper: 'lined');
-    note = await repo.save(note.copy(title: 'Mathematik'), editing.bytes);
+    note = await repo.save(note.copy(title: 'Mathsmatics'), editing.bytes);
     final reopened = LocalNotebookRepository(directory);
     check(
-      (await reopened.list()).single.title == 'Mathematik',
+      (await reopened.list()).single.title == 'Mathsmatics',
       'metadata survives reopening',
     );
     final imported = await reopened.importArchive(
@@ -95,7 +95,7 @@ Future<void> main() async {
     check(
       failed &&
           (await repo.list()).any(
-            (n) => n.id == note.id && n.title == 'Mathematik',
+            (n) => n.id == note.id && n.title == 'Mathsmatics',
           ),
       'failed write preserves previous saved version',
     );
@@ -113,7 +113,7 @@ Future<void> main() async {
     editing.dispose();
     preferences.dispose();
     // ignore: avoid_print
-    print('Basic checks passed. Running Noter 1.1 scenarios …');
+    print('Basic checks passed. Running document scenarios …');
     await verifyAdvanced(Directory('${directory.path}/advanced'));
     await verifySync(Directory('${directory.path}/sync'));
     await verifyPerformance(Directory('${directory.path}/performance'));

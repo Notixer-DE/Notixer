@@ -72,7 +72,7 @@ void main() {
     controller.enabled = true;
     controller.notifyListeners();
     await tester.pump();
-    expect(find.byTooltip('Jetzt synchronisieren'), findsOneWidget);
+    expect(find.byTooltip('Sync now'), findsOneWidget);
     controller.enabled = false;
     controller.notifyListeners();
     await tester.pump();
@@ -101,10 +101,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(refreshes, 1);
       expect(find.byIcon(Icons.cloud_done_outlined), findsOneWidget);
-      expect(
-        find.text('Synchronisierung erfolgreich abgeschlossen.'),
-        findsOneWidget,
-      );
+      expect(find.text('Sync completed successfully.'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     },
@@ -113,14 +110,14 @@ void main() {
   testWidgets('errors offer sync details and allow retry', (tester) async {
     controller.enabled = true;
     await showButton(tester);
-    await tester.tap(find.byTooltip('Jetzt synchronisieren'));
+    await tester.tap(find.byTooltip('Sync now'));
     controller.error =
-        'Server nicht erreichbar. Lokale Notizen bleiben erhalten.';
+        'Server nicht erreichbar. Lokale Notes bleiben erhalten.';
     controller.pending!.complete();
     await tester.pumpAndSettle();
     expect(find.byIcon(Icons.sync_problem), findsOneWidget);
     expect(find.text(controller.error!), findsOneWidget);
-    await tester.tap(find.text('Sync-Details'));
+    await tester.tap(find.text('Sync details'));
     await tester.pumpAndSettle();
     expect(detailsOpened, 1);
     await tester.tap(find.byType(IconButton));
@@ -143,7 +140,7 @@ void main() {
     await showButton(tester);
     final sync = controller.synchronize();
     await tester.pump();
-    expect(find.byTooltip('Synchronisierung läuft'), findsOneWidget);
+    expect(find.byTooltip('Sync in progress'), findsOneWidget);
     expect(
       tester.widget<IconButton>(find.byType(IconButton)).onPressed,
       isNull,

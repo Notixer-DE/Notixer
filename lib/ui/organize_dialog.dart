@@ -28,7 +28,7 @@ class _OrganizeDialogState extends State<OrganizeDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
     scrollable: true,
-    title: const Text('Ordner und Tags'),
+    title: const Text('Folders and tags'),
     content: SizedBox(
       width: 380,
       child: Column(
@@ -39,9 +39,9 @@ class _OrganizeDialogState extends State<OrganizeDialog> {
             initialValue: widget.repository.catalog.folderName(folder) == null
                 ? ''
                 : folder,
-            decoration: const InputDecoration(labelText: 'Ordner'),
+            decoration: const InputDecoration(labelText: 'Folder'),
             items: [
-              const DropdownMenuItem(value: '', child: Text('Ohne Ordner')),
+              const DropdownMenuItem(value: '', child: Text('Unfiled')),
               for (final f in widget.repository.catalog.folders)
                 DropdownMenuItem(
                   value: f.id,
@@ -59,7 +59,7 @@ class _OrganizeDialogState extends State<OrganizeDialog> {
             controller: tags,
             decoration: const InputDecoration(
               labelText: 'Tags',
-              helperText: 'Mit Komma trennen, z. B. Mathe, Prüfung',
+              helperText: 'Separate with commas, e.g. Maths, Exam',
             ),
             maxLines: 2,
           ),
@@ -69,7 +69,7 @@ class _OrganizeDialogState extends State<OrganizeDialog> {
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
-        child: const Text('Abbrechen'),
+        child: const Text('Cancel'),
       ),
       FilledButton(
         onPressed: () {
@@ -90,7 +90,7 @@ class _OrganizeDialogState extends State<OrganizeDialog> {
             ),
           );
         },
-        child: const Text('Speichern'),
+        child: const Text('Save'),
       ),
     ],
   );
@@ -113,7 +113,7 @@ class _FolderManagerState extends State<FolderManager> {
       context: context,
       builder: (context) => AlertDialog(
         scrollable: true,
-        title: Text(initial.isEmpty ? 'Ordner anlegen' : 'Ordner umbenennen'),
+        title: Text(initial.isEmpty ? 'Create folder' : 'Rename folder'),
         content: Form(
           key: form,
           child: TextFormField(
@@ -122,15 +122,15 @@ class _FolderManagerState extends State<FolderManager> {
             autofocus: true,
             maxLength: 80,
             validator: (value) => value == null || value.trim().isEmpty
-                ? 'Bitte einen Ordnernamen eingeben.'
+                ? 'Please enter a folder name.'
                 : null,
-            decoration: const InputDecoration(labelText: 'Ordnername'),
+            decoration: const InputDecoration(labelText: 'Folder name'),
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Abbrechen'),
+            child: const Text('Cancel'),
           ),
           FilledButton(
             onPressed: () {
@@ -138,7 +138,7 @@ class _FolderManagerState extends State<FolderManager> {
                 Navigator.pop(context, name.trim());
               }
             },
-            child: const Text('Speichern'),
+            child: const Text('Save'),
           ),
         ],
       ),
@@ -169,16 +169,16 @@ class _FolderManagerState extends State<FolderManager> {
       context: context,
       builder: (context) => AlertDialog(
         scrollable: true,
-        title: const Text('Ordner löschen?'),
+        title: const Text('Delete folder?'),
         content: Text(
           notes.length == 1
-              ? 'Eine Notiz wird nach „Ohne Ordner“ verschoben. Die Notiz bleibt erhalten.'
-              : '${notes.length} Notizen werden nach „Ohne Ordner“ verschoben. Die Notizen bleiben erhalten.',
+              ? 'One note will be moved to “Unfiled”. The note is preserved.'
+              : '${notes.length}notes will be moved to “Unfiled”. The notes are preserved.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Abbrechen'),
+            child: const Text('Cancel'),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
@@ -186,7 +186,7 @@ class _FolderManagerState extends State<FolderManager> {
               foregroundColor: Theme.of(context).colorScheme.onError,
             ),
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Ordner löschen'),
+            child: const Text('Delete folder'),
           ),
         ],
       ),
@@ -217,12 +217,12 @@ class _FolderManagerState extends State<FolderManager> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Ordner verwalten',
+                      'Manage folders',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
                   IconButton(
-                    tooltip: 'Schließen',
+                    tooltip: 'Close',
                     onPressed: busy ? null : () => Navigator.pop(context),
                     icon: const Icon(Icons.close),
                   ),
@@ -251,7 +251,7 @@ class _FolderManagerState extends State<FolderManager> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             IconButton(
-                              tooltip: 'Ordner umbenennen',
+                              tooltip: 'Rename folder',
                               onPressed: busy
                                   ? null
                                   : () => run(() async {
@@ -264,7 +264,7 @@ class _FolderManagerState extends State<FolderManager> {
                               icon: const Icon(Icons.edit_outlined),
                             ),
                             IconButton(
-                              tooltip: 'Ordner löschen',
+                              tooltip: 'Delete folder',
                               onPressed: busy
                                   ? null
                                   : () => run(() => _delete(folder.id)),
@@ -277,7 +277,7 @@ class _FolderManagerState extends State<FolderManager> {
                       const Padding(
                         padding: EdgeInsets.all(24),
                         child: Text(
-                          'Noch keine Ordner. Lege zum Beispiel einen Ordner für ein Fach an.',
+                          'No folders yet. Create a folder, for example for a subject.',
                         ),
                       ),
                   ],
@@ -296,7 +296,7 @@ class _FolderManagerState extends State<FolderManager> {
                         }
                       }),
                 icon: const Icon(Icons.create_new_folder_outlined),
-                label: const Text('Ordner anlegen'),
+                label: const Text('Create folder'),
               ),
             ),
           ],

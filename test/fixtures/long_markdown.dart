@@ -1,11 +1,11 @@
 /// Shared, deterministic workload for widget regression and profile-mode runs.
 String longMarkdown({int sections = 1000}) => [
-  '# Lange Textnotiz',
+  '# Long text note',
   for (var i = 0; i < sections; i++)
-    '## Abschnitt $i\n\n'
-        'Absatz $i mit **Formatierung**, einem [Verweis][ziel] und genügend '
-        'Text zum Umbrechen auf schmalen Bildschirmen.\n\n'
-        '- Eintrag $i\n  - Verschachtelter Eintrag $i\n\n'
-        '- [ ] Aufgabe $i\n- [x] Erledigt $i\n',
-  '[ziel]: https://example.org\n',
+    '## Section $i\n\n'
+        'Paragraph $i with **formatting**, a [reference][target] and enough '
+        'text to wrap on narrow screens.\n\n'
+        '- entry $i\n  - Nested entry $i\n\n'
+        '- [ ] Task $i\n- [x] Done $i\n',
+  '[target]: https://example.org\n',
 ].join('\n\n');

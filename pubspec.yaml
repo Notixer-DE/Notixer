@@ -1,5 +1,5 @@
 name: noter
-description: "Offline-Notizen mit Handschrift und PDF-Anmerkungen für Debian und Android."
+description: "Offline notes with handwriting and PDF annotations for Android, Debian and Windows."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev

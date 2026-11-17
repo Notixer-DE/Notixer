@@ -32,7 +32,7 @@ class InkPdfController extends PdfEditingController {
     final source = pdf.PdfDocument.open(pages.bytes);
     final ink = inkController?.call();
     if (ink == null && pages.ink.strokes.isNotEmpty) {
-      throw StateError('Die Tintenebene ist noch nicht verfügbar.');
+      throw StateError('The ink layer is not available yet.');
     }
     if (ink != null &&
         (ink.index.strokes.length + pages.ink.strokes.length >
@@ -40,9 +40,7 @@ class InkPdfController extends PdfEditingController {
             ink.index.strokes.fold<int>(0, (n, s) => n + s.pointCount) +
                     pages.ink.strokes.fold<int>(0, (n, s) => n + s.pointCount) >
                 InkDocument.maxPoints)) {
-      throw StateError(
-        'Die Tintenebene ist voll. Bitte eine neue Notiz anlegen.',
-      );
+      throw StateError('The ink layer is full. Please create a new note.');
     }
     super.insertPagesFromBytes(freshPageTapeIds(pages.bytes), at: position);
     if (ink == null) return;

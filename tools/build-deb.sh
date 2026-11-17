@@ -5,7 +5,7 @@ FLUTTER_BIN="${FLUTTER_BIN:-flutter}"
 app_version="$(awk '/^version:/ {sub(/[+].*/, "", $2); print $2}' pubspec.yaml)"
 app_version="${NOTER_DEB_VERSION:-$app_version}"
 if [[ ! "$app_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\+ci\.[0-9]+)?$ ]]; then
-  echo "Ungültige Paketversion: $app_version" >&2
+  echo "Invalid package version: $app_version" >&2
   exit 1
 fi
 # A preceding Android debug bundle can leave VM snapshots in the shared asset
@@ -15,7 +15,7 @@ for asset in kernel_blob.bin vm_snapshot_data isolate_snapshot_data; do
 done
 flutter_args=(build linux --release --no-pub)
 if [[ -n "${NOTER_BUILD_NUMBER:-}" ]]; then
-  [[ "$NOTER_BUILD_NUMBER" =~ ^[0-9]+$ ]] || { echo "Ungültige Buildnummer" >&2; exit 1; }
+  [[ "$NOTER_BUILD_NUMBER" =~ ^[0-9]+$ ]] || { echo "Invalid build number" >&2; exit 1; }
   flutter_args+=(--build-number "$NOTER_BUILD_NUMBER")
 fi
 "$FLUTTER_BIN" "${flutter_args[@]}"

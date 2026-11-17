@@ -123,7 +123,7 @@ void main() {
       controller.allowInsecureHttp = true;
       await controller.connect('http://192.0.2.1:5150', 'a' * 64, 'not-a-key');
       expect(controller.enabled, false);
-      expect(controller.error, contains('HTTP ausdrücklich erlauben'));
+      expect(controller.error, contains('explicitly allow HTTP'));
       controller.dispose();
     },
   );
@@ -138,13 +138,13 @@ void main() {
           home: SyncPage(controller: controller),
         ),
       );
-      final address = find.widgetWithText(TextField, 'Serveradresse');
+      final address = find.widgetWithText(TextField, 'Server address');
       await tester.ensureVisible(address);
       await tester.enterText(address, 'http://192.168.1.20:5150');
       await tester.pumpAndSettle();
       final toggle = find.widgetWithText(
         SwitchListTile,
-        'HTTP für diese neue Verbindung erlauben',
+        'Allow HTTP for this new connection',
       );
       await tester.ensureVisible(toggle);
       await tester.tap(toggle);
@@ -153,12 +153,12 @@ void main() {
         find.textContaining('192.168.1.20', findRichText: true),
         findsWidgets,
       );
-      await tester.tap(find.text('Abbrechen'));
+      await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       expect(tester.widget<SwitchListTile>(toggle).value, false);
       await tester.tap(toggle);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('HTTP trotzdem erlauben'));
+      await tester.tap(find.text('Allow HTTP anyway'));
       await tester.pumpAndSettle();
       expect(tester.widget<SwitchListTile>(toggle).value, true);
       await tester.ensureVisible(address);
@@ -168,12 +168,12 @@ void main() {
       await tester.ensureVisible(toggle);
       await tester.tap(toggle);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('HTTP trotzdem erlauben'));
+      await tester.tap(find.text('Allow HTTP anyway'));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Mit Server verbinden'));
-      await tester.tap(find.text('Mit Server verbinden'));
+      await tester.ensureVisible(find.text('Connect to server'));
+      await tester.tap(find.text('Connect to server'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Sicher gespeichert'));
+      await tester.tap(find.text('Safely saved'));
       await tester.pumpAndSettle();
       expect(controller.confirmedHttp, true);
       expect(controller.connectedUrl, 'http://192.168.1.21:5150');
@@ -203,7 +203,7 @@ void main() {
           home: SyncPage(controller: controller),
         ),
       );
-      final disable = find.text('HTTP-Verbindung deaktivieren');
+      final disable = find.text('Disable HTTP connection');
       await tester.scrollUntilVisible(
         disable,
         250,
@@ -214,7 +214,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(controller.usesHttp, false);
       expect(controller.automatic, false);
-      expect(find.text('HTTP aktiv – Verbindung ohne TLS'), findsNothing);
+      expect(find.text('HTTP active – connection without TLS'), findsNothing);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       controller.dispose();

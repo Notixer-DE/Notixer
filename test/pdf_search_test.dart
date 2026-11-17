@@ -72,14 +72,14 @@ void main() {
       repository = LocalNotebookRepository(directory);
       first = await repository.create(
         'Erstes PDF',
-        await textPdf(['Andere Seite', 'Algebra']),
+        await textPdf(['Andere Page', 'Algebra']),
       );
       second = await repository.create(
-        'Zweites PDF',
+        'Seconds PDF',
         await textPdf(['Algebra']),
       );
       excluded = await repository.create(
-        'Nicht ausgewählt',
+        'Not selected',
         await textPdf(['Algebra']),
       );
     });
@@ -92,17 +92,17 @@ void main() {
       ),
     );
     await tester.tap(find.text('Erstes PDF'));
-    await tester.tap(find.text('Zweites PDF'));
+    await tester.tap(find.text('Seconds PDF'));
     await tester.enterText(find.byType(TextField), 'algebra');
     await tester.pump();
-    await tester.tap(find.text('In 2 Dokumenten suchen'));
+    await tester.tap(find.text('Search 2 documents'));
     await settleFileIo(
       tester,
-      () => find.text('Zweites PDF · Seite 1').evaluate().isNotEmpty,
+      () => find.text('Seconds PDF · Page 1').evaluate().isNotEmpty,
     );
-    expect(find.text('Erstes PDF · Seite 2'), findsOneWidget);
-    expect(find.text('Nicht ausgewählt · Seite 1'), findsNothing);
-    await tester.tap(find.text('Erstes PDF · Seite 2'));
+    expect(find.text('Erstes PDF · Page 2'), findsOneWidget);
+    expect(find.text('Not selected · Page 1'), findsNothing);
+    await tester.tap(find.text('Erstes PDF · Page 2'));
     await settleFileIo(
       tester,
       () => find.byType(EditorPage).evaluate().isNotEmpty,
@@ -110,7 +110,7 @@ void main() {
     final editor = tester.widget<EditorPage>(find.byType(EditorPage));
     expect(editor.initialPage, 1);
     expect(editor.initialQuery, 'algebra');
-    expect(find.byTooltip('Suche schließen'), findsOneWidget);
+    expect(find.byTooltip('Close search'), findsOneWidget);
     final pane = tester.state<EditorPaneState>(find.byType(EditorPane));
     expect(pane.viewer.currentPage, 1);
     expect(pane.viewer.matchCount, 1);
@@ -144,17 +144,17 @@ void main() {
           home: PdfSearchPage(notes: [broken, valid], repository: repository),
         ),
       );
-      await tester.tap(find.text('Alle auswählen'));
+      await tester.tap(find.text('Select all'));
       await tester.enterText(find.byType(TextField), 'algebra');
       await tester.pump();
-      await tester.tap(find.text('In 2 Dokumenten suchen'));
+      await tester.tap(find.text('Search 2 documents'));
       await settleFileIo(
         tester,
-        () => find.text('Lesbar · Seite 1').evaluate().isNotEmpty,
+        () => find.text('Lesbar · Page 1').evaluate().isNotEmpty,
       );
-      expect(find.textContaining('Suche fehlgeschlagen'), findsOneWidget);
+      expect(find.textContaining('Search failed'), findsOneWidget);
       expect(tester.takeException(), isNull);
-      await tester.tap(find.text('Auswahl ändern'));
+      await tester.tap(find.text('Change selection'));
       await tester.pump();
       expect(
         tester

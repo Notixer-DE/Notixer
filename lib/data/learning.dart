@@ -1,9 +1,9 @@
 import 'dart:convert';
 
 enum ReviewRating {
-  known('Gewusst'),
-  unsure('Unsicher'),
-  again('Nicht gewusst');
+  known('Remembered'),
+  unsure('Unsure'),
+  again('Forgot');
 
   const ReviewRating(this.label);
   final String label;
@@ -44,11 +44,11 @@ class ReviewEvent {
         parents is! List ||
         parents.any((p) => p is! String) ||
         !ReviewRating.values.any((r) => r.name == json['rating'])) {
-      throw const FormatException('Ungültige Lernbewertung.');
+      throw const FormatException('Invalid study rating.');
     }
     final at = DateTime.tryParse(json['at']);
     if (at == null || !at.isUtc) {
-      throw const FormatException('Lernbewertungen benötigen eine UTC-Zeit.');
+      throw const FormatException('Study ratings require a UTC timestamp.');
     }
     return ReviewEvent(
       id: id,
@@ -94,7 +94,7 @@ class LearningProgress {
       final previous = byId[event.id];
       if (previous != null &&
           jsonEncode(previous.toJson()) != jsonEncode(event.toJson())) {
-        throw const FormatException('Widersprüchliche Lernbewertungs-ID.');
+        throw const FormatException('Conflicting study rating ID.');
       }
       byId[event.id] = event;
     }
@@ -104,7 +104,7 @@ class LearningProgress {
       pending[event.id] = event.parents.length;
       for (final parent in event.parents) {
         if (byId[parent]?.tapeId != event.tapeId) {
-          throw const FormatException('Unvollständiger Lernverlauf.');
+          throw const FormatException('Incomplete study history.');
         }
         (children[parent] ??= []).add(event.id);
       }
@@ -144,7 +144,7 @@ class LearningProgress {
       }
     }
     if (states.length != byId.length) {
-      throw const FormatException('Zyklischer Lernverlauf.');
+      throw const FormatException('Cyclic study history.');
     }
     final schedules = <String, ReviewSchedule>{};
     for (final entry in tips.entries) {
@@ -191,7 +191,7 @@ class LearningProgress {
 
   factory LearningProgress.fromJson(Map<String, dynamic> json) {
     if (json['version'] != 1 || json['events'] is! List) {
-      throw const FormatException('Unbekannter Lernverlauf.');
+      throw const FormatException('Unknown study history.');
     }
     return LearningProgress.fromEvents(
       (json['events'] as List).map(

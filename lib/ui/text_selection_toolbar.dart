@@ -67,11 +67,14 @@ class _NoterTextSelectionOverlayState extends State<NoterTextSelectionOverlay> {
 /// Retain native selection handles and annotation menus, but replace the
 /// package's touch-only text chip with our shared mouse/touch palette.
 class NoterTextSelectionPresenter extends PdfEditorPresenter {
-  const NoterTextSelectionPresenter();
+  const NoterTextSelectionPresenter({this.hideAnnotationActions});
+  final bool Function()? hideAnnotationActions;
 
   @override
   Widget actionBar(BuildContext context, PdfActionBarRequest request) =>
-      request.kind == PdfActionBarKind.textSelection
+      request.kind == PdfActionBarKind.textSelection ||
+          (request.kind == PdfActionBarKind.annotationSelection &&
+              hideAnnotationActions?.call() == true)
       ? const SizedBox.shrink()
       : super.actionBar(context, request);
 }
@@ -138,24 +141,24 @@ class NoterTextSelectionToolbar extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         for (final (kind, label, icon) in const [
-                          (PdfMarkupKind.highlight, 'Markieren', Icons.title),
+                          (PdfMarkupKind.highlight, 'Highlight', Icons.title),
                           (
                             PdfMarkupKind.underline,
-                            'Unterstreichen',
+                            'Underline',
                             Icons.format_underlined,
                           ),
                           (
                             PdfMarkupKind.strikeOut,
-                            'Durchstreichen',
+                            'Strikethrough',
                             Icons.format_strikethrough,
                           ),
                         ]) ...[
                           for (final (color, name) in const [
-                            (NoterTheme.markupPink, 'Rosa'),
-                            (NoterTheme.markupYellow, 'Gelb'),
-                            (NoterTheme.markupBlue, 'Blau'),
-                            (NoterTheme.markupGreen, 'Grün'),
-                            (Color(0xFF169FB8), 'Türkis'),
+                            (NoterTheme.markupPink, 'Pink'),
+                            (NoterTheme.markupYellow, 'Yellow'),
+                            (NoterTheme.markupBlue, 'Blue'),
+                            (NoterTheme.markupGreen, 'Green'),
+                            (Color(0xFF169FB8), 'Turquoise'),
                           ])
                             IconButton(
                               tooltip: '$label · $name',
@@ -184,12 +187,12 @@ class NoterTextSelectionToolbar extends StatelessWidget {
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Text kopieren',
+                  tooltip: 'Copy text',
                   onPressed: viewer.copySelection,
                   icon: const Icon(Icons.copy, size: 20),
                 ),
                 IconButton(
-                  tooltip: 'Textauswahl aufheben',
+                  tooltip: 'Clear text selection',
                   onPressed: viewer.clearSelection,
                   icon: const Icon(Icons.close, size: 20),
                 ),

@@ -72,7 +72,7 @@ void main() {
     }
 
     Future<void> close() async {
-      await tester.tap(find.byTooltip('Zur Bibliothek'));
+      await tester.tap(find.byTooltip('Back to library'));
       await markdownIo(
         tester,
         () => find.byType(MarkdownEditorPage).evaluate().isEmpty,

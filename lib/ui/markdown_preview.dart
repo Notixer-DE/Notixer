@@ -154,7 +154,7 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
             if (mounted && generation == _generation) {
               setState(() {
                 _pendingSource = null;
-                _error = 'Vorschau konnte nicht geladen werden: $error';
+                _error = 'Could not load the preview: $error';
               });
             }
           });
@@ -314,14 +314,13 @@ class _MarkdownBlockState extends State<_MarkdownBlock>
         final bytes = widget.assets[markdownAssetPath(uri)];
         if (bytes == null) {
           return Text(
-            'Bild nicht verfügbar: ${alt ?? uri}. Externe Bilder werden nicht automatisch geladen.',
+            'Image unavailable: ${alt ?? uri}. External images are not loaded automatically.',
           );
         }
         return Image.memory(
           bytes,
           cacheWidth: 1400,
-          errorBuilder: (_, _, _) =>
-              const Text('Bild kann nicht angezeigt werden.'),
+          errorBuilder: (_, _, _) => const Text('Could not display the image.'),
         );
       },
       checkboxBuilder: (checked) {

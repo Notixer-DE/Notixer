@@ -11,4 +11,4 @@ elif (root / '.tooling/flutter/bin/flutter').exists():
 elif shutil.which('flutter'):
     sdk = Path(shutil.which('flutter')).resolve().parent.parent
 else:
-    raise SystemExit('Flutter fehlt. FLUTTER_SDK setzen oder Flutter zu PATH hinzufügen.')
+    raise SystemExit('Flutter is missing. Set FLUTTER_SDK or add Flutter to PATH.')

@@ -62,7 +62,7 @@ class _StudyPageState extends State<StudyPage> {
             }
           }
         } catch (e) {
-          errors.add('„${note.title}“ konnte nicht geprüft werden: $e');
+          errors.add('„${note.title}“ could not be checked: $e');
         }
       }
       tasks.sort((a, b) {
@@ -80,7 +80,7 @@ class _StudyPageState extends State<StudyPage> {
         return page != 0 ? page : a.target.id.compareTo(b.target.id);
       });
     } catch (e) {
-      errors.add('Aufgaben konnten nicht geladen werden: $e');
+      errors.add('Could not load tasks: $e');
     } finally {
       if (mounted) {
         setState(() {
@@ -101,37 +101,44 @@ class _StudyPageState extends State<StudyPage> {
     if (_opening) return;
     setState(() => _opening = true);
     try {
-      final note = (await widget.repository.list())
-          .where((n) => n.id == task.note.id)
-          .firstOrNull;
-      if (note == null) {
-        throw StateError('Die Notiz wurde entfernt.');
-      }
-      final bytes = await widget.repository.load(note.id);
-      final target = (await scanTapes(
-        bytes,
-      )).where((t) => t.id == task.target.id).firstOrNull;
-      if (target == null) {
-        throw StateError('Die Abdeckung wurde entfernt.');
-      }
-      if (!mounted) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => EditorPage(
-            note: note,
-            bytes: bytes,
-            repository: widget.repository,
-            initialPage: target.page,
-            initialTapeId: target.id,
+      StudyTask? next = task;
+      while (mounted && next != null) {
+        final current = next;
+        var rated = false;
+        final note = (await widget.repository.list())
+            .where((n) => n.id == current.note.id)
+            .firstOrNull;
+        if (note == null) {
+          throw StateError('The note was removed.');
+        }
+        final bytes = await widget.repository.load(note.id);
+        final target = (await scanTapes(
+          bytes,
+        )).where((t) => t.id == current.target.id).firstOrNull;
+        if (target == null) {
+          throw StateError('The study cover was removed.');
+        }
+        if (!mounted) return;
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => EditorPage(
+              note: note,
+              bytes: bytes,
+              repository: widget.repository,
+              initialPage: target.page,
+              initialTapeId: target.id,
+              onReviewRated: () => rated = true,
+            ),
           ),
-        ),
-      );
+        );
+        if (!mounted || !rated) break;
+        await _load();
+        next = _tasks.firstOrNull;
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Lernaufgabe konnte nicht geöffnet werden: $e'),
-          ),
+          SnackBar(content: Text('Could not open the study task: $e')),
         );
       }
     } finally {
@@ -151,10 +158,10 @@ class _StudyPageState extends State<StudyPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('Heute lernen'),
+      title: const Text('Study today'),
       actions: [
         IconButton(
-          tooltip: 'Aufgaben neu laden',
+          tooltip: 'Reload tasks',
           onPressed: _loading || _opening ? null : _load,
           icon: const Icon(Icons.refresh),
         ),
@@ -167,9 +174,9 @@ class _StudyPageState extends State<StudyPage> {
           Padding(
             padding: const EdgeInsets.all(16),
             child: Text(
-              '${_tasks.length} jetzt fällige Aufgaben · $_total Abdeckungen\n'
-              'Neue Abdeckungen sind sofort fällig. Nach dem Aufdecken bewerten; '
-              'gelernt wird direkt im Originaldokument.',
+              '${_tasks.length} ${_tasks.length == 1 ? 'task' : 'tasks'} due now · $_total ${_total == 1 ? 'cover' : 'covers'}\n'
+              'New covers are due immediately. Reveal the answer and rate it; '
+              'study directly in the original document.',
             ),
           ),
           Expanded(
@@ -190,11 +197,11 @@ class _StudyPageState extends State<StudyPage> {
                   return ListTile(
                     title: Text(
                       _errors.isEmpty
-                          ? 'Für jetzt ist alles erledigt.'
-                          : 'Keine fälligen Aufgaben in den lesbaren Notizen.',
+                          ? 'All done for now.'
+                          : 'No tasks due in readable notes.',
                     ),
                     subtitle: const Text(
-                      'Neue Aufgaben entstehen durch Lern-Abdeckungen im Editor.',
+                      'Create new tasks by drawing study covers in the editor.',
                     ),
                   );
                 }
@@ -203,15 +210,15 @@ class _StudyPageState extends State<StudyPage> {
                   key: ValueKey('${task.note.id}:${task.target.id}'),
                   leading: const Icon(Icons.school_outlined),
                   title: Text(
-                    '${task.note.title} · Seite ${task.target.page + 1}',
+                    '${task.note.title} · Page ${task.target.page + 1}',
                   ),
                   subtitle: Text(
-                    'Abdeckung ${task.target.index + 1} · '
+                    'Cover ${task.target.index + 1} · '
                     '${task.schedule == null
-                        ? "Neu"
+                        ? "New"
                         : task.schedule!.concurrent
-                        ? "Parallele Bewertungen · fällig"
-                        : "${task.schedule!.count} Bewertungen · fällig"}',
+                        ? "Concurrent ratings · due"
+                        : "${task.schedule!.count} ${task.schedule!.count == 1 ? 'rating' : 'ratings'} · due"}',
                   ),
                   onTap: _loading || _opening ? null : () => _open(task),
                 );

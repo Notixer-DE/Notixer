@@ -1,19 +1,19 @@
-# Notixer-Sync-Server
+# Notixer sync server
 
-Selbst gehosteter Synchronisationsserver für Notixer (Loco/Rust, PostgreSQL, Docker Compose) ohne externe Cloud-Abhängigkeiten, ausgelegt für den Eigenbetrieb.
+A self-hosted synchronization server for Notixer using Loco/Rust, PostgreSQL and Docker Compose. It runs without an external cloud service and is intended for self-hosting.
 
-## Einrichtung (Docker Compose)
+## Setup with Docker Compose
 
-1. Konfigurationsdatei anlegen und ein zufälliges Datenbankpasswort (Hex-Zeichen) in `.env` setzen:
+1. Create the configuration and set a random database password (hexadecimal characters) in `.env`:
 
    ```sh
    cp .env.example .env
    openssl rand -hex 32
    ```
 
-   `.env` niemals committen oder weitergeben.
+   Never commit or share `.env`.
 
-2. Server starten und Gesundheit prüfen:
+2. Start the server and check its health:
 
    ```sh
    docker compose config --quiet
@@ -21,61 +21,63 @@ Selbst gehosteter Synchronisationsserver für Notixer (Loco/Rust, PostgreSQL, Do
    curl --fail http://127.0.0.1:5150/api/v1/health
    ```
 
-3. **TLS / Reverse Proxy:** Die API bindet standardmäßig ausschließlich auf `127.0.0.1:5150`. Für den Zugriff von anderen Geräten einen Reverse Proxy mit gültigem TLS-Zertifikat davorschalten (Streaming, mindestens `4 MiB + 28 Bytes` Request-Body und passende Upload-Timeouts erlauben; `Authorization`-Header und Bodies nicht protokollieren; Rate-Limits einrichten).
+3. The API binds to `127.0.0.1:5150` by default. To connect other devices, place a reverse proxy with a valid TLS certificate in front of it. Support streaming, request bodies of at least **4 MiB + 28 bytes**, and suitable upload timeouts. Avoid logging Authorization headers or request bodies, and configure rate limits.
 
-   Für lokale LAN-Tests ohne TLS lässt sich in der App beim Einrichten explizit **HTTP für diese neue Verbindung erlauben** aktivieren. Dabei werden Geräte-Tokens und Verbindungsmetadaten nicht transportverschlüsselt – für produktive Nutzung immer HTTPS verwenden.
+   For deliberate LAN tests without TLS, enable **Allow HTTP for this new connection** in the app. Device tokens and connection metadata are then unencrypted in transit. Use HTTPS for production.
 
-## Konten und Geräte verwalten
+## Accounts and devices
 
-Die Registrierung ist geschlossen und erfolgt ausschließlich über die Server-CLI:
+Public registration is disabled. Manage accounts and device access using the admin dashboard at `/admin` or the server CLI. Change the initial dashboard credentials before exposing it to other users.
 
 ```sh
 docker compose exec server noter-server admin create-account
 docker compose exec server noter-server admin add-device ACCOUNT_UUID
 ```
 
-`add-device` gibt die Geräte-ID und einen zufälligen 256-Bit-Zugangstoken **einmalig** aus (auf dem Server wird nur der SHA-256-Hash gespeichert). Für jedes Gerät ein eigenes Token erzeugen und geheim halten.
+`add-device` displays the device ID and a random 256-bit access token **once**. The server stores only its SHA-256 hash. Generate a separate token for each device and keep it secret.
 
-### Gerät in der App verbinden
+### Connect a device
 
-1. In Notixer **Eigener Sync-Server** öffnen, Serveradresse (ohne Pfad) und Geräte-Token eingeben.
-2. Auf dem ersten Gerät einen **Wiederherstellungsschlüssel** erzeugen und sicher außerhalb des Geräts aufbewahren.
-3. Verbinden und synchronisieren.
-4. Auf weiteren Geräten jeweils ein eigenes Geräte-Token desselben Kontos und **denselben** Wiederherstellungsschlüssel verwenden.
+1. Open **Self-hosted sync server** in Notixer and enter the server address without a path and the device access token.
+2. On the first device, generate a **Recovery key** and store a copy safely outside the device.
+3. Connect and sync.
+4. On additional devices, use a separate device token for the same account and the **same recovery key**.
 
-Tokens und Schlüssel werden ausschließlich im System-Schlüsselbund (Android Keystore / Linux Secret Service / Windows) gespeichert.
+Tokens and keys are stored in the system keychain (Android Keystore, Linux Secret Service, or Windows secure storage).
 
-### Gerät sperren (bei Verlust)
+### Revoke a lost device
 
 ```sh
 docker compose exec server noter-server admin revoke-device DEVICE_UUID
 ```
 
-Der Widerruf blockiert neue Anfragen dieses Geräts, löscht aber keine bereits heruntergeladenen Daten und rotiert nicht den Tresorschlüssel. Bei Kompromittierung des Tresorschlüssels muss ein neues Konto mit neuem Schlüssel eingerichtet werden.
+Revocation blocks new requests from that device. It does not delete data already downloaded or rotate the vault key. If the vault key is compromised, create a new account with a new key.
 
-## Verschlüsselung & Datensicherheit
+Disconnecting in the app only removes local credentials; revoke the device on the server to block its token.
 
-- **End-to-End-Verschlüsselung:** Zufälliger 32-Byte-Tresorschlüssel auf dem Endgerät, Schlüsselableitung über HKDF-HMAC-SHA-256 und Verschlüsselung mit AES-256-GCM (inkl. authentifizierter Metadaten via AAD).
-- **Geschützt:** Dokumente, Titel, Tags, Ordnernamen, fachliche Metadaten und Lernverläufe.
-- **Für den Server sichtbar:** Konten-/Gerätekennungen, verschlüsselte Blockgrößen, Revisionsbeziehungen, Reihenfolge sowie Zugriffs- und Netzwerkmetadaten.
-- **Speicher:** PostgreSQL (`postgres_data`) verwaltet Konten, Token-Hashes, Journal und verschlüsselte Revisionsmanifeste; `noter_files` speichert die auf dem Client verschlüsselten 4-MiB-Blöcke. Standardkontingent: 100 GiB und 1.000.000 Revisionen pro Konto.
+## Encryption and storage
 
-## Backup & Updates
+- A random 32-byte vault key is generated on the client. Keys are derived with HKDF-HMAC-SHA-256; AES-256-GCM encrypts data and authenticates metadata through AAD.
+- Documents, titles, tags, folder names, application metadata and study history are encrypted.
+- The server can see account/device identifiers, encrypted block sizes, revision relationships and order, and access/network metadata.
+- PostgreSQL (`postgres_data`) stores accounts, token hashes, the journal and encrypted revision manifests. `noter_files` stores encrypted 4-MiB blocks. Default account quota: 100 GiB and 1,000,000 revisions.
 
-Für ein konsistentes Backup Server kurz anhalten, Datenbank und Dateivolume **gemeinsam** sichern und anschließend neu starten:
+## Backups and updates
+
+For a consistent backup, briefly stop the server and back up the database and file volume **together**:
 
 ```sh
 docker compose stop server
-# PostgreSQL per pg_dump sichern und zeitgleich Volume noter_files sichern
+# Use pg_dump for PostgreSQL and back up noter_files at the same point in time.
 docker compose up -d server
 ```
 
-Datenbank-Dump und `noter_files` gehören zusammen und müssen getrennt vom Client-Wiederherstellungsschlüssel aufbewahrt werden.
+The database dump and `noter_files` belong together. Keep them separate from the client recovery key.
 
-- **Updates:** Nach vorherigem Backup `docker compose up -d --build --wait` ausführen (Migrationen laufen automatisch; destruktive Rollbacks sind deaktiviert).
-- **Achtung:** `docker compose down` behält die Volumes; **`docker compose down -v` löscht alle Serverdaten unwiderruflich**.
+- Before updating, take a backup. Then run `docker compose up -d --build --wait`. Migrations run automatically; destructive rollbacks are disabled.
+- `docker compose down` preserves volumes. **`docker compose down -v` permanently deletes all server data.**
 
-## Tests
+## Checks
 
 ```sh
 cargo fmt --manifest-path server/Cargo.toml --check
@@ -83,8 +85,8 @@ cargo test --manifest-path server/Cargo.toml --locked
 cargo clippy --manifest-path server/Cargo.toml --locked --all-targets -- -D warnings
 ```
 
-Für einen vollständigen Ende-zu-Ende-Integrationstest mit Compose und zwei Flutter-Clients:
+Run the complete Compose integration test with two Flutter clients using:
 
 ```sh
-FLUTTER_BIN=/pfad/zu/flutter python3 tools/test-sync-server.py
+FLUTTER_BIN=/path/to/flutter python3 tools/test-sync-server.py
 ```

@@ -108,30 +108,30 @@ class EditorToolbar extends StatelessWidget {
                   scrollDirection: Axis.horizontal,
                   children: [
                     tool(
-                      'Rückgängig',
+                      'Undo',
                       Icons.undo,
                       editing.canUndo ? editing.undo : null,
                     ),
                     tool(
-                      'Text auswählen',
+                      'Select text',
                       Icons.text_fields,
                       onTextSelection,
                       selected: normal && editing.tool == null,
                     ),
                     tool(
-                      'Stift',
+                      'Pen',
                       Icons.edit_outlined,
                       () => onTool(PdfEditTool.ink),
                       selected: normal && editing.tool == PdfEditTool.ink,
                     ),
                     tool(
-                      'Freihandmarker',
+                      'Highlighter',
                       Icons.highlight_outlined,
                       () => onTool(PdfEditTool.highlight),
                       selected: normal && editing.tool == PdfEditTool.highlight,
                     ),
                     tool(
-                      'Gerade Striche (Lineal)',
+                      'Straight strokes (ruler)',
                       Icons.straighten,
                       () async {
                         try {
@@ -141,9 +141,7 @@ class EditorToolbar extends StatelessWidget {
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text(
-                                  'Linealmodus konnte nicht gespeichert werden: $e',
-                                ),
+                                content: Text('Could not save ruler mode: $e'),
                               ),
                             );
                           }
@@ -152,20 +150,20 @@ class EditorToolbar extends StatelessWidget {
                       selected: catalog.drawingPreferences.straightStrokes,
                     ),
                     tool(
-                      'Radierer',
+                      'Eraser',
                       Icons.auto_fix_normal,
                       () => onTool(PdfEditTool.eraser),
                       selected: editing.tool == PdfEditTool.eraser,
                     ),
                     tool(
-                      'Lasso-Auswahl',
+                      'Lasso selection',
                       Icons.gesture,
                       onLasso,
                       selected:
                           lassoActive && editing.tool == PdfEditTool.select,
                     ),
                     tool(
-                      'Auswählen',
+                      'Select',
                       Icons.near_me_outlined,
                       () => onTool(PdfEditTool.select),
                       selected: normal && editing.tool == PdfEditTool.select,
@@ -226,21 +224,21 @@ class EditorToolbar extends StatelessWidget {
                         ),
                       ),
                     tool(
-                      'Text einfügen',
+                      'Insert text',
                       Icons.text_fields_outlined,
                       () => onTool(PdfEditTool.freeText),
                       selected: normal && editing.tool == PdfEditTool.freeText,
                     ),
-                    tool('Bild einfügen', Icons.image_outlined, onImage),
+                    tool('Insert image', Icons.image_outlined, onImage),
                     tool(
-                      'Lern-Abdeckung zeichnen',
+                      'Draw study cover',
                       Icons.rectangle_outlined,
                       onTape,
                       selected:
                           tapeActive && editing.tool == PdfEditTool.select,
                     ),
                     tool(
-                      'Wiederholen',
+                      'Redo',
                       Icons.redo,
                       editing.canRedo ? editing.redo : null,
                     ),
@@ -251,14 +249,14 @@ class EditorToolbar extends StatelessWidget {
                 for (final c in _editorColors)
                   IconButton(
                     tooltip:
-                        'Farbe #${(c & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}',
+                        'Color #${(c & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}',
                     onPressed: session.toolsReady
                         ? () => _applyColor(editing, Color(c))
                         : null,
                     icon: Icon(Icons.circle, color: Color(c), size: 20),
                   ),
               IconButton(
-                tooltip: 'Farbe und Strichstärke',
+                tooltip: 'Tool settings',
                 onPressed: !session.toolsReady
                     ? null
                     : () => showDialog<void>(
@@ -306,10 +304,7 @@ class _ToolStyleDialogState extends State<_ToolStyleDialog> {
       if (mounted) setState(() => _storageError = null);
     } catch (e) {
       if (mounted) {
-        setState(
-          () =>
-              _storageError = 'Einstellung konnte nicht gespeichert werden: $e',
-        );
+        setState(() => _storageError = 'Could not save the setting: $e');
       }
     }
   }
@@ -325,7 +320,7 @@ class _ToolStyleDialogState extends State<_ToolStyleDialog> {
     final p = widget.preferences;
     return AlertDialog(
       scrollable: true,
-      title: const Text('Farbe und Strichstärke'),
+      title: const Text('Tool settings'),
       content: SizedBox(
         width: 340,
         child: Column(
@@ -337,7 +332,7 @@ class _ToolStyleDialogState extends State<_ToolStyleDialog> {
                 for (final c in _editorColors)
                   IconButton(
                     tooltip:
-                        'Farbe #${(c & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}',
+                        'Color #${(c & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}',
                     onPressed: () => setState(() {
                       _applyColor(widget.editing, Color(c));
                       _hex.text = (c & 0xFFFFFF)
@@ -354,7 +349,7 @@ class _ToolStyleDialogState extends State<_ToolStyleDialog> {
               controller: _hex,
               maxLength: 6,
               decoration: InputDecoration(
-                labelText: 'Farbe (Hex)',
+                labelText: 'Color (hex)',
                 prefixText: '#',
                 errorText: _error,
               ),
@@ -366,11 +361,11 @@ class _ToolStyleDialogState extends State<_ToolStyleDialog> {
                   );
                   _error = null;
                 } else {
-                  _error = 'Sechs Hex-Zeichen eingeben.';
+                  _error = 'Enter six hexadecimal digits.';
                 }
               }),
             ),
-            Text('Strichstärke: ${p.strokeWidth.toStringAsFixed(1)} pt'),
+            Text('Stroke width: ${p.strokeWidth.toStringAsFixed(1)} pt'),
             Slider(
               value: p.strokeWidth.clamp(.5, 30),
               min: .5,
@@ -380,7 +375,7 @@ class _ToolStyleDialogState extends State<_ToolStyleDialog> {
                 widget.editing.restyleSelected(strokeWidth: value);
               }),
             ),
-            Text('Deckkraft: ${(p.opacity * 100).round()} %'),
+            Text('Opacity: ${(p.opacity * 100).round()} %'),
             Slider(
               value: p.opacity.clamp(.05, 1),
               min: .05,
@@ -393,7 +388,7 @@ class _ToolStyleDialogState extends State<_ToolStyleDialog> {
             SwitchListTile(
               key: const ValueKey('fixed-pressure-ink'),
               contentPadding: EdgeInsets.zero,
-              title: const Text('Feste Strichstärke – Stift'),
+              title: const Text('Fixed width – pen'),
               value: !widget.drawing.pressureSensitive('ink'),
               onChanged: (value) => _changeDrawing(
                 widget.drawing.setPressureSensitive('ink', !value),
@@ -402,18 +397,34 @@ class _ToolStyleDialogState extends State<_ToolStyleDialog> {
             SwitchListTile(
               key: const ValueKey('fixed-pressure-highlight'),
               contentPadding: EdgeInsets.zero,
-              title: const Text('Feste Strichstärke – Freihandmarker'),
+              title: const Text('Fixed width – highlighter'),
               value: !widget.drawing.pressureSensitive('highlight'),
               onChanged: (value) => _changeDrawing(
                 widget.drawing.setPressureSensitive('highlight', !value),
               ),
+            ),
+            const Divider(),
+            Text(
+              'Eraser diameter: ${(p.eraserRadius * 2).toStringAsFixed(0)} pt',
+            ),
+            Slider(
+              key: const ValueKey('eraser-diameter'),
+              value: (p.eraserRadius * 2).clamp(4, 80),
+              min: 4,
+              max: 80,
+              label: '${(p.eraserRadius * 2).round()} pt',
+              onChanged: (diameter) =>
+                  setState(() => p.eraserRadius = diameter / 2),
+            ),
+            const Text(
+              'Applies to the eraser and stylus side button. Pen width is independent.',
             ),
             SwitchListTile(
               key: const ValueKey('whole-stroke-eraser'),
               contentPadding: EdgeInsets.zero,
               title: const Text('Ganze Striche radieren'),
               subtitle: const Text(
-                'Gilt auch für die Stylus-Seitentaste. Aus: punktuell radieren.',
+                'Also applies to the stylus side button. Off: erase parts of strokes.',
               ),
               value: widget.drawing.wholeStrokeEraser,
               onChanged: (value) =>
@@ -430,7 +441,7 @@ class _ToolStyleDialogState extends State<_ToolStyleDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Fertig'),
+          child: const Text('Done'),
         ),
       ],
     );

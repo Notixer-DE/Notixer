@@ -381,11 +381,6 @@ class InkLayer extends StatelessWidget {
                   ),
                 ),
               ),
-            Positioned.fill(
-              child: CustomPaint(
-                painter: _SelectionPainter(controller, page, geometry),
-              ),
-            ),
           ],
         );
       },
@@ -739,35 +734,6 @@ class _LivePainter extends CustomPainter {
   @override
   bool shouldRepaint(_LivePainter old) =>
       old.geometry != geometry || old.live != live;
-}
-
-class _SelectionPainter extends CustomPainter {
-  _SelectionPainter(this.controller, this.page, this.geometry)
-    : super(repaint: controller);
-  final InkController controller;
-  final String page;
-  final PdfPageGeometry geometry;
-  @override
-  void paint(Canvas canvas, Size size) {
-    for (final id in controller.selected) {
-      final stroke = controller.preview[id] ?? controller.index[id];
-      if (stroke == null || stroke.page != page) continue;
-      final b = stroke.bounds;
-      canvas.drawRect(
-        geometry.toViewRect(PdfRect(b.left, b.top, b.right, b.bottom)),
-        Paint()
-          ..color = const Color(0xff238b7e)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_SelectionPainter old) =>
-      old.controller != controller ||
-      old.page != page ||
-      old.geometry != geometry;
 }
 
 /// Thumbnails and the writing loupe use the same stroke model/cache as the

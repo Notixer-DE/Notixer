@@ -63,7 +63,7 @@ class PdfWholeStrokeEraser {
   void finish({bool cancel = false}) {
     if (cancel || _hit.isEmpty) return;
     if (editing.revisionId != revision) {
-      throw StateError('Die PDF wurde während des Radierens verändert.');
+      throw StateError('The PDF changed while erasing.');
     }
     editing.apply((editor) {
       for (final entry in _hit.entries) {

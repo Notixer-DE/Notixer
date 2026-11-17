@@ -24,13 +24,13 @@ List<int> _metadataBytes(Notebook note) {
   final basic = Map<String, Object?>.of(json)..remove('learning');
   if (utf8.encode(jsonEncode(basic)).length > 65536) {
     throw const FormatException(
-      'Titel, Ordner und Tags dürfen zusammen höchstens 64 KB belegen.',
+      'Titles, folders and tags may use at most 64 KB in total.',
     );
   }
   final bytes = utf8.encode(jsonEncode(json));
   if (bytes.length > maxNotebookMetadataBytes) {
     throw const FormatException(
-      'Der Lernverlauf ist zu groß (maximal 8 MB). Bitte eine Sicherung exportieren.',
+      'Study history is too large (maximum 8 MB). Please export a backup.',
     );
   }
   return bytes;
@@ -103,7 +103,7 @@ class Notebook {
     final basic = Map<String, dynamic>.of(json)..remove('learning');
     if (utf8.encode(jsonEncode(basic)).length > 65536) {
       throw const FormatException(
-        'Titel, Ordner und Tags dürfen zusammen höchstens 64 KB belegen.',
+        'Titles, folders and tags may use at most 64 KB in total.',
       );
     }
     if (![1, 2, 3, 4].contains(json['version']) ||
@@ -138,9 +138,7 @@ class Notebook {
           'pdf',
           if (json['version'] == 4) 'markdown',
         ].contains(json['paper'])) {
-      throw const FormatException(
-        'Ungültige oder nicht unterstützte Notizdatei.',
-      );
+      throw const FormatException('Invalid or unsupported note file.');
     }
     return Notebook(
       id: json['id'],
@@ -165,17 +163,17 @@ class Notebook {
 void validatePdf(Uint8List bytes) {
   if (bytes.length < 8 ||
       !String.fromCharCodes(bytes.take(1024)).contains('%PDF-')) {
-    throw const FormatException('Die Datei ist kein gültiges PDF.');
+    throw const FormatException('The file is not a valid PDF.');
   }
   try {
     final pdf = PdfDocument.open(bytes);
     if (pdf.cos.isEncrypted) {
       throw const FormatException(
-        'Passwortgeschützte PDFs werden noch nicht unterstützt.',
+        'Password-protected PDFs are not supported yet.',
       );
     }
     if (pdf.pageCount < 1) {
-      throw const FormatException('Das PDF enthält keine Seiten.');
+      throw const FormatException('The PDF has no pages.');
     }
     for (var i = 0; i < pdf.pageCount; i++) {
       pdf.page(i);
@@ -183,9 +181,7 @@ void validatePdf(Uint8List bytes) {
   } on FormatException {
     rethrow;
   } catch (_) {
-    throw const FormatException(
-      'Das PDF ist beschädigt oder passwortgeschützt.',
-    );
+    throw const FormatException('The PDF is corrupted or password-protected.');
   }
 }
 
@@ -255,7 +251,7 @@ class LocalNotebookRepository implements NotebookRepository {
 
   File _file(String id) {
     if (!RegExp(r'^[a-zA-Z0-9_-]{1,100}$').hasMatch(id)) {
-      throw const FormatException('Ungültige Dokument-ID.');
+      throw const FormatException('Invalid document ID.');
     }
     return File(p.join(directory.path, '$id.noter'));
   }
@@ -282,7 +278,7 @@ class LocalNotebookRepository implements NotebookRepository {
     if (ink != null) {
       final bytes = ink.encode();
       if (bytes.length > InkDocument.maxBytes || note.isMarkdown) {
-        throw const FormatException('Ungültige oder zu große Tintenebene.');
+        throw const FormatException('Invalid or oversized ink layer.');
       }
       archive.addFile(ArchiveFile('ink.json', bytes.length, bytes));
     }
@@ -297,16 +293,16 @@ class LocalNotebookRepository implements NotebookRepository {
   static (Notebook, Uint8List, InkDocument?) decodeWithInk(Uint8List bytes) {
     if (bytes.length > 256 * 1024 * 1024) {
       throw const FormatException(
-        'Die Notizdatei ist zu groß (maximal 256 MB).',
+        'The note file is too large (maximum 256 MB).',
       );
     }
     final archive = ZipDecoder().decodeBytes(bytes, verify: true);
     if (archive.files.length != 2 && archive.files.length != 3) {
-      throw const FormatException('Ungültiges Notizarchiv.');
+      throw const FormatException('Invalid note archive.');
     }
     final manifest = archive.find('manifest.json');
     if (manifest == null || manifest.size > maxNotebookMetadataBytes) {
-      throw const FormatException('Ungültiges Notizarchiv.');
+      throw const FormatException('Invalid note archive.');
     }
     final note = Notebook.fromJson(
       jsonDecode(utf8.decode(manifest.content)) as Map<String, dynamic>,
@@ -315,7 +311,7 @@ class LocalNotebookRepository implements NotebookRepository {
       note.isMarkdown ? 'document.markdown.zip' : 'document.pdf',
     );
     if (pdf == null || pdf.size > 256 * 1024 * 1024) {
-      throw const FormatException('Ungültiges Notizarchiv.');
+      throw const FormatException('Invalid note archive.');
     }
     final ink = archive.find('ink.json');
     if (archive.files.any((f) => !f.isFile) ||
@@ -323,7 +319,7 @@ class LocalNotebookRepository implements NotebookRepository {
             archive.files.length ||
         (archive.files.length == 3 && (ink == null || note.isMarkdown)) ||
         (ink != null && ink.size > InkDocument.maxBytes)) {
-      throw const FormatException('Ungültiges Notizarchiv.');
+      throw const FormatException('Invalid note archive.');
     }
     return (
       note,
@@ -391,7 +387,7 @@ class LocalNotebookRepository implements NotebookRepository {
       if (decoded != null) {
         final note = decoded.$1;
         if (note.id != id) {
-          throw const FormatException('Falsche Sync-Notiz-ID.');
+          throw const FormatException('Incorrect sync note ID.');
         }
         final folder = note.folderName == null
             ? null
@@ -472,7 +468,7 @@ class LocalNotebookRepository implements NotebookRepository {
     InkEdit edit,
   ) => _serialize(() async {
     if (_failedInkJournals.contains(id)) {
-      throw StateError('Das Tintenjournal benötigt einen Checkpoint.');
+      throw StateError('The ink journal needs a checkpoint.');
     }
     try {
       final file = _inkJournal(id);
@@ -550,7 +546,7 @@ class LocalNotebookRepository implements NotebookRepository {
     return save(
       Notebook(
         id: newId(),
-        title: title.trim().isEmpty ? 'Neue Notiz' : title.trim(),
+        title: title.trim().isEmpty ? 'New note' : title.trim(),
         created: now,
         modified: now,
         paper: paper,
@@ -628,7 +624,7 @@ class LocalNotebookRepository implements NotebookRepository {
     });
     final (note, pdf, ink) = await decodeInkValidated(archive);
     if (note.id != entry.note.id) {
-      throw const FormatException('Falsche Wiederherstellungs-ID.');
+      throw const FormatException('Incorrect recovery ID.');
     }
     await catalog.load();
     final folderName = catalog.folderName(note.folderId) ?? note.folderName;
@@ -638,7 +634,7 @@ class LocalNotebookRepository implements NotebookRepository {
     final now = _clock();
     final restored = Notebook(
       id: newId(),
-      title: '${note.title} (Wiederhergestellt)',
+      title: '${note.title} (Restored)',
       created: now,
       modified: now,
       paper: note.paper,
@@ -729,11 +725,11 @@ Future<List<RecoveryEntry>> _listRecovery(String path, String? id) =>
         if (!file.path.endsWith('.noter')) continue;
         final key = p.basenameWithoutExtension(file.path);
         if (!RegExp(r'^[a-zA-Z0-9_-]{1,100}$').hasMatch(key)) {
-          throw const FormatException('Ungültige Wiederherstellungsdatei.');
+          throw const FormatException('Invalid recovery file.');
         }
         final note = _readNotebookMetadata(file);
         if (note.id != (id ?? key)) {
-          throw const FormatException('Falsche Wiederherstellungs-ID.');
+          throw const FormatException('Incorrect recovery ID.');
         }
         entries.add(
           RecoveryEntry(
@@ -757,7 +753,7 @@ Future<(List<Notebook>, List<String>)> _listNotebooks(String directory) =>
         try {
           final note = _readNotebookMetadata(entry);
           if (p.basenameWithoutExtension(entry.path) != note.id) {
-            throw const FormatException('Falsche ID');
+            throw const FormatException('Incorrect ID');
           }
           notes.add(note);
         } catch (_) {
@@ -770,7 +766,7 @@ Future<(List<Notebook>, List<String>)> _listNotebooks(String directory) =>
 
 Notebook _readNotebookMetadata(File file) {
   if (file.lengthSync() > 256 * 1024 * 1024) {
-    throw const FormatException('Notiz zu groß.');
+    throw const FormatException('The note is too large.');
   }
   final input = InputFileStream(file.path, bufferSize: 64 * 1024);
   try {
@@ -792,7 +788,7 @@ Notebook _readNotebookMetadata(File file) {
         pdf == null ||
         manifest.size > maxNotebookMetadataBytes ||
         pdf.size > 256 * 1024 * 1024) {
-      throw const FormatException('Ungültiges Notizarchiv.');
+      throw const FormatException('Invalid note archive.');
     }
     // ZIP entries are lazy: never read the PDF while listing metadata.
     return note!;
@@ -806,7 +802,7 @@ Future<Uint8List> _loadRecovery(String path, String id) => Isolate.run(() {
     File(path).readAsBytesSync(),
   );
   if (note.id != id) {
-    throw const FormatException('Falsche Wiederherstellungs-ID.');
+    throw const FormatException('Incorrect recovery ID.');
   }
   validateNotebookContent(note, pdf);
   return ink == null ? pdf : pdfWithInk(pdf, ink);
@@ -822,7 +818,7 @@ Future<(Uint8List, (InkDocument, String, int))> _loadNotebookWithInk(
   final (note, pdf, _) = content;
   validateNotebookContent(note, pdf);
   if (p.basenameWithoutExtension(path) != note.id) {
-    throw const FormatException('Falsche Notiz-ID.');
+    throw const FormatException('Incorrect note ID.');
   }
   return (pdf, _readInk(path, journal, content: content));
 }, debugName: 'noter:load-document');
@@ -969,7 +965,7 @@ void _writeNotebook(
 }) {
   final metadata = _metadataBytes(note);
   if (pdf.length > 256 * 1024 * 1024) {
-    throw const FormatException('Notizdatei zu groß (maximal 256 MB).');
+    throw const FormatException('The note file is too large (maximum 256 MB).');
   }
   if (note.isMarkdown) MarkdownDocument.decode(pdf);
   if (ink == null &&
@@ -992,7 +988,7 @@ void _writeNotebook(
   if (ink != null) {
     final bytes = ink.encode();
     if (bytes.length > InkDocument.maxBytes || note.isMarkdown) {
-      throw const FormatException('Ungültige oder zu große Tintenebene.');
+      throw const FormatException('Invalid or oversized ink layer.');
     }
     archive.addFile(ArchiveFile('ink.json', bytes.length, bytes));
   }
@@ -1006,7 +1002,7 @@ void _writeNotebook(
   }
   if (temporary.lengthSync() > 256 * 1024 * 1024) {
     temporary.deleteSync();
-    throw const FormatException('Notizdatei zu groß (maximal 256 MB).');
+    throw const FormatException('The note file is too large (maximum 256 MB).');
   }
   final handle = temporary.openSync(mode: FileMode.append);
   try {
@@ -1043,7 +1039,7 @@ Future<({Uint8List raw, Uint8List archive})?> _snapshotNotebook(
   final raw = file.readAsBytesSync();
   final (note, pdf, ink) = LocalNotebookRepository.decodeWithInk(raw);
   if (note.id != p.basenameWithoutExtension(path)) {
-    throw const FormatException('Falsche Notiz-ID.');
+    throw const FormatException('Incorrect note ID.');
   }
   return (
     raw: raw,
@@ -1069,9 +1065,7 @@ Future<void> _applySyncNotebook(
   final file = File(path);
   final current = file.existsSync() ? file.readAsBytesSync() : null;
   if (!listEquals(current, expected?.materialize().asUint8List())) {
-    throw StateError(
-      'Die Notiz wurde während der Synchronisierung verändert. Bitte erneut synchronisieren.',
-    );
+    throw StateError('The note changed during sync. Please sync again.');
   }
   if (note == null) {
     if (current != null) _moveToTrash(path);
@@ -1141,7 +1135,7 @@ Future<(InkDocument, String, int)> _loadInkNotebook(
     return (ink, base, saved);
   }
   if (journal.lengthSync() > InkDocument.maxBytes) {
-    throw const FormatException('Das Tintenjournal ist zu groß.');
+    throw const FormatException('The ink journal is too large.');
   }
   final text = journal.readAsStringSync();
   if (!text.endsWith('\n')) {
@@ -1154,13 +1148,13 @@ Future<(InkDocument, String, int)> _loadInkNotebook(
   }
   final lines = text.split('\n')
     ..removeLast(); // Ignore an incomplete final write.
-  if (lines.isEmpty) throw const FormatException('Beschädigtes Tintenjournal.');
+  if (lines.isEmpty) throw const FormatException('Corrupted ink journal.');
   final header = jsonDecode(lines.first) as Map<String, dynamic>;
   if (header['generation'] != ink.generation) {
     base = sha256.convert(decoded?.$2 ?? const <int>[]).toString();
     if (decoded?.$3 != null || header['base'] != base) {
       throw const FormatException(
-        'Das Tintenjournal gehört zu einer anderen Dokumentfassung.',
+        'The ink journal belongs to a different document version.',
       );
     }
     ink = InkDocument(generation: header['generation'] as String);
@@ -1172,7 +1166,7 @@ Future<(InkDocument, String, int)> _loadInkNotebook(
       final sequence = json['sequence'] as int;
       if (sequence <= controller.sequence) continue;
       if (sequence != controller.sequence + 1) {
-        throw const FormatException('Unvollständiges Tintenjournal.');
+        throw const FormatException('Incomplete ink journal.');
       }
       final add = [
         for (final s in json['add'] as List)
@@ -1181,7 +1175,7 @@ Future<(InkDocument, String, int)> _loadInkNotebook(
       final remove = [
         for (final id in json['remove'] as List)
           controller.index[id as String] ??
-              (throw const FormatException('Ungültiges Tintenjournal.')),
+              (throw const FormatException('Invalid ink journal.')),
       ];
       controller.apply(InkEdit(add: add, remove: remove));
     }

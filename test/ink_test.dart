@@ -538,7 +538,7 @@ void main() {
         final report = await NotebookSync(repo, remote).run();
         expect(report.conflicts, 1);
         final notes = await repo.list();
-        final conflict = notes.singleWhere((n) => n.title.contains('Konflikt'));
+        final conflict = notes.singleWhere((n) => n.title.contains('Conflict'));
         expect((await repo.openInk(conflict.id)).$1.strokes, hasLength(2));
       } finally {
         await second.flush();

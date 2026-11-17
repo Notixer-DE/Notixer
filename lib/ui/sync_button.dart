@@ -22,12 +22,10 @@ class SyncButton extends StatelessWidget {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          controller.error ?? 'Synchronisierung erfolgreich abgeschlossen.',
-        ),
+        content: Text(controller.error ?? 'Sync completed successfully.'),
         action: controller.error == null
             ? null
-            : SnackBarAction(label: 'Sync-Details', onPressed: onOpenDetails),
+            : SnackBarAction(label: 'Sync details', onPressed: onOpenDetails),
       ),
     );
     await onSynchronized();
@@ -41,12 +39,12 @@ class SyncButton extends StatelessWidget {
       final failed = controller.error != null;
       final completed = controller.lastSyncedAt != null;
       final label = controller.busy
-          ? 'Synchronisierung läuft'
+          ? 'Sync in progress'
           : failed
-          ? 'Synchronisierung fehlgeschlagen. Erneut versuchen'
+          ? 'Sync failed. Retry'
           : completed
-          ? 'Synchronisiert. Erneut synchronisieren'
-          : 'Jetzt synchronisieren';
+          ? 'Synced. Sync again'
+          : 'Sync now';
       return IconButton(
         tooltip: label,
         onPressed: disabled || controller.busy
@@ -57,7 +55,7 @@ class SyncButton extends StatelessWidget {
                 dimension: 20,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  semanticsLabel: 'Synchronisierung läuft',
+                  semanticsLabel: 'Sync in progress',
                 ),
               )
             : Icon(

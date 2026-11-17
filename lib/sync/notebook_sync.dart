@@ -92,8 +92,8 @@ class SyncReport {
   int uploaded = 0, downloaded = 0, deleted = 0, conflicts = 0;
   @override
   String toString() =>
-      '$uploaded hochgeladen · $downloaded heruntergeladen · '
-      '$deleted gelöscht · $conflicts Konfliktkopien';
+      '$uploaded uploaded · $downloaded downloaded · '
+      '$deleted deleted · $conflicts conflict copies';
 }
 
 /// Sync is explicitly scoped to the library: open editors are closed/flushed
@@ -108,7 +108,7 @@ class NotebookSync {
   /// With [noteId], only reconcile this note and any resulting conflict copies.
   /// [onlyIfChanged] skips even remote discovery when the local baseline matches.
   Future<SyncReport> run({String? noteId, bool onlyIfChanged = false}) async {
-    if (_running) throw const SyncFailure('Synchronisierung läuft bereits.');
+    if (_running) throw const SyncFailure('Sync is already running.');
     _running = true;
     try {
       return await _run(noteId: noteId, onlyIfChanged: onlyIfChanged);
@@ -119,13 +119,13 @@ class NotebookSync {
 
   Future<SyncReport> _run({String? noteId, required bool onlyIfChanged}) async {
     final report = SyncReport();
-    onProgress?.call('Konto und lokale Notizen prüfen …');
+    onProgress?.call('Checking the account and local notes …');
     final localIds = (await repository.syncIds()).toSet();
     // A stale manual selection must not become a deletion. Automatic sync
     // must still be able to publish a locally deleted note.
     if (noteId != null && !onlyIfChanged && !localIds.contains(noteId)) {
       throw const SyncFailure(
-        'Die ausgewählte Notiz ist nicht mehr vorhanden. Bitte erneut auswählen.',
+        'The selected note no longer exists. Please select it again.',
       );
     }
     final account = sha256
@@ -139,7 +139,7 @@ class NotebookSync {
       final json =
           jsonDecode(await stateFile.readAsString()) as Map<String, dynamic>;
       if (json['version'] != 1) {
-        throw const FormatException('Unbekannter Synchronisationsstand.');
+        throw const FormatException('Unknown sync state.');
       }
       state = Map<String, dynamic>.from(json['notes'] as Map);
     }
@@ -154,7 +154,7 @@ class NotebookSync {
         return report;
       }
     }
-    onProgress?.call('Verschlüsselte Revisionen laden …');
+    onProgress?.call('Loading encrypted revisions …');
     final revisions = <String, SyncRevision>{
       for (final r in await remote.list()) r.revision: r,
     };
@@ -165,7 +165,7 @@ class NotebookSync {
         final previous = revisions[parent];
         if (previous == null || previous.noteId != r.noteId) {
           throw const SyncFailure(
-            'Die Versionshistorie ist unvollständig. Es wurden keine lokalen Notizen ersetzt.',
+            'Version history is incomplete. No local notes were replaced.',
           );
         }
       }
@@ -192,7 +192,7 @@ class NotebookSync {
       final inspection = await _inspectArchive(bytes);
       if (inspection.$1 != r.digest || inspection.$2 != r.noteId) {
         throw const SyncFailure(
-          'Eine synchronisierte Notiz ist beschädigt. Die lokale Fassung bleibt erhalten.',
+          'A synced note is corrupted. The local version is preserved.',
         );
       }
       cache[r.revision] = bytes;
@@ -201,7 +201,7 @@ class NotebookSync {
 
     for (var index = 0; index < ids.length; index++) {
       final id = ids[index];
-      onProgress?.call('Notiz ${index + 1} von ${ids.length} abgleichen …');
+      onProgress?.call('Note ${index + 1} of ${ids.length}: syncing …');
       final snapshot = await repository.snapshotForSync(id);
       final hash = snapshot == null
           ? null
@@ -233,7 +233,7 @@ class NotebookSync {
           versions.where((r) => !superseded.contains(r.revision)).toList()
             ..sort((a, b) => a.revision.compareTo(b.revision));
       if (heads.isEmpty) {
-        throw const SyncFailure('Ungültige Versionshistorie.');
+        throw const SyncFailure('Invalid version history.');
       }
       final live = heads.where((r) => !r.deleted).toList();
       final winner = live.isEmpty ? heads.first : live.first;
@@ -285,7 +285,7 @@ class NotebookSync {
             : note.title;
         final copy = Notebook(
           id: conflictId,
-          title: '$title (Konflikt ${losing.digest.substring(0, 6)})',
+          title: '$title (Conflict ${losing.digest.substring(0, 6)})',
           created: note.created,
           modified: note.modified,
           paper: note.paper,

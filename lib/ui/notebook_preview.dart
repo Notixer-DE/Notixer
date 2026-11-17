@@ -135,7 +135,7 @@ class _NotebookPreviewState extends State<NotebookPreview> {
             }
             final page = snapshot.data!.page(0);
             return Semantics(
-              label: 'Vorschau der ersten Seite',
+              label: 'First-page preview',
               child: ExcludeSemantics(
                 child: Container(
                   height: widget.height,
@@ -231,7 +231,7 @@ class _MarkdownPreviewState extends State<_MarkdownPreview> {
           const SizedBox(height: 6),
           Expanded(
             child: Text(
-              snapshot.data?.$1 ?? 'Textnotiz',
+              snapshot.data?.$1 ?? 'Text note',
               overflow: TextOverflow.fade,
               style: Theme.of(context).textTheme.bodySmall,
             ),

@@ -63,41 +63,41 @@ void main() {
 
   final cases = <String, (String, List<String>, List<bool>)>{
     'loose list': (
-      '- [ ] Erste\n\n- [X] Zweite\n\n- [x] Dritte',
-      ['[ ] Erste', '[X] Zweite', '[x] Dritte'],
+      '- [ ] First\n\n- [X] Second\n\n- [x] Third',
+      ['[ ] First', '[X] Second', '[x] Third'],
       [false, true, true],
     ),
     'nested and quoted': (
-      '- [ ] Eltern\n  - [X] Kind\n\n> - [ ] Zitat\n\n- [x] Ende',
-      ['[ ] Eltern', '[X] Kind', '[ ] Zitat', '[x] Ende'],
+      '- [ ] Parent\n  - [X] Child\n\n> - [ ] Quote\n\n- [x] End',
+      ['[ ] Parent', '[X] Child', '[ ] Quote', '[x] End'],
       [false, true, false, true],
     ),
     'CRLF, tabs and alternate bullets': (
-      '*   [X]\tStern\r\n\r\n+ [ ] Plus\r\n\r\n1. [x] Nummer\r\n',
-      ['[X]\tStern', '[ ] Plus', '[x] Nummer'],
+      '*   [X]\tStar\r\n\r\n+ [ ] Plus\r\n\r\n1. [x] Number\r\n',
+      ['[X]\tStar', '[ ] Plus', '[x] Number'],
       [true, false, true],
     ),
     'empty tasks': (
-      '- [ ]\n\n- [X]\r\n\r\n- [x] Fertig',
-      ['[ ]', '[X]', '[x] Fertig'],
+      '- [ ]\n\n- [X]\r\n\r\n- [x] Done',
+      ['[ ]', '[X]', '[x] Done'],
       [false, true, true],
     ),
     'task with fenced code': (
-      '- [ ] ```dart\n  - [ ] Kein Task im Code\n  ```\n\n- [x] Echt',
-      ['[ ] ```', '[x] Echt'],
+      '- [ ] ```dart\n  - [ ] Not a task in code\n  ```\n\n- [x] Real',
+      ['[ ] ```', '[x] Real'],
       [false, true],
     ),
     'task with block label': (
-      '- [ ] ## Überschrift\n\n- [X] > Zitat\n\n- [ ] Weiter',
+      '- [ ] ## Heading\n\n- [X] > Quote\n\n- [ ] Weiter',
       ['[ ] ##', '[X] >', '[ ] Weiter'],
       [false, true, false],
     ),
     'literal examples are not tasks': (
       '```\n- [ ]\n- [x] Code\n```\n\n'
-          '    - [ ] Eingerückter Code\n\n'
+          '    - [ ] Indented code\n\n'
           r'- \[ ] Escaped'
-          '\n\n- [ ] Echt',
-      ['[ ] Echt'],
+          '\n\n- [ ] Real',
+      ['[ ] Real'],
       [false],
     ),
   };

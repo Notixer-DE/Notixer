@@ -19,7 +19,7 @@ class SyncCrypto {
   static Future<SyncCrypto> create(String recoveryKey, String account) async {
     final raw = base64Url.decode(recoveryKey.trim());
     if (raw.length != 32) {
-      throw const FormatException('Schlüssel muss 32 Bytes enthalten.');
+      throw const FormatException('The key must contain 32 bytes.');
     }
     Future<SecretKey> derive(String purpose) =>
         Hkdf(hmac: Hmac.sha256(), outputLength: 32).deriveKey(
@@ -60,7 +60,7 @@ class SyncCrypto {
 
   Future<Uint8List> decrypt(List<int> bytes, String context) async {
     if (bytes.length < 28) {
-      throw const FormatException('Verschlüsselte Daten unvollständig.');
+      throw const FormatException('Encrypted data is incomplete.');
     }
     if (bytes.length >= 65536) {
       final key = await _encryption.extractBytes();

@@ -154,7 +154,7 @@ void main() {
             isA<SyncFailure>().having(
               (e) => e.message,
               'message',
-              contains('erneut auswählen'),
+              contains('select it again'),
             ),
           ),
         );
@@ -172,10 +172,10 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(home: SyncPage(controller: controller)),
     );
-    await tester.tap(find.text('Jetzt synchronisieren'));
+    await tester.tap(find.text('Sync now'));
     await tester.pumpAndSettle();
     expect(controller.selections, [null]);
-    await tester.tap(find.text('Sync-Datei (optional)'));
+    await tester.tap(find.text('Sync note (optional)'));
     for (var i = 0; i < 150; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 15)),
@@ -186,7 +186,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('My note\n'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Ausgewählte Notiz synchronisieren'));
+    await tester.tap(find.text('Sync selected note'));
     for (var i = 0; i < 150 && controller.selections.length < 2; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 15)),
@@ -195,9 +195,9 @@ void main() {
     }
     await tester.pumpAndSettle();
     expect(controller.selections, [null, selected.id]);
-    await tester.tap(find.byTooltip('Auswahl aufheben'));
+    await tester.tap(find.byTooltip('Clear selection'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Jetzt synchronisieren'));
+    await tester.tap(find.text('Sync now'));
     await tester.pumpAndSettle();
     expect(controller.selections, [null, selected.id, null]);
     await tester.pumpWidget(const SizedBox.shrink());
