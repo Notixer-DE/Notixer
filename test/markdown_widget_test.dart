@@ -35,19 +35,19 @@ void main() {
   late LocalNotebookRepository repository;
   late Notebook a, b;
   const source =
-      '## Lernplan\n\n**Wichtige Gedanken** und normaler Text.\n\n'
-      '- [ ] Erste Aufgabe\n- [x] Zweite Aufgabe\n\n'
-      '```\n- [ ] Nur Code\n```\n';
+      '## Study plan\n\n**Important thoughts** und normal text.\n\n'
+      '- [ ] First task\n- [x] Second task\n\n'
+      '```\n- [ ] Code only\n```\n';
   setUp(() async {
     directory = await Directory.systemTemp.createTemp('noter-markdown-ui-');
     repository = LocalNotebookRepository(directory);
     final library = MarkdownLibrary(repository);
-    a = await library.create('Meine Textnotiz');
-    b = await library.create('Andere Notiz');
+    a = await library.create('My text note');
+    b = await library.create('Other note');
     a = await repository.save(a, MarkdownDocument(source).encode());
     await repository.save(
       b,
-      MarkdownDocument('## Zielabschnitt\n\nZurück zum Lernplan.').encode(),
+      MarkdownDocument('## Target section\n\nBack zum Study plan.').encode(),
     );
   });
   tearDown(() async {
@@ -71,7 +71,10 @@ void main() {
         ),
       ),
     );
-    await markdownIo(tester, () => find.text('Lernplan').evaluate().isNotEmpty);
+    await markdownIo(
+      tester,
+      () => find.text('Study plan').evaluate().isNotEmpty,
+    );
   }
 
   testWidgets('Tab indents selected source lines and code blocks render', (
@@ -84,6 +87,23 @@ void main() {
     await tester.tap(field);
     await tester.enterText(field, 'one\ntwo\nthree');
     final controller = tester.widget<TextField>(field).controller!;
+    final originalSize = tester.widget<TextField>(field).style!.fontSize!;
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.numpadAdd);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(field).style!.fontSize!,
+      greaterThan(originalSize),
+    );
+    expect(controller.text, 'one\ntwo\nthree');
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.minus);
+    await tester.sendKeyEvent(LogicalKeyboardKey.digit0);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    expect(tester.widget<TextField>(field).style!.fontSize, originalSize);
+
     controller.selection = const TextSelection(baseOffset: 0, extentOffset: 8);
     await tester.sendKeyEvent(LogicalKeyboardKey.tab);
     await tester.pump();
@@ -103,8 +123,8 @@ void main() {
       baseOffset: 0,
       extentOffset: controller.text.length,
     );
-    await tester.ensureVisible(find.byTooltip('Codeblock'));
-    await tester.tap(find.byTooltip('Codeblock'));
+    await tester.ensureVisible(find.byTooltip('Code block'));
+    await tester.tap(find.byTooltip('Code block'));
     await tester.pumpAndSettle();
     expect(controller.text, '\n```\nprint("hello");\n```\n');
     var saveFinished = false;
@@ -112,7 +132,7 @@ void main() {
     await markdownIo(tester, () => saveFinished);
     final saved = await tester.runAsync(() => repository.load(a.id));
     expect(MarkdownDocument.decode(saved!).source, controller.text);
-    await tester.tap(find.text('Formatiert'));
+    await tester.tap(find.text('Formatted'));
     await markdownIo(
       tester,
       () => find.textContaining('print("hello");').evaluate().isNotEmpty,
@@ -124,13 +144,13 @@ void main() {
     'desktop list toggles; source, formatting and checks share one saved document',
     (tester) async {
       await open(tester, const Size(1440, 1000));
-      expect(find.text('Meine Notizen'), findsNothing);
-      await tester.tap(find.byTooltip('Notizliste einblenden'));
+      expect(find.text('My notes'), findsNothing);
+      await tester.tap(find.byTooltip('Show note list'));
       await tester.pumpAndSettle();
-      expect(find.text('Meine Notizen'), findsOneWidget);
-      await tester.tap(find.byTooltip('Notizliste ausblenden'));
+      expect(find.text('My notes'), findsOneWidget);
+      await tester.tap(find.byTooltip('Hide note list'));
       await tester.pumpAndSettle();
-      expect(find.text('Meine Notizen'), findsNothing);
+      expect(find.text('My notes'), findsNothing);
 
       expect(find.byType(Checkbox), findsNWidgets(2));
       await tester.tap(find.byType(Checkbox).first);
@@ -139,33 +159,33 @@ void main() {
       var saved = await tester.runAsync(() => repository.load(a.id));
       expect(
         MarkdownDocument.decode(saved!).source,
-        contains('- [x] Erste Aufgabe'),
+        contains('- [x] First task'),
       );
       expect(
         MarkdownDocument.decode(saved).source,
-        contains('```\n- [ ] Nur Code\n```'),
+        contains('```\n- [ ] Code only\n```'),
       );
       await tester.tap(find.text('Markdown'));
       await tester.pumpAndSettle();
       final field = find.byKey(const ValueKey('markdown-source'));
       await tester.enterText(
         field,
-        '# Neue Überschrift\n\nNormaler Text\n\n- [ ] Neu\n',
+        '# New heading\n\nNormaler Text\n\n- [ ] Neu\n',
       );
-      await tester.tap(find.byTooltip('Fett'));
+      await tester.tap(find.byTooltip('Bold'));
       await tester.pumpAndSettle();
       expect(
         tester.widget<TextField>(field).controller!.text,
         contains('**Text**'),
       );
-      await tester.tap(find.text('Formatiert'));
+      await tester.tap(find.text('Formatted'));
       await markdownIo(
         tester,
-        () => find.text('Neue Überschrift').evaluate().isNotEmpty,
+        () => find.text('New heading').evaluate().isNotEmpty,
       );
       await markdownIo(
         tester,
-        () => find.byTooltip('Lokal gespeichert').evaluate().isNotEmpty,
+        () => find.byTooltip('Saved locally').evaluate().isNotEmpty,
       );
       expect(tester.takeException(), isNull);
       await tester.runAsync(() => FileGateway.beforeClose!());
@@ -180,12 +200,12 @@ void main() {
     'link chooser inserts a real relative link and opens the target with backlinks',
     (tester) async {
       await open(tester, const Size(1440, 1000));
-      await tester.tap(find.byTooltip('Link einfügen'));
+      await tester.tap(find.byTooltip('Insert link'));
       await tester.pumpAndSettle();
       await tester.tap(
         find.descendant(
           of: find.byType(AlertDialog),
-          matching: find.text('Andere Notiz'),
+          matching: find.text('Other note'),
         ),
       );
       await tester.pumpAndSettle();
@@ -197,19 +217,19 @@ void main() {
         tester.widget<TextField>(field).controller!.text,
         contains(b.documentPath),
       );
-      await tester.tap(find.text('Formatiert'));
+      await tester.tap(find.text('Formatted'));
       await markdownIo(
         tester,
-        () => find.text('Andere Notiz').evaluate().isNotEmpty,
+        () => find.text('Other note').evaluate().isNotEmpty,
       );
-      await tester.ensureVisible(find.text('Andere Notiz'));
-      await tester.tap(find.text('Andere Notiz'));
+      await tester.ensureVisible(find.text('Other note'));
+      await tester.tap(find.text('Other note'));
       await markdownIo(
         tester,
-        () => find.text('Zielabschnitt').evaluate().isNotEmpty,
+        () => find.text('Target section').evaluate().isNotEmpty,
       );
-      expect(find.text('Meine Textnotiz'), findsOneWidget); // Backlink button.
-      expect(find.text('Verlinkt aus'), findsOneWidget);
+      expect(find.text('My text note'), findsOneWidget); // Backlink button.
+      expect(find.text('Linked from'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
@@ -224,33 +244,33 @@ void main() {
     await tester.pumpAndSettle();
     final field = find.byKey(const ValueKey('markdown-source'));
     final controller = tester.widget<TextField>(field).controller!;
-    await tester.enterText(field, 'Erster Absatz');
+    await tester.enterText(field, 'Erster Paragraph');
     await tester.pump(const Duration(milliseconds: 700));
     await markdownIo(
       tester,
-      () => find.byTooltip('Lokal gespeichert').evaluate().isNotEmpty,
+      () => find.byTooltip('Saved locally').evaluate().isNotEmpty,
     );
-    await tester.enterText(field, 'Zweiter Absatz');
+    await tester.enterText(field, 'Secondr Paragraph');
     await tester.pump(const Duration(milliseconds: 700));
     await markdownIo(
       tester,
-      () => find.byTooltip('Lokal gespeichert').evaluate().isNotEmpty,
+      () => find.byTooltip('Saved locally').evaluate().isNotEmpty,
     );
-    await tester.tap(find.text('Formatiert'));
+    await tester.tap(find.text('Formatted'));
     await markdownIo(
       tester,
-      () => find.byTooltip('Lokal gespeichert').evaluate().isNotEmpty,
+      () => find.byTooltip('Saved locally').evaluate().isNotEmpty,
     );
-    await tester.tap(find.byTooltip('Rückgängig'));
+    await tester.tap(find.byTooltip('Undo'));
     await tester.pumpAndSettle();
-    expect(controller.text, 'Erster Absatz');
-    await tester.tap(find.byTooltip('Wiederholen'));
+    expect(controller.text, 'Erster Paragraph');
+    await tester.tap(find.byTooltip('Redo'));
     await tester.pumpAndSettle();
-    expect(controller.text, 'Zweiter Absatz');
-    await tester.tap(find.byTooltip('Speichern'));
+    expect(controller.text, 'Secondr Paragraph');
+    await tester.tap(find.byTooltip('Save'));
     await markdownIo(
       tester,
-      () => find.byTooltip('Lokal gespeichert').evaluate().isNotEmpty,
+      () => find.byTooltip('Saved locally').evaluate().isNotEmpty,
     );
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
@@ -266,12 +286,12 @@ void main() {
       baseOffset: 0,
       extentOffset: 12,
     );
-    await tester.tap(find.byTooltip('Link einfügen'));
+    await tester.tap(find.byTooltip('Insert link'));
     await tester.pumpAndSettle();
     await tester.tap(
       find.descendant(
         of: find.byType(AlertDialog),
-        matching: find.text('Andere Notiz'),
+        matching: find.text('Other note'),
       ),
     );
     await tester.pumpAndSettle();
@@ -281,10 +301,10 @@ void main() {
       tester.widget<TextField>(field).controller!.text,
       '[Diese Stelle](<${b.documentPath}>) bleibt erhalten',
     );
-    await tester.tap(find.byTooltip('Speichern'));
+    await tester.tap(find.byTooltip('Save'));
     await markdownIo(
       tester,
-      () => find.byTooltip('Lokal gespeichert').evaluate().isNotEmpty,
+      () => find.byTooltip('Saved locally').evaluate().isNotEmpty,
     );
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
@@ -298,15 +318,15 @@ void main() {
     await tester.pumpWidget(NoterApp(repository: repository));
     await markdownIo(
       tester,
-      () => find.text('Meine Textnotiz').evaluate().isNotEmpty,
+      () => find.text('My text note').evaluate().isNotEmpty,
     );
-    await tester.tap(find.byTooltip('Neue Notiz'));
+    await tester.tap(find.byTooltip('New note'));
     await tester.pumpAndSettle();
     await tester.tap(find.byType(DropdownButtonFormField<String>));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Checkliste').last);
+    await tester.tap(find.text('Checklist').last);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Erstellen'));
+    await tester.tap(find.text('Create'));
     await markdownIo(
       tester,
       () => find.byKey(const ValueKey('markdown-source')).evaluate().isNotEmpty,
@@ -316,7 +336,7 @@ void main() {
           .widget<TextField>(find.byKey(const ValueKey('markdown-source')))
           .controller!
           .text,
-      '- [ ] Erste Aufgabe\n',
+      '- [ ] First task\n',
     );
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
@@ -330,24 +350,21 @@ void main() {
         tester.platformDispatcher.textScaleFactorTestValue = scale;
         addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
         await open(tester, const Size(390, 844));
-        expect(find.text('Meine Notizen'), findsNothing);
-        await tester.tap(find.byTooltip('Notizliste einblenden'));
+        expect(find.text('My notes'), findsNothing);
+        await tester.tap(find.byTooltip('Show note list'));
         await tester.pumpAndSettle();
-        expect(find.text('Meine Notizen'), findsOneWidget);
-        await tester.tap(find.text('Andere Notiz'));
+        expect(find.text('My notes'), findsOneWidget);
+        await tester.tap(find.text('Other note'));
         await markdownIo(
           tester,
-          () => find.text('Zielabschnitt').evaluate().isNotEmpty,
+          () => find.text('Target section').evaluate().isNotEmpty,
         );
-        expect(find.text('Meine Notizen'), findsNothing);
+        expect(find.text('My notes'), findsNothing);
         await tester.ensureVisible(find.text('Markdown'));
         await tester.tap(find.text('Markdown'));
         await tester.pumpAndSettle();
         final source = find.byKey(const ValueKey('markdown-source'));
-        await tester.enterText(
-          source,
-          'Text auf dem Handy\n\n- [ ] Eine Aufgabe',
-        );
+        await tester.enterText(source, 'Text auf dem Handy\n\n- [ ] Eine Task');
         await tester.runAsync(() => FileGateway.beforeClose!());
         final saved = await tester.runAsync(() => repository.load(b.id));
         expect(
@@ -367,7 +384,7 @@ void main() {
     await tester.runAsync(
       () => repository.save(a, MarkdownDocument(longMarkdown()).encode()),
     );
-    // The common opening helper waits for the short fixture's "Lernplan".
+    // The common opening helper waits for the short fixture's "Study plan".
     tester.view.physicalSize = const Size(1440, 1000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -418,14 +435,14 @@ void main() {
     await tester.pumpWidget(NoterApp(repository: repository));
     await markdownIo(
       tester,
-      () => find.text('Meine Textnotiz').evaluate().isNotEmpty,
+      () => find.text('My text note').evaluate().isNotEmpty,
     );
-    await tester.tap(find.text('Meine Textnotiz'));
+    await tester.tap(find.text('My text note'));
     await markdownIo(
       tester,
       () => find.byType(MarkdownEditorPage).evaluate().isNotEmpty,
     );
-    expect(find.text('Lernplan'), findsOneWidget);
+    expect(find.text('Study plan'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
   });

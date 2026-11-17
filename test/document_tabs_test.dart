@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:async';
+import 'package:noter/ui/library.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,7 +16,41 @@ import 'package:noter/ui/editor_pane.dart';
 import 'package:noter/ui/markdown_editor.dart';
 import 'package:noter/ui/noter_theme.dart';
 
+class _DelayedLibraryRepository extends LocalNotebookRepository {
+  _DelayedLibraryRepository(super.directory);
+  final pending = Completer<List<Notebook>>();
+  bool requested = false;
+  @override
+  Future<List<Notebook>> list() {
+    requested = true;
+    return pending.future;
+  }
+}
+
 void main() {
+  testWidgets(
+    'disposing the library during startup never starts a late UI action',
+    (tester) async {
+      final directory = await tester.runAsync(
+        () => Directory.systemTemp.createTemp('noter-late-library-'),
+      );
+      final repo = _DelayedLibraryRepository(directory!);
+      await tester.pumpWidget(MaterialApp(home: LibraryPage(repository: repo)));
+      for (var i = 0; i < 100 && !repo.requested; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+        await tester.pump();
+      }
+      expect(repo.requested, isTrue);
+      await tester.pumpWidget(const SizedBox());
+      repo.pending.complete([]);
+      await tester.pump();
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      await tester.runAsync(() => directory.delete(recursive: true));
+    },
+  );
   for (final width in [390.0, 1200.0]) {
     testWidgets(
       'tabs preserve PDF zoom, unfinished ink and Markdown state at width $width',
@@ -74,6 +110,19 @@ void main() {
         pane.viewer.setZoom(1.8);
         await io();
         final zoom = pane.viewer.zoom;
+        await tester.tap(find.byTooltip('Hide document tabs'));
+        await tester.pump();
+        expect(find.byKey(ValueKey('document-tab-${a.id}')), findsNothing);
+        expect(find.byTooltip('Show document tabs'), findsOneWidget);
+        expect(
+          tester.state<EditorPaneState>(find.byType(EditorPane)),
+          same(pane),
+        );
+        await tester.tap(find.byTooltip('Show document tabs'));
+        await io();
+        expect(find.byKey(ValueKey('document-tab-${a.id}')), findsOneWidget);
+        expect(pane.viewer.zoom, closeTo(zoom, .001));
+
         final bounds = pane.viewer.globalRectOf(
           1,
           pane.editing.document.page(1).cropBox,

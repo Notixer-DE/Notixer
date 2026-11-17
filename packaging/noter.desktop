@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Notixer
-Comment=Handschriftliche Notizen und PDF-Anmerkungen
+Comment=Handwritten notes and PDF annotations
 Exec=noter
 Icon=noter
 Terminal=false

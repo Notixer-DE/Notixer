@@ -17,7 +17,7 @@ class SyncController extends ChangeNotifier {
   bool busy = false, enabled = false, automatic = false;
   bool allowInsecureHttp = false;
   bool get usesHttp => enabled && Uri.tryParse(serverUrl)?.scheme == 'http';
-  String serverUrl = '', status = 'Server-Sync ist ausgeschaltet.';
+  String serverUrl = '', status = 'Server sync is disabled.';
   String? error;
   DateTime? lastSyncedAt;
   Future<void>? _loading;
@@ -33,7 +33,7 @@ class SyncController extends ChangeNotifier {
       _remote?.close();
       _remote = null;
       status =
-          'Serverkonfiguration oder Schlüsselbund nicht verfügbar. Bitte erneut verbinden.';
+          'Server configuration or keychain unavailable. Please reconnect.';
       notifyListeners();
     }
   }
@@ -50,13 +50,13 @@ class SyncController extends ChangeNotifier {
       final secret = await _storage.read(key: 'noter.sync.credentials');
       if (secret == null) {
         enabled = false;
-        status = 'Geräteschlüssel fehlt. Bitte erneut verbinden.';
+        status = 'The device key is missing. Please reconnect.';
       } else {
         final credentials = jsonDecode(secret) as Map<String, dynamic>;
         if (credentials['server'] != serverUrl) {
           enabled = false;
           throw const SyncFailure(
-            'Gespeicherter Zugang gehört zu einem anderen Server. Bitte neu verbinden.',
+            'Saved credentials belong to a different server. Please reconnect.',
           );
         }
         _remote = await _makeRemote(
@@ -66,7 +66,7 @@ class SyncController extends ChangeNotifier {
           credentials['account'] as String,
           allowHttp: allowInsecureHttp,
         );
-        status = 'Bereit zum Synchronisieren.';
+        status = 'Ready to sync.';
       }
     }
     notifyListeners();
@@ -116,8 +116,8 @@ class SyncController extends ChangeNotifier {
     } catch (e) {
       error = e is SyncFailure
           ? e.message
-          : 'Synchronisierung fehlgeschlagen. Verbindung, Schlüssel und System-Schlüsselbund prüfen. Lokale Notizen bleiben erhalten.';
-      status = 'Synchronisierung nicht abgeschlossen.';
+          : 'Sync failed. Check the connection, key and system keychain. Local notes are preserved.';
+      status = 'Sync did not complete.';
     } finally {
       busy = false;
       notifyListeners();
@@ -133,7 +133,7 @@ class SyncController extends ChangeNotifier {
     await load();
     final server = validateServerUrl(url, allowInsecureHttp: allowHttp);
     if (!syncHashPattern.hasMatch(token.trim())) {
-      throw const SyncFailure('Gültigen Geräte-Zugangstoken eintragen.');
+      throw const SyncFailure('Enter a valid device access token.');
     }
     final session = await ServerRemote.connect(
       server,
@@ -141,7 +141,7 @@ class SyncController extends ChangeNotifier {
       allowInsecureHttp: allowHttp,
     );
     if (session['version'] != 1) {
-      throw const SyncFailure('Unbekannte Serverversion.');
+      throw const SyncFailure('Unknown server version.');
     }
     final remote = await _makeRemote(
       server.toString(),
@@ -173,7 +173,7 @@ class SyncController extends ChangeNotifier {
     enabled = true;
     lastSyncedAt = null;
     await _save();
-    status = 'Server verbunden. Ende-zu-Ende-Verschlüsselung aktiv.';
+    status = 'Server connected. End-to-end encryption is active.';
   });
 
   Future<void> disableHttp() => _action(() async {
@@ -184,7 +184,7 @@ class SyncController extends ChangeNotifier {
       _remote?.close();
       _remote = null;
       status =
-          'HTTP-Verbindung deaktiviert. Für HTTPS erneut verbinden. Zugangsdaten bleiben im Schlüsselbund.';
+          'HTTP connection disabled. Reconnect using HTTPS. Credentials remain in the keychain.';
     }
     allowInsecureHttp = false;
     await _save();
@@ -194,16 +194,14 @@ class SyncController extends ChangeNotifier {
     await load();
     automatic = value;
     await _save();
-    status = value
-        ? 'Automatische Synchronisierung eingeschaltet.'
-        : 'Automatische Synchronisierung ausgeschaltet.';
+    status = value ? 'Automatic sync enabled.' : 'Automatic sync disabled.';
   });
 
   Future<void> synchronize({String? noteId, bool onlyIfChanged = false}) =>
       _action(() async {
         await load();
         if (!enabled || _remote == null) {
-          throw const SyncFailure('Bitte zuerst den Server verbinden.');
+          throw const SyncFailure('Please connect the server first.');
         }
         final report = await NotebookSync(
           repository,
@@ -214,7 +212,7 @@ class SyncController extends ChangeNotifier {
           },
         ).run(noteId: noteId, onlyIfChanged: onlyIfChanged);
         lastSyncedAt = DateTime.now();
-        status = 'Synchronisiert: $report';
+        status = 'Synced: $report';
       });
 
   Future<void> disconnect() => _action(() async {
@@ -226,7 +224,7 @@ class SyncController extends ChangeNotifier {
     _remote?.close();
     _remote = null;
     status =
-        'Verbindung getrennt. Notizen bleiben erhalten; der Serverzugang ist nicht widerrufen.';
+        'Disconnected. Notes are preserved; server access has not been revoked.';
   });
 
   Future<String?> recoveryKey() async {

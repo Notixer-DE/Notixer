@@ -72,6 +72,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
   Future<void> _initializeSync() async {
     await _refresh();
+    if (!mounted) return;
     await _perform(() async {
       await _sync.load();
       if (_sync.enabled && _sync.automatic) {
@@ -149,13 +150,13 @@ class _LibraryPageState extends State<LibraryPage> {
           _loading = false;
           _error = widget.repository.readErrors.isEmpty
               ? widget.repository.catalog.loadWarning
-              : 'Einige Notizdateien konnten nicht gelesen werden: ${widget.repository.readErrors.join(', ')}';
+              : 'Some note files could not be read: ${widget.repository.readErrors.join(', ')}';
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = 'Notizen konnten nicht geladen werden: $e';
+          _error = 'Could not load notes: $e';
           _loading = false;
         });
       }
@@ -166,17 +167,18 @@ class _LibraryPageState extends State<LibraryPage> {
     Future<void> Function() action, {
     bool autoSync = true,
   }) async {
-    if (_busy || _sync.busy) return;
+    if (!mounted || _busy) return;
     setState(() => _actionBusy = true);
     try {
       final before = await _noteStates();
+      if (!mounted) return;
       await action();
-      if (autoSync) await _autoSync(before);
+      if (autoSync && mounted) await _autoSync(before);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Aktion fehlgeschlagen: $e'),
+            content: Text('Action failed: $e'),
             duration: const Duration(seconds: 8),
           ),
         );
@@ -281,7 +283,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final file = await FileGateway().pick();
     if (file == null) return;
     if (await file.length() > 256 * 1024 * 1024) {
-      throw const FormatException('Datei zu groß (maximal 256 MB).');
+      throw const FormatException('The file is too large (maximum 256 MB).');
     }
     final bytes = await file.readAsBytes();
     final extension = p.extension(file.name).toLowerCase();
@@ -352,20 +354,20 @@ class _LibraryPageState extends State<LibraryPage> {
       context: context,
       builder: (context) => AlertDialog(
         scrollable: true,
-        title: const Text('Notiz löschen?'),
+        title: const Text('Delete note?'),
         content: Text(
           _sync.enabled
-              ? '„${note.title}“ wird in den lokalen Papierkorb verschoben. Beim nächsten Server-Abgleich wird die Löschung auch auf die anderen Geräte übertragen.'
-              : '„${note.title}“ wird in den Papierkorb verschoben und kann später als neue Kopie wiederhergestellt werden.',
+              ? '„${note.title}“will be moved to the local trash. The deletion will be synced to other devices on the next server sync.'
+              : '„${note.title}“will be moved to the trash and can later be restored as a new copy.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Abbrechen'),
+            child: const Text('Cancel'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Löschen'),
+            child: const Text('Delete'),
           ),
         ],
       ),
@@ -435,19 +437,19 @@ class _LibraryPageState extends State<LibraryPage> {
               ),
               if (!phone) ...[
                 IconButton(
-                  tooltip: _grid ? 'Listenansicht' : 'Rasteransicht',
+                  tooltip: _grid ? 'List view' : 'Grid view',
                   onPressed: () => setState(() => _grid = !_grid),
                   icon: Icon(
                     _grid ? Icons.view_list_outlined : Icons.grid_view_outlined,
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Papierkorb',
+                  tooltip: 'Trash',
                   onPressed: _busy ? null : () => _recovery(),
                   icon: const Icon(Icons.delete_outline),
                 ),
                 IconButton(
-                  tooltip: 'In PDFs suchen',
+                  tooltip: 'Search PDFs',
                   onPressed: _busy || !_notes.any((n) => !n.isMarkdown)
                       ? null
                       : _searchPdfs,
@@ -455,25 +457,25 @@ class _LibraryPageState extends State<LibraryPage> {
                 ),
                 IconButton(
                   tooltip: _hasOpenDocuments
-                      ? 'Offene Tabs vor dem Synchronisieren schließen'
-                      : 'Sync-Einstellungen',
+                      ? 'Close open tabs before syncing'
+                      : 'Sync settings',
                   onPressed: _busy || _hasOpenDocuments ? null : _syncSettings,
                   icon: const Icon(Icons.cloud_sync_outlined),
                 ),
                 IconButton(
-                  tooltip: 'Ordner verwalten',
+                  tooltip: 'Manage folders',
                   onPressed: _busy ? null : _folders,
                   icon: const Icon(Icons.folder_outlined),
                 ),
                 IconButton(
-                  tooltip: 'Notizen neu laden',
+                  tooltip: 'Reload notes',
                   onPressed: _busy ? null : _refresh,
                   icon: const Icon(Icons.refresh),
                 ),
                 const SizedBox(width: 12),
               ] else
                 PopupMenuButton<String>(
-                  tooltip: 'Bibliotheksaktionen',
+                  tooltip: 'Library actions',
                   onSelected: (value) {
                     if (value == 'import') _import();
                     if (value == 'pdf') _searchPdfs();
@@ -485,32 +487,32 @@ class _LibraryPageState extends State<LibraryPage> {
                   itemBuilder: (_) => [
                     PopupMenuItem(
                       value: 'view',
-                      child: Text(_grid ? 'Listenansicht' : 'Rasteransicht'),
+                      child: Text(_grid ? 'List view' : 'Grid view'),
                     ),
                     PopupMenuItem(
                       value: 'import',
                       enabled: !_busy,
-                      child: const Text('Datei importieren'),
+                      child: const Text('Import file'),
                     ),
                     PopupMenuItem(
                       value: 'pdf',
                       enabled: !_busy && _notes.isNotEmpty,
-                      child: const Text('In PDFs suchen'),
+                      child: const Text('Search PDFs'),
                     ),
                     PopupMenuItem(
                       value: 'trash',
                       enabled: !_busy,
-                      child: const Text('Papierkorb'),
+                      child: const Text('Trash'),
                     ),
                     PopupMenuItem(
                       value: 'templates',
                       enabled: !_busy,
-                      child: const Text('Vorlagen'),
+                      child: const Text('Templates'),
                     ),
                     PopupMenuItem(
                       value: 'refresh',
                       enabled: !_busy,
-                      child: const Text('Notizen neu laden'),
+                      child: const Text('Reload notes'),
                     ),
                   ],
                 ),
@@ -542,14 +544,14 @@ class _LibraryPageState extends State<LibraryPage> {
                                     children: [
                                       Text(
                                         _folderFilter == null
-                                            ? 'Meine Notizen'
+                                            ? 'My notes'
                                             : _folderFilter == ''
-                                            ? 'Ohne Ordner'
+                                            ? 'Unfiled'
                                             : widget.repository.catalog
                                                       .folderName(
                                                         _folderFilter,
                                                       ) ??
-                                                  'Meine Notizen',
+                                                  'My notes',
                                         style: Theme.of(context)
                                             .textTheme
                                             .headlineSmall
@@ -563,20 +565,18 @@ class _LibraryPageState extends State<LibraryPage> {
                                           icon: const Icon(
                                             Icons.file_open_outlined,
                                           ),
-                                          label: const Text(
-                                            'Datei importieren',
-                                          ),
+                                          label: const Text('Import file'),
                                         ),
                                         FilledButton.icon(
                                           onPressed: _busy ? null : _create,
                                           icon: const Icon(Icons.add),
-                                          label: const Text('Neue Notiz'),
+                                          label: const Text('New note'),
                                         ),
                                       ],
                                       OutlinedButton.icon(
                                         onPressed: _busy ? null : _study,
                                         icon: const Icon(Icons.school_outlined),
-                                        label: const Text('Heute lernen'),
+                                        label: const Text('Study today'),
                                       ),
                                       if (!phone)
                                         OutlinedButton.icon(
@@ -584,14 +584,14 @@ class _LibraryPageState extends State<LibraryPage> {
                                           icon: const Icon(
                                             Icons.dashboard_customize_outlined,
                                           ),
-                                          label: const Text('Vorlagen'),
+                                          label: const Text('Templates'),
                                         ),
                                     ],
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    '${visible.length} ${visible.length == 1 ? 'Notiz' : 'Notizen'}'
-                                    ' · Zuletzt geändert zuerst',
+                                    '${visible.length} ${visible.length == 1 ? 'note' : 'notes'}'
+                                    ' · Most recently modified first',
                                     style: Theme.of(
                                       context,
                                     ).textTheme.bodySmall,
@@ -600,7 +600,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                   TextField(
                                     focusNode: _searchFocus,
                                     decoration: const InputDecoration(
-                                      hintText: 'Notizen durchsuchen',
+                                      hintText: 'Search notes',
                                       prefixIcon: Icon(Icons.search),
                                     ),
                                     onChanged: (value) =>
@@ -612,9 +612,9 @@ class _LibraryPageState extends State<LibraryPage> {
                                     runSpacing: 8,
                                     children: [
                                       for (final (id, label) in [
-                                        ('all', 'Alle'),
+                                        ('all', 'All'),
                                         ('markdown', 'Text'),
-                                        ('notes', 'Notizbücher'),
+                                        ('notes', 'Notebooks'),
                                         ('pdf', 'PDFs'),
                                       ])
                                         ChoiceChip(
@@ -627,9 +627,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                           _tagFilter != null ||
                                           _kind != 'all')
                                         ActionChip(
-                                          label: const Text(
-                                            'Filter zurücksetzen',
-                                          ),
+                                          label: const Text('Reset filters'),
                                           onPressed: () => setState(() {
                                             _folderFilter = null;
                                             _tagFilter = null;
@@ -668,7 +666,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                                           ? null
                                                           : _syncSettings,
                                                       child: const Text(
-                                                        'Sync-Details öffnen',
+                                                        'Open sync details',
                                                       ),
                                                     ),
                                                 ],
@@ -716,8 +714,8 @@ class _LibraryPageState extends State<LibraryPage> {
                                       const SizedBox(height: 12),
                                       Text(
                                         _hasFilters
-                                            ? 'Keine passende Notiz gefunden.'
-                                            : 'Die erste Seite wartet auf dich.',
+                                            ? 'No matching notes found.'
+                                            : 'Your first page is waiting for you.',
                                         textAlign: TextAlign.center,
                                         style: Theme.of(
                                           context,
@@ -726,8 +724,8 @@ class _LibraryPageState extends State<LibraryPage> {
                                       const SizedBox(height: 8),
                                       Text(
                                         _hasFilters
-                                            ? 'Ändere die Suche oder die Ordner- und Tagfilter.'
-                                            : 'Erstelle eine Notiz oder importiere ein PDF.',
+                                            ? 'Change the search or the folder and tag filters.'
+                                            : 'Create a note or import a PDF.',
                                         textAlign: TextAlign.center,
                                       ),
                                     ],
@@ -800,7 +798,7 @@ class _LibraryPageState extends State<LibraryPage> {
           ),
           floatingActionButton: phone
               ? FloatingActionButton(
-                  tooltip: 'Neue Notiz',
+                  tooltip: 'New note',
                   onPressed: _busy ? null : _create,
                   child: const Icon(Icons.add),
                 )
@@ -822,15 +820,15 @@ class _LibraryPageState extends State<LibraryPage> {
                   destinations: const [
                     NavigationDestination(
                       icon: Icon(Icons.grid_view_outlined),
-                      label: 'Notizen',
+                      label: 'Notes',
                     ),
                     NavigationDestination(
                       icon: Icon(Icons.folder_outlined),
-                      label: 'Ordner',
+                      label: 'Folder',
                     ),
                     NavigationDestination(
                       icon: Icon(Icons.search),
-                      label: 'Suche',
+                      label: 'Search',
                     ),
                     NavigationDestination(
                       icon: Icon(Icons.cloud_sync_outlined),
@@ -877,8 +875,8 @@ class _LibraryPageState extends State<LibraryPage> {
 
   Widget _noteActions(Notebook note) => PopupMenuButton<String>(
     tooltip: _isOpen(note)
-        ? 'Geöffnete Notiz: Aktionen nach Schließen des Tabs verfügbar'
-        : 'Notizaktionen',
+        ? 'Open note: actions available after closing the tab'
+        : 'Note actions',
     enabled: !_busy && !_isOpen(note),
     onSelected: (value) => value == 'rename'
         ? _rename(note)
@@ -888,10 +886,10 @@ class _LibraryPageState extends State<LibraryPage> {
         ? _recovery(note: note)
         : _delete(note),
     itemBuilder: (_) => const [
-      PopupMenuItem(value: 'rename', child: Text('Umbenennen')),
-      PopupMenuItem(value: 'organize', child: Text('Ordner und Tags')),
-      PopupMenuItem(value: 'history', child: Text('Versionshistorie')),
-      PopupMenuItem(value: 'delete', child: Text('Löschen')),
+      PopupMenuItem(value: 'rename', child: Text('Rename')),
+      PopupMenuItem(value: 'organize', child: Text('Folders and tags')),
+      PopupMenuItem(value: 'history', child: Text('Version history')),
+      PopupMenuItem(value: 'delete', child: Text('Delete')),
     ],
   );
 
@@ -899,7 +897,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final date = note.modified.toLocal();
     final organization = [
       if (note.folderId != null)
-        widget.repository.catalog.folderName(note.folderId) ?? 'Ohne Ordner',
+        widget.repository.catalog.folderName(note.folderId) ?? 'Unfiled',
       ...note.tags.map((tag) => '#$tag'),
     ].join(' · ');
     final type = note.isMarkdown
@@ -907,10 +905,10 @@ class _LibraryPageState extends State<LibraryPage> {
         : note.paper == 'pdf'
         ? 'PDF'
         : note.paper == 'lined'
-        ? 'Liniert'
+        ? 'Ruled'
         : note.paper == 'grid'
-        ? 'Kariert'
-        : 'Blanko';
+        ? 'Grid'
+        : 'Blank';
     return Card(
       key: ValueKey('library-row-${note.id}'),
       shape: const RoundedRectangleBorder(),
@@ -961,7 +959,9 @@ class _LibraryPageState extends State<LibraryPage> {
                         DocumentTypeBadge(type),
                         if (compact)
                           Text(
-                            '${date.day}.${date.month}.${date.year}',
+                            MaterialLocalizations.of(
+                              context,
+                            ).formatShortDate(date),
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                       ],
@@ -983,9 +983,9 @@ class _LibraryPageState extends State<LibraryPage> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Text(
-                    '${date.day}.${date.month}.${date.year}',
+                    MaterialLocalizations.of(context).formatShortDate(date),
                     semanticsLabel:
-                        'Geändert am ${date.day}.${date.month}.${date.year}',
+                        'Modified on ${MaterialLocalizations.of(context).formatShortDate(date)}',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
@@ -1039,7 +1039,7 @@ class _LibraryPageState extends State<LibraryPage> {
                             widget.repository.catalog.folderName(
                                   note.folderId,
                                 ) ??
-                                'Ohne Ordner',
+                                'Unfiled',
                           ...note.tags.map((t) => '#$t'),
                         ].join(' · '),
                         maxLines: 1,
@@ -1050,9 +1050,9 @@ class _LibraryPageState extends State<LibraryPage> {
                       ),
                     const SizedBox(height: 6),
                     Text(
-                      '${date.day}.${date.month}.${date.year}',
+                      MaterialLocalizations.of(context).formatShortDate(date),
                       semanticsLabel:
-                          'Geändert am ${date.day}.${date.month}.${date.year}',
+                          'Modified on ${MaterialLocalizations.of(context).formatShortDate(date)}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall,
@@ -1076,7 +1076,7 @@ class _NewNoteDialog extends StatefulWidget {
 }
 
 class _NewNoteDialogState extends State<_NewNoteDialog> {
-  final _title = TextEditingController(text: 'Neue Notiz');
+  final _title = TextEditingController(text: 'New note');
   String _paper = 'blank';
   final _lineColor = TextEditingController(text: 'DCE4EC');
   int? get _parsedLineColor =>
@@ -1098,7 +1098,7 @@ class _NewNoteDialogState extends State<_NewNoteDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
     scrollable: true,
-    title: const Text('Neue Notiz'),
+    title: const Text('New note'),
     content: SizedBox(
       width: 360,
       child: Column(
@@ -1108,23 +1108,23 @@ class _NewNoteDialogState extends State<_NewNoteDialog> {
             controller: _title,
             autofocus: true,
             maxLength: 120,
-            decoration: const InputDecoration(labelText: 'Titel'),
+            decoration: const InputDecoration(labelText: 'Title'),
           ),
           const SizedBox(height: 16),
           if (_template == null)
             DropdownButtonFormField<String>(
               initialValue: _paper,
               isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Notiztyp / Papier'),
+              decoration: const InputDecoration(labelText: 'Note type / paper'),
               items: const [
                 DropdownMenuItem(
                   value: 'markdown',
-                  child: Text('Textnotiz (Markdown)'),
+                  child: Text('Text note (Markdown)'),
                 ),
-                DropdownMenuItem(value: 'checklist', child: Text('Checkliste')),
-                DropdownMenuItem(value: 'blank', child: Text('Blanko')),
-                DropdownMenuItem(value: 'lined', child: Text('Liniert')),
-                DropdownMenuItem(value: 'grid', child: Text('Kariert')),
+                DropdownMenuItem(value: 'checklist', child: Text('Checklist')),
+                DropdownMenuItem(value: 'blank', child: Text('Blank')),
+                DropdownMenuItem(value: 'lined', child: Text('Ruled')),
+                DropdownMenuItem(value: 'grid', child: Text('Grid')),
               ],
               onChanged: (value) => setState(() => _paper = value!),
             ),
@@ -1132,27 +1132,27 @@ class _NewNoteDialogState extends State<_NewNoteDialog> {
             TextField(
               controller: _lineColor,
               decoration: InputDecoration(
-                labelText: 'Linienfarbe (Hex)',
+                labelText: 'Line color (hex)',
                 errorText: _parsedLineColor == null
-                    ? 'Sechs Hex-Ziffern eingeben'
+                    ? 'Enter six hexadecimal digits'
                     : null,
               ),
               onChanged: (_) => setState(() {}),
             ),
           if (_template != null)
-            Text('${_template!.name} · ${_template!.pageCount} Seiten'),
+            Text('${_template!.name} · ${_template!.pageCount} Pages'),
           TextButton.icon(
             onPressed: () async {
               final entry = await pickTemplate(context, widget.templates);
               if (mounted && entry != null) setState(() => _template = entry);
             },
             icon: const Icon(Icons.dashboard_customize_outlined),
-            label: const Text('Vorlage auswählen'),
+            label: const Text('Choose template'),
           ),
           if (_template != null)
             TextButton(
               onPressed: () => setState(() => _template = null),
-              child: const Text('Standardpapier verwenden'),
+              child: const Text('Use standard paper'),
             ),
         ],
       ),
@@ -1160,18 +1160,18 @@ class _NewNoteDialogState extends State<_NewNoteDialog> {
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
-        child: const Text('Abbrechen'),
+        child: const Text('Cancel'),
       ),
       FilledButton(
         onPressed: _chosenLineColor == null
             ? null
             : () => Navigator.pop(context, (
-                _title.text.trim().isEmpty ? 'Neue Notiz' : _title.text.trim(),
+                _title.text.trim().isEmpty ? 'New note' : _title.text.trim(),
                 _paper,
                 _template,
                 _chosenLineColor!,
               )),
-        child: const Text('Erstellen'),
+        child: const Text('Create'),
       ),
     ],
   );
@@ -1195,24 +1195,24 @@ class _TitleDialogState extends State<_TitleDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
     scrollable: true,
-    title: const Text('Notiz umbenennen'),
+    title: const Text('Rename note'),
     content: TextField(
       controller: _text,
       autofocus: true,
       maxLength: 120,
-      decoration: const InputDecoration(labelText: 'Titel'),
+      decoration: const InputDecoration(labelText: 'Title'),
       onChanged: (_) => setState(() {}),
     ),
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
-        child: const Text('Abbrechen'),
+        child: const Text('Cancel'),
       ),
       FilledButton(
         onPressed: _text.text.trim().isEmpty
             ? null
             : () => Navigator.pop(context, _text.text.trim()),
-        child: const Text('Speichern'),
+        child: const Text('Save'),
       ),
     ],
   );

@@ -214,16 +214,16 @@ void main() {
                   .pageForPersistence !=
               null,
     );
-    await tester.tap(find.byTooltip('Werkzeuge und Export'));
+    await tester.tap(find.byTooltip('Tools and export'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Zweite Ansicht öffnen'));
+    await tester.tap(find.text('Open second view'));
     await settleIo(
       tester,
-      () => find.text('Dieselbe Notiz erneut öffnen').evaluate().isNotEmpty,
+      () => find.text('Open the same note again').evaluate().isNotEmpty,
       settle: false,
     );
     await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(find.text('Dieselbe Notiz erneut öffnen'));
+    await tester.tap(find.text('Open the same note again'));
     await settleIo(
       tester,
       () =>

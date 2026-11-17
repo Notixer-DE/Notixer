@@ -29,9 +29,9 @@ void main() {
   test('save, reopen, rename and import preserve PDF and metadata', () async {
     final pdf = await createPaper('grid', pages: 2);
     var note = await repository.create('Übung – ÄÖÜ', pdf, paper: 'grid');
-    note = await repository.save(note.copy(title: 'Neuer Titel'), pdf);
+    note = await repository.save(note.copy(title: 'Neuer Title'), pdf);
     final reopened = LocalNotebookRepository(directory);
-    expect((await reopened.list()).single.title, 'Neuer Titel');
+    expect((await reopened.list()).single.title, 'Neuer Title');
     expect(await reopened.load(note.id), pdf);
     final archive = await reopened.exportArchive(note);
     final imported = await reopened.importArchive(archive);
@@ -44,14 +44,14 @@ void main() {
   test('concurrent saves are serialized and use byte snapshots', () async {
     final first = await createPaper('blank');
     final second = await createPaper('lined', pages: 2);
-    final note = await repository.create('Notiz', first);
+    final note = await repository.create('Note', first);
     final mutable = Uint8List.fromList(second);
     final saving = repository.save(note.copy(title: 'Zuerst'), mutable);
     mutable.fillRange(0, mutable.length, 0);
     await saving;
     expect(await repository.load(note.id), second);
     await Future.wait([
-      repository.save(note.copy(title: 'Zweitens'), first),
+      repository.save(note.copy(title: 'Secondns'), first),
       repository.save(note.copy(title: 'Zuletzt'), second),
     ]);
     expect((await repository.list()).single.title, 'Zuletzt');
@@ -65,13 +65,13 @@ void main() {
       final obstacle = Directory('${directory.path}/${note.id}.noter.tmp');
       await obstacle.create();
       await expectLater(
-        repository.save(note.copy(title: 'Nicht gespeichert'), pdf),
+        repository.save(note.copy(title: 'Not saved'), pdf),
         throwsA(isA<FileSystemException>()),
       );
       expect((await repository.list()).single.title, 'Gesichert');
       await obstacle.delete();
-      await repository.save(note.copy(title: 'Wiederhergestellt'), pdf);
-      expect((await repository.list()).single.title, 'Wiederhergestellt');
+      await repository.save(note.copy(title: 'Restored'), pdf);
+      expect((await repository.list()).single.title, 'Restored');
     },
   );
   test(
@@ -132,11 +132,7 @@ void main() {
       editing.tool = PdfEditTool.highlight;
       editing.addInkStroke(0, [(40, 200), (200, 200)]);
       editing.finishInk();
-      editing.addFreeText(
-        0,
-        const PdfRect(40, 300, 250, 350),
-        'Getippte Notiz',
-      );
+      editing.addFreeText(0, const PdfRect(40, 300, 250, 350), 'Getippte Note');
       expect(editing.document.page(0).annotations.length, 3);
       final edited = Uint8List.fromList(editing.bytes);
       final note = await repository.create('Mit Handschrift', edited);

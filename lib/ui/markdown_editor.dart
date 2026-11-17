@@ -51,14 +51,12 @@ class _MarkdownLoaderState extends State<MarkdownEditorPage> {
     builder: (context, snapshot) {
       if (!snapshot.hasData) {
         return Scaffold(
-          appBar: AppBar(title: const Text('Textnotiz öffnen')),
+          appBar: AppBar(title: const Text('Open text note')),
           body: Center(
             child: snapshot.hasError
                 ? Padding(
                     padding: const EdgeInsets.all(24),
-                    child: Text(
-                      'Textnotiz konnte nicht geladen werden: ${snapshot.error}',
-                    ),
+                    child: Text('Could not load text note: ${snapshot.error}'),
                   )
                 : const CircularProgressIndicator(),
           ),
@@ -114,6 +112,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   String _query = '';
   bool _showNotes = false, _source = false, _busy = false, _canPop = false;
   bool _showChrome = true;
+  double _sourceZoom = 1;
   bool _leaving = false;
   bool _loadingNotes = true;
   int _loadGeneration = 0;
@@ -132,9 +131,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
         );
       } catch (_) {
         if (mounted) {
-          setState(
-            () => _message = 'Leseposition konnte nicht gespeichert werden.',
-          );
+          setState(() => _message = 'Could not save the reading position.');
         }
       }
     }
@@ -162,6 +159,33 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     _text = TextEditingController(text: _session.document.source)
       ..addListener(_edited);
     _focus.onKeyEvent = (_, event) {
+      final keyboard = HardwareKeyboard.instance;
+      if ((keyboard.isControlPressed || keyboard.isMetaPressed) &&
+          !keyboard.isAltPressed) {
+        final key = event.logicalKey;
+        final zoomIn = [
+          LogicalKeyboardKey.equal,
+          LogicalKeyboardKey.add,
+          LogicalKeyboardKey.numpadAdd,
+        ].contains(key);
+        final zoomOut = [
+          LogicalKeyboardKey.minus,
+          LogicalKeyboardKey.numpadSubtract,
+        ].contains(key);
+        final reset =
+            key == LogicalKeyboardKey.digit0 ||
+            key == LogicalKeyboardKey.numpad0;
+        if (zoomIn || zoomOut || reset) {
+          if (event is KeyDownEvent || event is KeyRepeatEvent) {
+            setState(
+              () => _sourceZoom = reset
+                  ? 1
+                  : (_sourceZoom + (zoomIn ? .1 : -.1)).clamp(.7, 2.5),
+            );
+          }
+          return KeyEventResult.handled;
+        }
+      }
       if (event.logicalKey != LogicalKeyboardKey.tab ||
           HardwareKeyboard.instance.isControlPressed ||
           HardwareKeyboard.instance.isAltPressed ||
@@ -179,7 +203,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       return KeyEventResult.handled;
     };
     _title = TextEditingController(text: widget.note.title);
-    _source = _text.text.isEmpty || _text.text == '- [ ] Erste Aufgabe\n';
+    _source = _text.text.isEmpty || _text.text == '- [ ] First task\n';
     _previousClose = FileGateway.beforeClose;
     if (widget.tabController case final tab?) {
       tab.attach(this, save: _saveBeforeClose, anchor: _anchor);
@@ -247,9 +271,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       }
     } catch (e) {
       if (mounted) {
-        setState(
-          () => _message = 'Verknüpfungen konnten nicht geladen werden: $e',
-        );
+        setState(() => _message = 'Could not load links: $e');
       }
     } finally {
       if (mounted && generation == _loadGeneration) {
@@ -267,7 +289,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     try {
       await action();
     } catch (e) {
-      if (mounted) setState(() => _message = 'Aktion fehlgeschlagen: $e');
+      if (mounted) setState(() => _message = 'Action failed: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -295,7 +317,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
         .where((n) => n.id == note.id)
         .toList();
     if (current.isEmpty) {
-      throw const FormatException('Die Notiz wurde gelöscht.');
+      throw const FormatException('The note was deleted.');
     }
     note = current.single;
     if (widget.onOpenNotebook != null) {
@@ -357,17 +379,14 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     if (uri.scheme == 'https' || uri.scheme == 'http') {
       await _run(() async {
         if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-          throw const FormatException('Der Link konnte nicht geöffnet werden.');
+          throw const FormatException('Could not open the link.');
         }
       });
       return;
     }
     final note = MarkdownLibrary.target(_notes, _session.note, href);
     if (note == null) {
-      setState(
-        () =>
-            _message = 'Linkziel nicht gefunden oder nicht unterstützt: $href',
-      );
+      setState(() => _message = 'Link target not found or unsupported: $href');
       return;
     }
     if (note.id == _session.note.id) {
@@ -380,7 +399,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   Future<void> _anchor(String anchor) async {
     final found = await _previewKey.currentState?.scrollToHeading(anchor);
     if (found != true && mounted) {
-      setState(() => _message = 'Überschrift nicht gefunden: $anchor');
+      setState(() => _message = 'Heading not found: $anchor');
     }
   }
 
@@ -445,14 +464,14 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       builder: (context) => StatefulBuilder(
         builder: (context, update) => AlertDialog(
           scrollable: true,
-          title: const Text('Link einfügen'),
+          title: const Text('Insert link'),
           content: SizedBox(
             width: 400,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
-                  decoration: const InputDecoration(labelText: 'Notiz suchen'),
+                  decoration: const InputDecoration(labelText: 'Find note'),
                   onChanged: (v) => update(() => query = v),
                 ),
                 const SizedBox(height: 8),
@@ -463,7 +482,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                     dense: true,
                     title: Text(note.title),
                     subtitle: Text(
-                      note.isMarkdown ? 'Textnotiz' : 'PDF / Handschrift',
+                      note.isMarkdown ? 'Text note' : 'PDF / handwriting',
                     ),
                     onTap: () => Navigator.pop(context, (
                       note.title,
@@ -473,13 +492,13 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                 const Divider(),
                 TextField(
                   controller: label,
-                  decoration: const InputDecoration(labelText: 'Linktext'),
+                  decoration: const InputDecoration(labelText: 'Link text'),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: url,
                   decoration: const InputDecoration(
-                    labelText: 'Webadresse (https://…)',
+                    labelText: 'Web address (https://…)',
                   ),
                 ),
               ],
@@ -488,7 +507,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Abbrechen'),
+              child: const Text('Cancel'),
             ),
             FilledButton(
               onPressed: () {
@@ -504,7 +523,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                   ));
                 }
               },
-              child: const Text('Weblink einfügen'),
+              child: const Text('Insert web link'),
             ),
           ],
         ),
@@ -527,7 +546,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     final file = await openFile(
       acceptedTypeGroups: const [
         XTypeGroup(
-          label: 'Bilder',
+          label: 'Images',
           extensions: ['png', 'jpg', 'jpeg'],
           mimeTypes: ['image/png', 'image/jpeg'],
         ),
@@ -535,7 +554,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     );
     if (file == null) return;
     if (await file.length() > MarkdownDocument.maxAssetBytes) {
-      throw const FormatException('Bild zu groß (32 MB).');
+      throw const FormatException('The image is too large (32 MB).');
     }
     final bytes = await file.readAsBytes();
     final (document, path) = await addMarkdownImageAsync(
@@ -569,7 +588,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
         'application/zip',
       );
       if (mounted && path) {
-        setState(() => _message = 'Notiz als .noter-Datei exportiert.');
+        setState(() => _message = 'Note exported as a .noter file.');
       }
       return;
     }
@@ -587,8 +606,8 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     if (saved && mounted) {
       setState(
         () => _message = kind == 'bundle'
-            ? 'Markdown mit verknüpften Notizen und Bildern exportiert.'
-            : 'Markdown exportiert. Für lokale Bilder und verknüpfte Notizen bitte den ZIP-Export verwenden.',
+            ? 'Markdown exported with linked notes and images.'
+            : 'Markdown exported. Use ZIP export for local images and linked notes.',
       );
     }
   });
@@ -599,21 +618,21 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Neue Textnotiz'),
+        title: const Text('New text note'),
         content: TextField(
           controller: title,
           autofocus: true,
           maxLength: 120,
-          decoration: const InputDecoration(labelText: 'Titel'),
+          decoration: const InputDecoration(labelText: 'Title'),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Abbrechen'),
+            child: const Text('Cancel'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, title.text.trim()),
-            child: const Text('Erstellen'),
+            child: const Text('Create'),
           ),
         ],
       ),
@@ -623,7 +642,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     if (result == null || !mounted) return;
     final note = await MarkdownLibrary(
       widget.repository,
-    ).create(result.isEmpty ? 'Textnotiz' : result);
+    ).create(result.isEmpty ? 'Text note' : result);
     await _reload();
     // End the current operation before opening through the guarded navigator.
     if (mounted) {
@@ -645,32 +664,50 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 6),
       children: [
-        tool('Rückgängig', Icons.undo, undo.value.canUndo ? undo.undo : null),
-        tool('Wiederholen', Icons.redo, undo.value.canRedo ? undo.redo : null),
+        if (_source) ...[
+          tool(
+            'Zoom out (Ctrl+-)',
+            Icons.text_decrease,
+            () =>
+                setState(() => _sourceZoom = (_sourceZoom - .1).clamp(.7, 2.5)),
+          ),
+          Tooltip(
+            message: 'Reset editor zoom (Ctrl+0)',
+            child: TextButton(
+              onPressed: () => setState(() => _sourceZoom = 1),
+              child: Text('${(_sourceZoom * 100).round()}%'),
+            ),
+          ),
+          tool(
+            'Zoom in (Ctrl++)',
+            Icons.text_increase,
+            () =>
+                setState(() => _sourceZoom = (_sourceZoom + .1).clamp(.7, 2.5)),
+          ),
+          const ToolbarSeparator(),
+        ],
+        tool('Undo', Icons.undo, undo.value.canUndo ? undo.undo : null),
+        tool('Redo', Icons.redo, undo.value.canRedo ? undo.redo : null),
+        const ToolbarSeparator(),
+        tool('Heading', Icons.title, () => _insert('\n## ', '\n', 'Heading')),
+        tool('Bold', Icons.format_bold, () => _insert('**', '**')),
+        tool('Italic', Icons.format_italic, () => _insert('*', '*')),
         const ToolbarSeparator(),
         tool(
-          'Überschrift',
-          Icons.title,
-          () => _insert('\n## ', '\n', 'Überschrift'),
-        ),
-        tool('Fett', Icons.format_bold, () => _insert('**', '**')),
-        tool('Kursiv', Icons.format_italic, () => _insert('*', '*')),
-        const ToolbarSeparator(),
-        tool(
-          'Aufzählung',
+          'Bullet list',
           Icons.format_list_bulleted,
-          () => _insert('\n- ', '\n', 'Listeneintrag'),
+          () => _insert('\n- ', '\n', 'List item'),
         ),
         tool(
-          'Checkliste',
+          'Checklist',
           Icons.checklist,
-          () => _insert('\n- [ ] ', '\n', 'Aufgabe'),
+          () => _insert('\n- [ ] ', '\n', 'Task'),
         ),
-        tool('Zitat', Icons.format_quote, () => _insert('\n> ', '\n', 'Zitat')),
-        tool('Link einfügen', Icons.link, _linkDialog),
-        tool('Bild einfügen', Icons.image_outlined, _image),
+        tool('Quote', Icons.format_quote, () => _insert('\n> ', '\n', 'Quote')),
+        tool('Insert link', Icons.link, _linkDialog),
+        tool('Insert image', Icons.image_outlined, _image),
         tool('Code', Icons.code, () => _insert('`', '`')),
-        tool('Codeblock', Icons.integration_instructions_outlined, _codeBlock),
+        tool('Code block', Icons.integration_instructions_outlined, _codeBlock),
       ],
     );
   }
@@ -683,12 +720,12 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       children: [
         const SizedBox(height: 28),
         const Divider(),
-        Text('Verlinkt aus', style: Theme.of(context).textTheme.titleSmall),
+        Text('Linked from', style: Theme.of(context).textTheme.titleSmall),
         if (_backlinks.isEmpty)
           const Padding(
             padding: EdgeInsets.only(top: 8),
             child: Text(
-              'Noch keine Rückverweise.',
+              'No backlinks yet.',
               style: TextStyle(color: NoterTheme.muted),
             ),
           ),
@@ -716,7 +753,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
             const Padding(
               padding: EdgeInsets.all(16),
               child: Text(
-                'Meine Notizen',
+                'My notes',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
@@ -728,7 +765,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: TextField(
                 decoration: const InputDecoration(
-                  hintText: 'Notizen suchen',
+                  hintText: 'Search notes',
                   prefixIcon: Icon(Icons.search),
                 ),
                 onChanged: (value) {
@@ -762,7 +799,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                         child: Align(
                           alignment: Alignment.centerLeft,
                           child: DocumentTypeBadge(
-                            note.isMarkdown ? 'Markdown' : 'PDF / Handschrift',
+                            note.isMarkdown ? 'Markdown' : 'PDF / handwriting',
                           ),
                         ),
                       ),
@@ -804,11 +841,11 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                         _newNote();
                       },
                 icon: const Icon(Icons.add),
-                label: const Text('Neue Textnotiz'),
+                label: const Text('New text note'),
               ),
               const SizedBox(height: 16),
               ListTile(
-                title: const Text('Alle Notizen'),
+                title: const Text('All notes'),
                 leading: const Icon(Icons.grid_view_outlined),
                 selected: _folder == null,
                 onTap: () {
@@ -843,7 +880,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
               TextButton.icon(
                 onPressed: _leave,
                 icon: const Icon(Icons.arrow_back),
-                label: const Text('Zur Bibliothek'),
+                label: const Text('Back to library'),
               ),
             ],
           ),
@@ -916,7 +953,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                       fontWeight: FontWeight.w500,
                                     ),
                                 decoration: const InputDecoration(
-                                  hintText: 'Titel',
+                                  hintText: 'Title',
                                   border: InputBorder.none,
                                   enabledBorder: InputBorder.none,
                                   focusedBorder: InputBorder.none,
@@ -927,7 +964,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                 ),
                                 onChanged: (value) => _session.rename(
                                   value.trim().isEmpty
-                                      ? 'Textnotiz'
+                                      ? 'Text note'
                                       : value.trim(),
                                 ),
                               ),
@@ -949,17 +986,17 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                     expands: true,
                                     keyboardType: TextInputType.multiline,
                                     decoration: const InputDecoration(
-                                      hintText: 'Schreibe deine Notiz …',
+                                      hintText: 'Write your note …',
                                       border: InputBorder.none,
                                       enabledBorder: InputBorder.none,
                                       focusedBorder: InputBorder.none,
                                       filled: false,
                                       contentPadding: EdgeInsets.zero,
                                     ),
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontFamily: 'monospace',
                                       height: 1.7,
-                                      fontSize: 14,
+                                      fontSize: 14 * _sourceZoom,
                                       color: NoterTheme.ink,
                                     ),
                                   ),
@@ -977,14 +1014,14 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                       Icons.edit_outlined,
                                       size: 17,
                                     ),
-                                    label: const Text('Text bearbeiten'),
+                                    label: const Text('Edit text'),
                                   ),
                                 ),
                               if (!_source && _text.text.isEmpty)
                                 const Padding(
                                   padding: EdgeInsets.all(24),
                                   child: Text(
-                                    'Deine Gedanken beginnen hier. Tippe auf „Text bearbeiten“.',
+                                    'Your thoughts start here. Tap “Edit text”.',
                                   ),
                                 ),
                             ],
@@ -1025,7 +1062,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
             floatingActionButton: _showChrome
                 ? null
                 : FloatingActionButton.small(
-                    tooltip: 'Leisten einblenden',
+                    tooltip: 'Show toolbars',
                     onPressed: () => setState(() => _showChrome = true),
                     child: const Icon(Icons.fullscreen_exit),
                   ),
@@ -1034,7 +1071,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                 : AppBar(
                     toolbarHeight: NoterTheme.headerHeight(context),
                     leading: IconButton(
-                      tooltip: 'Zur Bibliothek',
+                      tooltip: 'Back to library',
                       icon: const Icon(Icons.arrow_back),
                       onPressed: _leave,
                     ),
@@ -1045,14 +1082,14 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                     ),
                     actions: [
                       IconButton(
-                        tooltip: 'Leisten ausblenden',
+                        tooltip: 'Hide toolbars',
                         onPressed: () => setState(() => _showChrome = false),
                         icon: const Icon(Icons.fullscreen),
                       ),
                       IconButton(
                         tooltip: _showNotes
-                            ? 'Notizliste ausblenden'
-                            : 'Notizliste einblenden',
+                            ? 'Hide note list'
+                            : 'Show note list',
                         icon: const Icon(Icons.view_sidebar_outlined),
                         onPressed: () {
                           if (desktop) {
@@ -1090,7 +1127,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                         },
                       ),
                       IconButton(
-                        tooltip: 'Speichern',
+                        tooltip: 'Save',
                         onPressed: _busy || _leaving || _session.saving
                             ? null
                             : () => _session.save(),
@@ -1105,22 +1142,20 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                         ),
                       ),
                       PopupMenuButton<String>(
-                        tooltip: 'Markdown exportieren',
+                        tooltip: 'Export Markdown',
                         onSelected: _export,
                         itemBuilder: (_) => const [
                           PopupMenuItem(
                             value: 'md',
-                            child: Text('Markdown (.md) exportieren'),
+                            child: Text('Export Markdown (.md)'),
                           ),
                           PopupMenuItem(
                             value: 'bundle',
-                            child: Text(
-                              'Mit verknüpften Notizen und Bildern (.zip)',
-                            ),
+                            child: Text('With linked notes and images (.zip)'),
                           ),
                           PopupMenuItem(
                             value: 'rescue',
-                            child: Text('Notixer-Sicherung exportieren'),
+                            child: Text('Export Notixer backup'),
                           ),
                         ],
                       ),
@@ -1176,7 +1211,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                         segments: const [
                                           ButtonSegment(
                                             value: false,
-                                            label: Text('Formatiert'),
+                                            label: Text('Formatted'),
                                             icon: Icon(Icons.article_outlined),
                                           ),
                                           ButtonSegment(
@@ -1244,7 +1279,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                 if (_session.error != null)
                                   TextButton(
                                     onPressed: () => _session.save(),
-                                    child: const Text('Erneut versuchen'),
+                                    child: const Text('Retry'),
                                   ),
                               ],
                             ),

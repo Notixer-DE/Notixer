@@ -40,7 +40,7 @@ void main() {
     repository = LocalNotebookRepository(directory);
     final document = pw.Document();
     for (var i = 0; i < 4; i++) {
-      document.addPage(pw.Page(build: (_) => pw.Text('Seite $i')));
+      document.addPage(pw.Page(build: (_) => pw.Text('Page $i')));
     }
     final bytes = await document.save();
     final note = await repository.create('Skript', bytes);
@@ -66,13 +66,13 @@ void main() {
     expect(editing.outline.isEmpty, isTrue);
     expect(editing.addBookmark('  Kapitel 1  ', pageIndex: 2), isTrue);
     expect(session.dirty, isTrue);
-    expect(editing.editBookmark([0], title: 'Prüfung'), isTrue);
+    expect(editing.editBookmark([0], title: 'Exam'), isTrue);
     expect(await session.save(), isTrue);
     final reopened = PdfEditingController(
       await repository.load(session.note.id),
       preferences: session.preferences,
     );
-    expect(reopened.outline.items.single.title, 'Prüfung');
+    expect(reopened.outline.items.single.title, 'Exam');
     expect(reopened.outline.items.single.destination!.pageIndex, 2);
     reopened.dispose();
 
@@ -83,12 +83,12 @@ void main() {
     final transferred = pdf.PdfOutline.of(
       pdf.PdfDocument.open(await repository.load(imported.id)),
     );
-    expect(transferred.items.single.title, 'Prüfung');
+    expect(transferred.items.single.title, 'Exam');
     expect(transferred.items.single.destination!.pageIndex, 2);
     editing.deleteBookmark([0]);
     expect(editing.outline.isEmpty, isTrue);
     editing.undo();
-    expect(editing.outline.items.single.title, 'Prüfung');
+    expect(editing.outline.items.single.title, 'Exam');
     editing.redo();
     expect(editing.outline.isEmpty, isTrue);
   });
@@ -124,7 +124,7 @@ void main() {
       editing.apply((e) {
         final parent = e.addOutlineItem('Kapitel', pageIndex: 0);
         e.addOutlineItem(
-          'Abschnitt',
+          'Section',
           parent: parent,
           destination: pdf.PdfExplicitDestination.xyz(
             2,
@@ -205,13 +205,13 @@ void main() {
       );
       await tester.pumpAndSettle();
       final before = pane.viewer.captureViewport()!;
-      await tester.tap(find.byTooltip('Lesezeichen & Inhaltsverzeichnis'));
+      await tester.tap(find.byTooltip('Bookmarks and table of contents'));
       await tester.pumpAndSettle();
       expect(
-        find.textContaining('Dieses PDF enthält kein Inhaltsverzeichnis.'),
+        find.textContaining('This PDF has no table of contents.'),
         findsOneWidget,
       );
-      await tester.tap(find.text('Aktuelle Seite merken'));
+      await tester.tap(find.text('Bookmark current page'));
       await tester.pumpAndSettle();
       await tester.enterText(
         find.descendant(
@@ -220,38 +220,38 @@ void main() {
         ),
         'Merken',
       );
-      await tester.tap(find.text('Speichern'));
+      await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
       expect(find.text('Merken'), findsOneWidget);
-      await tester.tap(find.byTooltip('Lesezeichenaktionen'));
+      await tester.tap(find.byTooltip('Bookmark actions'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Umbenennen'));
+      await tester.tap(find.text('Rename'));
       await tester.pumpAndSettle();
       await tester.enterText(
         find.descendant(
           of: find.byType(AlertDialog),
           matching: find.byType(TextField),
         ),
-        'Prüfung',
+        'Exam',
       );
-      await tester.tap(find.text('Speichern'));
+      await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Prüfung'));
+      await tester.tap(find.text('Exam'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Zurück zur vorherigen Position'));
+      await tester.tap(find.byTooltip('Back to previous position'));
       await tester.pumpAndSettle();
       final after = pane.viewer.captureViewport()!;
       expect(after.page, before.page);
       expect(after.zoom, closeTo(before.zoom, .001));
       expect(after.top, closeTo(before.top, .001));
       expect(after.left, closeTo(before.left, .001));
-      await tester.tap(find.byTooltip('Lesezeichen & Inhaltsverzeichnis'));
+      await tester.tap(find.byTooltip('Bookmarks and table of contents'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Lesezeichenaktionen'));
+      await tester.tap(find.byTooltip('Bookmark actions'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Löschen'));
+      await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Löschen'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
       await tester.pumpAndSettle();
       expect(session.editing.outline.isEmpty, isTrue);
       expect(tester.takeException(), isNull);

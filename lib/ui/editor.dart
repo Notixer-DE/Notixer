@@ -29,6 +29,7 @@ class EditorPage extends StatefulWidget {
     this.tabController,
     this.workspaceSessions,
     this.onLibrary,
+    this.onReviewRated,
   });
   final Notebook note;
   final Uint8List bytes;
@@ -39,6 +40,7 @@ class EditorPage extends StatefulWidget {
   final DocumentTabController? tabController;
   final WorkspacePdfSessions? workspaceSessions;
   final Future<void> Function()? onLibrary;
+  final VoidCallback? onReviewRated;
   @override
   State<EditorPage> createState() => _EditorPageState();
 }
@@ -192,9 +194,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
       await widget.repository.catalog.readingPositions.save(pages);
     } catch (_) {
       if (mounted) {
-        _message(
-          'Die zuletzt geöffnete Seite konnte nicht gespeichert werden.',
-        );
+        _message('Could not save the last opened page.');
       }
     }
     return success;
@@ -212,7 +212,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     try {
       await task();
     } catch (e) {
-      if (mounted) _message('Aktion fehlgeschlagen: $e');
+      if (mounted) _message('Action failed: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -261,11 +261,11 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     final choice = await showDialog<Notebook>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: const Text('Zweite Ansicht öffnen'),
+        title: const Text('Open second view'),
         children: [
           SimpleDialogOption(
             onPressed: () => Navigator.pop(context, session.note),
-            child: const Text('Dieselbe Notiz erneut öffnen'),
+            child: const Text('Open the same note again'),
           ),
           for (final note in notes.where(
             (n) => !n.isMarkdown && n.id != session.note.id,
@@ -324,22 +324,20 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
       final result = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('PDF exportieren'),
-          content: const Text(
-            'Sollen die Lern-Abdeckungen im PDF sichtbar sein?',
-          ),
+          title: const Text('Export PDF'),
+          content: const Text('Should study covers be visible in the PDF?'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Abbrechen'),
+              child: const Text('Cancel'),
             ),
             OutlinedButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Mit Abdeckungen'),
+              child: const Text('With study covers'),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Ohne Abdeckungen'),
+              child: const Text('Without study covers'),
             ),
           ],
         ),
@@ -361,7 +359,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
           archive ? 'application/octet-stream' : 'application/pdf',
         ) &&
         mounted) {
-      _message('Datei exportiert.');
+      _message('File exported.');
     }
   });
   Future<void> _addPage() => _perform(() async {
@@ -391,7 +389,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
       bytes,
     )) {
       throw const FormatException(
-        'Das Bild konnte nicht gelesen werden. Bitte PNG oder JPEG wählen.',
+        'Could not read the image. Please select PNG or JPEG.',
       );
     }
     editing.selectAnnotation(
@@ -442,7 +440,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     FocusManager.instance.applyFocusChangesIfNeeded();
     target.editing.finishInk();
     final suggestion = singlePage
-        ? '${target.note.title} – Seite ${page + 1}'
+        ? '${target.note.title} – Page ${page + 1}'
         : target.note.title;
     final name = await askTemplateName(
       context,
@@ -458,7 +456,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         ink: target.ink.snapshot(),
         page: singlePage ? page : null,
       );
-      if (mounted) _message('Vorlage gespeichert.');
+      if (mounted) _message('Template saved.');
     });
   }
 
@@ -502,7 +500,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     index ??= await showDialog<int>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: const Text('Stiftfavorit bearbeiten'),
+        title: const Text('Edit pen preset'),
         children: [
           for (var i = 0; i < catalog.presets.length; i++)
             SimpleDialogOption(
@@ -594,6 +592,12 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         key: pane.key,
         session: pane.session,
         onSaveAll: _saveAll,
+        onReviewRated: widget.onReviewRated == null
+            ? null
+            : () {
+                widget.onReviewRated!();
+                _leave();
+              },
         onModeChanged: _changed,
         active: _active == index,
         split: _panes.length > 1,
@@ -623,12 +627,12 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
       final upper = 1 - lower;
       final fraction = _fraction.clamp(lower, upper);
       final divider = Semantics(
-        label: 'Größe der Ansichten',
-        value: '${(fraction * 100).round()} Prozent',
+        label: 'View sizes',
+        value: '${(fraction * 100).round()} percent',
         increasedValue:
-            '${((_fraction + .1).clamp(lower, upper) * 100).round()} Prozent',
+            '${((_fraction + .1).clamp(lower, upper) * 100).round()} percent',
         decreasedValue:
-            '${((_fraction - .1).clamp(lower, upper) * 100).round()} Prozent',
+            '${((_fraction - .1).clamp(lower, upper) * 100).round()} percent',
         slider: true,
         onIncrease: () =>
             setState(() => _fraction = (fraction + .1).clamp(lower, upper)),
@@ -711,118 +715,118 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
           : AppBar(
               toolbarHeight: NoterTheme.headerHeight(context),
               leading: IconButton(
-                tooltip: 'Zur Notizübersicht',
+                tooltip: 'Back to library',
                 onPressed: _leave,
                 icon: const Icon(Icons.arrow_back),
               ),
               title: Text(session.note.title, overflow: TextOverflow.ellipsis),
               actions: [
                 IconButton(
-                  tooltip: 'Leisten ausblenden',
+                  tooltip: 'Hide toolbars',
                   onPressed: () => setState(() => _showChrome = false),
                   icon: const Icon(Icons.fullscreen),
                 ),
                 PopupMenuButton<String>(
-                  tooltip: 'Werkzeuge und Export',
+                  tooltip: 'Tools and export',
                   enabled: !_busy,
                   onSelected: _action,
                   itemBuilder: (_) => [
                     CheckedPopupMenuItem(
                       value: 'finger',
                       checked: session.preferences.fingerDrawsInk,
-                      child: const Text('Fingerzeichnen'),
+                      child: const Text('Finger drawing'),
                     ),
                     CheckedPopupMenuItem(
                       value: 'singlePage',
                       checked: active.key.currentState?.singlePage ?? false,
-                      child: const Text('Einzelseitenansicht'),
+                      child: const Text('Single-page view'),
                     ),
                     const PopupMenuItem(
                       value: 'addPage',
-                      child: Text('Seite hinzufügen'),
+                      child: Text('Add page'),
                     ),
                     const PopupMenuItem(
                       value: 'textSelect',
-                      child: Text('Text auswählen und markieren'),
+                      child: Text('Select and highlight text'),
                     ),
                     const PopupMenuItem(
                       value: 'search',
-                      child: Text('Im PDF suchen'),
+                      child: Text('Search PDF'),
                     ),
                     const PopupMenuItem(
                       value: 'image',
-                      child: Text('Bild einfügen'),
+                      child: Text('Insert image'),
                     ),
                     if (session.editing.hasAnnotationClipboard)
                       const PopupMenuItem(
                         value: 'paste',
-                        child: Text('Auswahl einfügen'),
+                        child: Text('Paste selection'),
                       ),
                     const PopupMenuItem(
                       value: 'pages',
-                      child: Text('Seiten verwalten'),
+                      child: Text('Manage pages'),
                     ),
                     const PopupMenuItem(
                       value: 'insertTemplate',
-                      child: Text('Aus Vorlage einfügen'),
+                      child: Text('Insert from template'),
                     ),
                     const PopupMenuItem(
                       value: 'pageTemplate',
-                      child: Text('Aktuelle Seite als Vorlage speichern'),
+                      child: Text('Save current page as template'),
                     ),
                     const PopupMenuItem(
                       value: 'notebookTemplate',
-                      child: Text('Notiz als Vorlage speichern'),
+                      child: Text('Save note as template'),
                     ),
                     const PopupMenuItem(
                       value: 'lasso',
-                      child: Text('Lasso-Auswahl'),
+                      child: Text('Lasso selection'),
                     ),
                     const PopupMenuItem(
                       value: 'loupe',
-                      child: Text('Schreiblupe'),
+                      child: Text('Writing magnifier'),
                     ),
                     const PopupMenuItem(
                       value: 'tape',
-                      child: Text('Lern-Abdeckung zeichnen'),
+                      child: Text('Draw study cover'),
                     ),
                     const PopupMenuItem(
                       value: 'learn',
-                      child: Text('Lernmodus umschalten'),
+                      child: Text('Toggle study mode'),
                     ),
                     const PopupMenuItem(
                       value: 'reveal',
-                      child: Text('Alle aufdecken'),
+                      child: Text('Reveal all'),
                     ),
                     const PopupMenuItem(
                       value: 'cover',
-                      child: Text('Alle verdecken'),
+                      child: Text('Hide all'),
                     ),
                     const PopupMenuItem(
                       value: 'split',
-                      child: Text('Zweite Ansicht öffnen'),
+                      child: Text('Open second view'),
                     ),
                     if (_panes.length > 1) ...const [
                       PopupMenuItem(
                         value: 'orientation',
-                        child: Text('Ansichten ausrichten'),
+                        child: Text('Arrange views'),
                       ),
                       PopupMenuItem(
                         value: 'closeSplit',
-                        child: Text('Zweite Ansicht schließen'),
+                        child: Text('Close second view'),
                       ),
                     ],
                     const PopupMenuItem(
                       value: 'presets',
-                      child: Text('Stiftfavoriten bearbeiten'),
+                      child: Text('Edit pen presets'),
                     ),
                     const PopupMenuItem(
                       value: 'pdf',
-                      child: Text('Als PDF exportieren'),
+                      child: Text('Export as PDF'),
                     ),
                     const PopupMenuItem(
                       value: 'noter',
-                      child: Text('Als Notixer-Datei sichern'),
+                      child: Text('Save as Notixer file'),
                     ),
                   ],
                 ),
@@ -873,7 +877,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                         ),
                         TextButton(
                           onPressed: () => s.save(),
-                          child: const Text('Erneut versuchen'),
+                          child: const Text('Retry'),
                         ),
                         TextButton(
                           onPressed: () async {
@@ -884,25 +888,23 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                                   context: context,
                                   builder: (context) => AlertDialog(
                                     title: const Text(
-                                      'PDF ohne Handschrift retten?',
+                                      'Recover PDF without handwriting?',
                                     ),
                                     content: const Text(
-                                      'Die beschädigte Tintenebene kann nicht exportiert werden. '
-                                      'Das Basis-PDF wird separat gespeichert. '
-                                      'Die ursprüngliche Notiz und ihr Tintenjournal bleiben unverändert.',
+                                      'The corrupted ink layer cannot be exported. '
+                                      'The base PDF will be saved separately. '
+                                      'The original note and its ink journal remain unchanged.',
                                     ),
                                     actions: [
                                       TextButton(
                                         onPressed: () =>
                                             Navigator.pop(context, false),
-                                        child: const Text('Abbrechen'),
+                                        child: const Text('Cancel'),
                                       ),
                                       FilledButton(
                                         onPressed: () =>
                                             Navigator.pop(context, true),
-                                        child: const Text(
-                                          'Basis-PDF exportieren',
-                                        ),
+                                        child: const Text('Export base PDF'),
                                       ),
                                     ],
                                   ),
@@ -910,7 +912,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                                 if (proceed != true) return;
                               }
                               await FileGateway().save(
-                                'Notiz-Rettung.pdf',
+                                'Note-recovery.pdf',
                                 await s.exportSnapshot(withoutInk: omitInk),
                                 'application/pdf',
                               );
@@ -918,7 +920,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                               if (mounted) _message('$e');
                             }
                           },
-                          child: const Text('PDF retten'),
+                          child: const Text('Recover PDF'),
                         ),
                       ],
                     ),
@@ -936,7 +938,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                   width: 48,
                   height: 48,
                   child: IconButton.filledTonal(
-                    tooltip: 'Leisten einblenden',
+                    tooltip: 'Show toolbars',
                     onPressed: () => setState(() => _showChrome = true),
                     icon: const Icon(Icons.fullscreen_exit),
                   ),

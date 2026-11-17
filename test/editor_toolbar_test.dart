@@ -103,13 +103,34 @@ void main() {
   }
 
   testWidgets(
+    'eraser diameter is independent of pen width and configurable for the side button',
+    (tester) async {
+      await mount(tester);
+      final originalWidth = session.preferences.strokeWidth;
+      await tester.tap(find.byTooltip('Tool settings'));
+      await tester.pumpAndSettle();
+      final slider = find.byKey(const ValueKey('eraser-diameter'));
+      await tester.ensureVisible(slider);
+      final rect = tester.getRect(slider);
+      await tester.tapAt(Offset(rect.right - 12, rect.center.dy));
+      await tester.pump();
+      expect(session.preferences.eraserRadius, greaterThan(8));
+      expect(session.preferences.strokeWidth, originalWidth);
+      expect(find.textContaining('Eraser diameter:'), findsOneWidget);
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
+      await finish(tester);
+    },
+  );
+
+  testWidgets(
     'tracks the actual marker style, including pressure and manual changes',
     (tester) async {
       final marker = repository.catalog.presets[2];
       apply(marker);
       await mount(tester);
-      expect(selected(tester, 'Freihandmarker'), isTrue);
-      expect(selected(tester, 'Stift'), isFalse);
+      expect(selected(tester, 'Highlighter'), isTrue);
+      expect(selected(tester, 'Pen'), isFalse);
       expect(presets(tester), [2]);
       for (final change in [
         () => session.preferences.color = Colors.red,
@@ -138,8 +159,8 @@ void main() {
       expect(presets(tester), isEmpty);
       session.editing.tool = PdfEditTool.freeText;
       await tester.pump();
-      expect(selected(tester, 'Text einfügen'), isTrue);
-      expect(selected(tester, 'Freihandmarker'), isFalse);
+      expect(selected(tester, 'Insert text'), isTrue);
+      expect(selected(tester, 'Highlighter'), isFalse);
       await finish(tester);
     },
   );
@@ -181,17 +202,17 @@ void main() {
       final pane = tester.state<EditorPaneState>(find.byType(EditorPane));
       pane.toggleLasso();
       await tester.pumpAndSettle();
-      expect(selected(tester, 'Lasso-Auswahl'), isTrue);
-      expect(selected(tester, 'Auswählen'), isFalse);
+      expect(selected(tester, 'Lasso selection'), isTrue);
+      expect(selected(tester, 'Select'), isFalse);
       pane.toggleTape();
       await tester.pumpAndSettle();
-      expect(selected(tester, 'Lern-Abdeckung zeichnen'), isTrue);
-      expect(selected(tester, 'Lasso-Auswahl'), isFalse);
+      expect(selected(tester, 'Draw study cover'), isTrue);
+      expect(selected(tester, 'Lasso selection'), isFalse);
       pane.normalTool();
       pane.widget.session.eraser.setBaseTool(PdfEditTool.highlight);
       await tester.pumpAndSettle();
-      expect(selected(tester, 'Lern-Abdeckung zeichnen'), isFalse);
-      expect(selected(tester, 'Freihandmarker'), isTrue);
+      expect(selected(tester, 'Draw study cover'), isFalse);
+      expect(selected(tester, 'Highlighter'), isTrue);
       await finish(tester);
     },
   );

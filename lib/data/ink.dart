@@ -13,7 +13,7 @@ String newInkId() =>
 String inkPageId(PdfDocument document, int page) {
   final ref = document.cos.referenceTo(document.page(page).dict);
   if (ref == null) {
-    throw StateError('Die PDF-Seite hat keine stabile Identität.');
+    throw StateError('The PDF page has no stable identity.');
   }
   return '${ref.objectNumber}:${ref.generation}';
 }
@@ -47,7 +47,7 @@ class InkStroke {
         points.isEmpty ||
         points.length % 3 != 0 ||
         points.length > 3 * InkDocument.maxPoints) {
-      throw const FormatException('Ungültiger Tintenstrich.');
+      throw const FormatException('Invalid ink stroke.');
     }
     var left = double.infinity, top = double.infinity;
     var right = double.negativeInfinity, bottom = double.negativeInfinity;
@@ -60,7 +60,7 @@ class InkStroke {
           !p.isFinite ||
           p < 0 ||
           p > 1) {
-        throw const FormatException('Ungültiger Tintenpunkt.');
+        throw const FormatException('Invalid ink point.');
       }
       left = math.min(left, x);
       top = math.min(top, y);
@@ -91,23 +91,34 @@ class InkStroke {
     double? width,
     Offset origin = Offset.zero,
     double scale = 1,
+    double scaleX = 1,
+    double scaleY = 1,
     double rotation = 0,
     Offset delta = Offset.zero,
   }) {
+    if (![scale, scaleX, scaleY].every((v) => v.isFinite && v > 0) ||
+        !rotation.isFinite ||
+        !origin.dx.isFinite ||
+        !origin.dy.isFinite ||
+        !delta.dx.isFinite ||
+        !delta.dy.isFinite) {
+      throw ArgumentError('Invalid ink transformation.');
+    }
     final moved = Float32List(points.length);
     final cosine = math.cos(rotation), sine = math.sin(rotation);
     for (var i = 0; i < points.length; i += 3) {
-      final x = (points[i] - origin.dx) * scale;
-      final y = (points[i + 1] - origin.dy) * scale;
+      final x = (points[i] - origin.dx) * scale * scaleX;
+      final y = (points[i + 1] - origin.dy) * scale * scaleY;
       moved[i] = origin.dx + x * cosine - y * sine + delta.dx;
       moved[i + 1] = origin.dy + x * sine + y * cosine + delta.dy;
       moved[i + 2] = points[i + 2];
     }
     Offset? direction(Offset? value) {
       if (value == null) return null;
-      final x = value.dx;
-      final y = value.dy;
-      return Offset(x * cosine - y * sine, x * sine + y * cosine);
+      final x = value.dx * scaleX;
+      final y = value.dy * scaleY;
+      final direction = Offset(x * cosine - y * sine, x * sine + y * cosine);
+      return direction / direction.distance;
     }
 
     return InkStroke(
@@ -120,7 +131,7 @@ class InkStroke {
       startDirection: direction(startDirection),
       endDirection: direction(endDirection),
       color: color ?? this.color,
-      width: (width ?? this.width) * scale,
+      width: (width ?? this.width) * scale * math.sqrt(scaleX * scaleY),
       points: moved,
     );
   }
@@ -162,7 +173,7 @@ Offset? _inkDirection(dynamic value) {
   if (value == null) return null;
   final list = value as List;
   if (list.length != 2) {
-    throw const FormatException('Ungültige Strichrichtung.');
+    throw const FormatException('Invalid stroke direction.');
   }
   final direction = Offset(
     (list[0] as num).toDouble(),
@@ -171,7 +182,7 @@ Offset? _inkDirection(dynamic value) {
   if (!direction.isFinite ||
       direction.dx.abs() > 1e7 ||
       direction.dy.abs() > 1e7) {
-    throw const FormatException('Ungültige Strichrichtung.');
+    throw const FormatException('Invalid stroke direction.');
   }
   return direction;
 }
@@ -202,7 +213,9 @@ class InkDocument {
 
   factory InkDocument.decode(List<int> bytes) {
     if (bytes.length > maxBytes) {
-      throw const FormatException('Tintenebene zu groß (maximal 64 MB).');
+      throw const FormatException(
+        'The ink layer is too large (maximum 64 MB).',
+      );
     }
     try {
       final json = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
@@ -212,11 +225,11 @@ class InkDocument {
           (json['generation'] as String).length > 150 ||
           json['sequence'] is! int ||
           (json['sequence'] as int) < 0) {
-        throw const FormatException('Unbekannte Tintenebene.');
+        throw const FormatException('Unknown ink layer.');
       }
       final raw = json['strokes'] as List;
       if (raw.length > maxStrokes) {
-        throw const FormatException('Zu viele Striche.');
+        throw const FormatException('Too many strokes.');
       }
       final strokes = <InkStroke>[];
       final ids = <String>{};
@@ -225,7 +238,7 @@ class InkDocument {
         final s = InkStroke.fromJson(entry as Map<String, dynamic>);
         points += s.pointCount;
         if (!ids.add(s.id) || points > maxPoints) {
-          throw const FormatException('Ungültige Tintenebene.');
+          throw const FormatException('Invalid ink layer.');
         }
         strokes.add(s);
       }
@@ -237,7 +250,7 @@ class InkDocument {
     } on FormatException {
       rethrow;
     } catch (_) {
-      throw const FormatException('Beschädigte Tintenebene.');
+      throw const FormatException('Corrupted ink layer.');
     }
   }
 }
@@ -413,7 +426,7 @@ class InkController extends ChangeNotifier {
 
   void apply(InkEdit edit) {
     if (edit.add.map((s) => s.id).toSet().length != edit.add.length) {
-      throw const FormatException('Doppelte Strichidentität.');
+      throw const FormatException('Duplicate stroke identity.');
     }
     var count = index.strokes.length;
     var points = _points;
@@ -435,9 +448,7 @@ class InkController extends ChangeNotifier {
       points += s.pointCount;
     }
     if (count > InkDocument.maxStrokes || points > InkDocument.maxPoints) {
-      throw StateError(
-        'Die Tintenebene ist voll. Bitte eine neue Notiz anlegen.',
-      );
+      throw StateError('The ink layer is full. Please create a new note.');
     }
     _points = points;
     for (final s in edit.remove) {

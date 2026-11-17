@@ -21,6 +21,7 @@ import 'text_selection_toolbar.dart';
 import 'ink_layer.dart';
 import 'single_page_view.dart';
 import 'eraser_cursor.dart';
+import 'selection_transform_overlay.dart';
 import '../input/stylus_eraser.dart';
 
 enum _Mode { normal, lasso, tape }
@@ -38,6 +39,7 @@ class EditorPane extends StatefulWidget {
     this.initialQuery = '',
     this.onSaveAll,
     this.initialTapeId,
+    this.onReviewRated,
   });
   final DocumentSession session;
   final bool active, split, showChrome;
@@ -46,6 +48,7 @@ class EditorPane extends StatefulWidget {
   final String? initialTapeId;
   final VoidCallback? onModeChanged;
   final VoidCallback onActivate;
+  final VoidCallback? onReviewRated;
   final Future<bool> Function()? onSaveAll;
   @override
   State<EditorPane> createState() => EditorPaneState();
@@ -67,6 +70,9 @@ class EditorPaneState extends State<EditorPane> {
   PdfWholeStrokeEraser? _pdfWholeErase;
   final _eraserContact = ValueNotifier<EraserContact?>(null);
   InkMoveGesture? _inkMove;
+  List<InkStroke>? _transformOriginal;
+  List<InkStroke> _transformPreview = [];
+  int? _transformRevision;
   Offset _inkMoveStart = Offset.zero;
   int? _inkPointer;
   Offset _lastInkPosition = Offset.zero;
@@ -210,6 +216,11 @@ class EditorPaneState extends State<EditorPane> {
   }
 
   void _documentChanged() {
+    if (_transformOriginal != null &&
+        (editing.tool != PdfEditTool.select ||
+            _transformRevision != editing.revisionId)) {
+      _clearTransformPreview();
+    }
     _updatePageTiles();
     final chrome = (
       editing.revisionId,
@@ -324,13 +335,13 @@ class EditorPaneState extends State<EditorPane> {
     final page = await showDialog<int>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Zu Seite springen'),
+        title: const Text('Go to page'),
         content: TextField(
           controller: text,
           autofocus: true,
           keyboardType: TextInputType.number,
           decoration: InputDecoration(
-            labelText: 'Seite (1–${editing.document.pageCount})',
+            labelText: 'Page (1–${editing.document.pageCount})',
           ),
           onSubmitted: (value) {
             final page = int.tryParse(value);
@@ -344,7 +355,7 @@ class EditorPaneState extends State<EditorPane> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Abbrechen'),
+            child: const Text('Cancel'),
           ),
           FilledButton(
             onPressed: () {
@@ -355,7 +366,7 @@ class EditorPaneState extends State<EditorPane> {
                 Navigator.pop(context, page - 1);
               }
             },
-            child: const Text('Springen'),
+            child: const Text('Go'),
           ),
         ],
       ),
@@ -445,30 +456,30 @@ class EditorPaneState extends State<EditorPane> {
               child: Row(
                 children: [
                   IconButton(
-                    tooltip: 'Seitenübersicht',
+                    tooltip: 'Page overview',
                     onPressed: () => _togglePages(pagesVisible, compact),
                     icon: const Icon(Icons.view_sidebar_outlined),
                   ),
                   IconButton(
                     tooltip: singlePage
-                        ? 'Fortlaufende Ansicht'
-                        : 'Einzelseitenansicht',
+                        ? 'Continuous view'
+                        : 'Single-page view',
                     onPressed: toggleSinglePage,
                     isSelected: singlePage,
                     icon: const Icon(Icons.menu_book_outlined),
                   ),
                   IconButton(
-                    tooltip: 'Zurück zur vorherigen Position',
+                    tooltip: 'Back to previous position',
                     onPressed: navigation.canGoBack ? navigation.back : null,
                     icon: const Icon(Icons.arrow_back),
                   ),
                   IconButton(
-                    tooltip: 'Lesezeichen & Inhaltsverzeichnis',
+                    tooltip: 'Bookmarks and table of contents',
                     onPressed: openNavigation,
                     icon: const Icon(Icons.bookmarks_outlined),
                   ),
                   IconButton(
-                    tooltip: 'Vorherige Seite',
+                    tooltip: 'Previous page',
                     onPressed: viewer.currentPage > 0
                         ? () => navigation.jumpToPage(viewer.currentPage - 1)
                         : null,
@@ -481,7 +492,7 @@ class EditorPaneState extends State<EditorPane> {
                     ),
                   ),
                   IconButton(
-                    tooltip: 'Nächste Seite',
+                    tooltip: 'Next page',
                     onPressed:
                         viewer.currentPage < editing.document.pageCount - 1
                         ? () => navigation.jumpToPage(viewer.currentPage + 1)
@@ -511,7 +522,7 @@ class EditorPaneState extends State<EditorPane> {
           Semantics(
             label: widget.session.saveStatus,
             child: IconButton(
-              tooltip: 'Speichern',
+              tooltip: 'Save',
               onPressed: () => (widget.onSaveAll ?? widget.session.save)(),
               icon: Icon(
                 widget.session.error != null
@@ -561,11 +572,21 @@ class EditorPaneState extends State<EditorPane> {
       final saved = await widget.session.rateTape(id, rating);
       if (!mounted) return;
       setState(() => _revealed.remove(id));
-      if (!saved) {
+      if (saved) {
+        if (widget.onReviewRated != null) {
+          widget.onReviewRated!();
+        } else {
+          final next = widget.session.dueTapes
+              .where((t) => t.id != id)
+              .firstOrNull;
+          if (next != null) await beginReview(next.id);
+        }
+      }
+      if (!saved && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Bewertung noch nicht gespeichert. Bitte „Erneut versuchen“ beim Speicherfehler wählen.',
+              'Rating not saved yet. Please choose “Retry” on the save error.',
             ),
           ),
         );
@@ -599,7 +620,9 @@ class EditorPaneState extends State<EditorPane> {
               return time == 0 ? a.id.compareTo(b.id) : time;
             });
       return AlertDialog(
-        title: Text('Lernverlauf · ${events.length} Bewertungen'),
+        title: Text(
+          'Study history · ${events.length} ${events.length == 1 ? 'rating' : 'ratings'}',
+        ),
         content: SizedBox(
           width: 420,
           height: 300,
@@ -614,7 +637,7 @@ class EditorPaneState extends State<EditorPane> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Schließen'),
+            child: const Text('Close'),
           ),
         ],
       );
@@ -632,11 +655,11 @@ class EditorPaneState extends State<EditorPane> {
           : widget.session.note.learning.schedule(tape.id);
       final revealed = tape != null && _revealed.contains(tape.id);
       final description = tape == null
-          ? 'Abdeckung zum Lernen antippen'
+          ? 'Tap a study cover to review'
           : schedule == null
-          ? 'Neue Aufgabe · jetzt fällig'
-          : '${schedule.concurrent ? "Parallele Bewertungen · " : ""}'
-                '${schedule.count} Bewertungen · fällig ${_date(schedule.due)}';
+          ? 'New task · due now'
+          : '${schedule.concurrent ? "Concurrent ratings · " : ""}'
+                '${schedule.count} ${schedule.count == 1 ? 'rating' : 'ratings'} · due ${_date(schedule.due)}';
       return WorkspaceToolbar(
         child: LayoutBuilder(
           builder: (context, constraints) => Row(
@@ -672,17 +695,31 @@ class EditorPaneState extends State<EditorPane> {
                         ),
                       if (tape != null)
                         IconButton(
-                          tooltip: 'Lernverlauf',
+                          tooltip: 'Study history',
                           onPressed: () => _reviewHistory(tape.id),
                           icon: const Icon(Icons.history, size: 18),
                         ),
+                      IconButton(
+                        tooltip: 'Next due cover',
+                        onPressed: _rating
+                            ? null
+                            : (() {
+                                final next = widget.session.dueTapes
+                                    .where((t) => t.id != tape?.id)
+                                    .firstOrNull;
+                                return next == null
+                                    ? null
+                                    : () => beginReview(next.id);
+                              })(),
+                        icon: const Icon(Icons.skip_next),
+                      ),
                       if (tape != null && !revealed)
                         TextButton.icon(
                           onPressed: _rating
                               ? null
                               : () => _toggleCover(tape.id),
                           icon: const Icon(Icons.visibility_outlined, size: 18),
-                          label: const Text('Antwort aufdecken'),
+                          label: const Text('Reveal answer'),
                         ),
                       for (final rating in ReviewRating.values)
                         TextButton(
@@ -697,7 +734,7 @@ class EditorPaneState extends State<EditorPane> {
               ),
               if (widget.showChrome)
                 IconButton(
-                  tooltip: 'Modus beenden',
+                  tooltip: 'Exit mode',
                   onPressed: () {
                     final old = _returnTool;
                     normalTool();
@@ -711,7 +748,143 @@ class EditorPaneState extends State<EditorPane> {
       );
     },
   );
-  void _resize(double factor) => _transform(scale: factor);
+  void _clearTransformPreview() {
+    final originals = _transformOriginal;
+    _transformOriginal = null;
+    if (originals == null) return;
+    final ink = widget.session.ink;
+    ink.clearPreview(_transformPreview.map((s) => s.id));
+    for (final stroke in originals) {
+      ink.hide(stroke, false);
+    }
+    _transformPreview = [];
+  }
+
+  Widget _selectionHandles() => ListenableBuilder(
+    listenable: Listenable.merge([
+      editing,
+      widget.session.ink,
+      viewer.viewportChanges,
+    ]),
+    builder: (context, _) {
+      if (!widget.active ||
+          editing.tool != PdfEditTool.select ||
+          _mode != _Mode.normal ||
+          _learning) {
+        return const SizedBox.shrink();
+      }
+      final ink = widget.session.ink;
+      final strokes = [for (final id in ink.selected) ?ink.index[id]];
+      // Native PDF-only selections already have handles. A lasso containing
+      // vector ink needs one common frame for the mixed selection.
+      if (strokes.isEmpty) return const SizedBox.shrink();
+      final page =
+          List.generate(editing.document.pageCount, (i) => i)
+              .where(
+                (i) => inkPageId(editing.document, i) == strokes.first.page,
+              )
+              .firstOrNull ??
+          -1;
+      if (page < 0 || strokes.any((s) => s.page != strokes.first.page)) {
+        return const SizedBox.shrink();
+      }
+      final slots = editing.selectedAnnotationSlots.toList();
+      if (slots.any((slot) => slot.$1 != page)) return const SizedBox.shrink();
+      final bounds = [
+        for (final s in strokes) s.bounds,
+        for (final slot in slots)
+          (() {
+            final rect = editing.document.page(page).annotations[slot.$2].rect;
+            return Rect.fromLTRB(rect.left, rect.bottom, rect.right, rect.top);
+          })(),
+      ].reduce((a, b) => a.expandToInclude(b));
+      final model = editing.document.page(page);
+      final global = viewer.globalRectOf(page, model.cropBox);
+      final box = _pdfKey.currentContext?.findRenderObject();
+      if (global == null || box is! RenderBox || !box.hasSize) {
+        return const SizedBox.shrink();
+      }
+      final origin = global.topLeft - box.localToGlobal(Offset.zero);
+      final geometry = PdfPageGeometry(
+        cropBox: model.cropBox,
+        rotation: (model.rotation + viewer.viewRotation) % 360,
+        viewSize: global.size,
+      );
+      return SelectionTransformOverlay(
+        key: ValueKey(('selection-handles', page)),
+        // Keep move and 44px resize targets disjoint even for a dot or a
+        // single thin line. The shared frame intentionally includes padding.
+        bounds: Rect.fromCenter(
+          center: bounds.center,
+          width: bounds.width.clamp(112 / geometry.scale, double.infinity),
+          height: bounds.height.clamp(112 / geometry.scale, double.infinity),
+        ),
+        toLocal: (p) => geometry.toViewOffset(p.dx, p.dy) + origin,
+        toPage: (p) {
+          final v = geometry.toPagePoint(p - origin);
+          return Offset(v.$1, v.$2);
+        },
+        onStart: () {
+          _clearTransformPreview();
+          _transformRevision = editing.revisionId;
+          _transformOriginal = strokes;
+          for (final stroke in strokes) {
+            ink.hide(stroke, true);
+          }
+        },
+        onUpdate: (value) {
+          if (_transformOriginal == null) return;
+          ink.clearPreview(_transformPreview.map((s) => s.id));
+          try {
+            _transformPreview = [
+              for (final s in _transformOriginal!)
+                s.transform(
+                  origin: value.origin,
+                  delta: value.delta,
+                  scaleX: value.scaleX,
+                  scaleY: value.scaleY,
+                  rotation: value.rotation,
+                ),
+            ];
+            for (final stroke in _transformPreview) {
+              ink.showPreview(stroke);
+            }
+          } catch (_) {
+            // Oversized transformations must never replace valid originals.
+            _clearTransformPreview();
+          }
+        },
+        onFinish: (value, cancel) {
+          final valid =
+              _transformOriginal != null &&
+              _transformRevision == editing.revisionId;
+          _clearTransformPreview();
+          if (cancel || !valid || value.isIdentity) return;
+          try {
+            widget.session.transaction(
+              () => transformNotebookSelection(
+                editing,
+                ink,
+                anchor: value.origin,
+                delta: value.delta,
+                scaleX: value.scaleX,
+                scaleY: value.scaleY,
+                rotation: value.rotation,
+              ),
+            );
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Could not transform the selection: $e'),
+                ),
+              );
+            }
+          }
+        },
+      );
+    },
+  );
 
   void _transform({double scale = 1, double rotation = 0}) {
     try {
@@ -725,9 +898,7 @@ class EditorPaneState extends State<EditorPane> {
       );
     } catch (error) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Auswahl konnte nicht transformiert werden: $error'),
-        ),
+        SnackBar(content: Text('Could not transform the selection: $error')),
       );
     }
   }
@@ -748,7 +919,7 @@ class EditorPaneState extends State<EditorPane> {
               degrees != null &&
               degrees.isFinite;
           return AlertDialog(
-            title: const Text('Auswahl transformieren'),
+            title: const Text('Transform selection'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -757,7 +928,7 @@ class EditorPaneState extends State<EditorPane> {
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
-                  decoration: const InputDecoration(labelText: 'Größe (%)'),
+                  decoration: const InputDecoration(labelText: 'Size (%)'),
                   onChanged: (value) => update(() => scale = value),
                 ),
                 TextFormField(
@@ -766,9 +937,7 @@ class EditorPaneState extends State<EditorPane> {
                     decimal: true,
                     signed: true,
                   ),
-                  decoration: const InputDecoration(
-                    labelText: 'Drehwinkel (°)',
-                  ),
+                  decoration: const InputDecoration(labelText: 'Rotation (°)'),
                   onChanged: (value) => update(() => angle = value),
                 ),
               ],
@@ -776,7 +945,7 @@ class EditorPaneState extends State<EditorPane> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Abbrechen'),
+                child: const Text('Cancel'),
               ),
               FilledButton(
                 onPressed: valid
@@ -785,7 +954,7 @@ class EditorPaneState extends State<EditorPane> {
                         degrees * 0.017453292519943295,
                       ))
                     : null,
-                child: const Text('Anwenden'),
+                child: const Text('Apply'),
               ),
             ],
           );
@@ -911,19 +1080,19 @@ class EditorPaneState extends State<EditorPane> {
                     children: [
                       const Expanded(
                         child: Text(
-                          'Schreiblupe',
+                          'Writing magnifier',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
                       IconButton(
-                        tooltip: 'Nächste Zeile',
+                        tooltip: 'Next line',
                         onPressed: _nextLine,
                         icon: const Icon(Icons.keyboard_return),
                       ),
                       IconButton(
-                        tooltip: 'Schreiblupe schließen',
+                        tooltip: 'Close writing magnifier',
                         onPressed: toggleLoupe,
                         icon: const Icon(Icons.close),
                       ),
@@ -934,7 +1103,7 @@ class EditorPaneState extends State<EditorPane> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Schreiblupe',
+                        'Writing magnifier',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(fontWeight: FontWeight.bold),
@@ -946,14 +1115,14 @@ class EditorPaneState extends State<EditorPane> {
                               onPressed: _nextLine,
                               icon: const Icon(Icons.keyboard_return),
                               label: const Text(
-                                'Nächste Zeile',
+                                'Next line',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ),
                           IconButton(
-                            tooltip: 'Schreiblupe schließen',
+                            tooltip: 'Close writing magnifier',
                             onPressed: toggleLoupe,
                             icon: const Icon(Icons.close),
                           ),
@@ -1221,6 +1390,7 @@ class EditorPaneState extends State<EditorPane> {
   }
 
   void finishInput() {
+    _clearTransformPreview();
     if (_inkPointer != null) {
       _handleInkInput(
         PointerUpEvent(
@@ -1308,9 +1478,7 @@ class EditorPaneState extends State<EditorPane> {
           _inkErase?.finish(cancel: true);
           _liveInk?.cancel();
           ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-            SnackBar(
-              content: Text('Handschrift konnte nicht übernommen werden: $e'),
-            ),
+            SnackBar(content: Text('Could not commit handwriting: $e')),
           );
         } finally {
           _eraserContact.value = null;
@@ -1489,13 +1657,14 @@ class EditorPaneState extends State<EditorPane> {
     if (!_learning) return IgnorePointer(child: cover);
     return Semantics(
       button: true,
-      label: revealed ? 'Antwort verdecken' : 'Antwort aufdecken',
+      label: revealed ? 'Hide answer' : 'Reveal answer',
       child: GestureDetector(onTap: () => _toggleCover(key), child: cover),
     );
   }
 
   @override
   void dispose() {
+    _clearTransformPreview();
     _inkMove?.finish(cancel: true);
     _inkErase?.finish(cancel: true);
     _liveInk?.dispose();
@@ -1570,13 +1739,13 @@ class EditorPaneState extends State<EditorPane> {
                       child: PdfSearchField(
                         controller: viewer,
                         searchController: _searchText,
-                        hintText: 'Im PDF suchen',
+                        hintText: 'Search PDF',
                         showOptions: false,
                       ),
                     ),
                   ),
                   IconButton(
-                    tooltip: 'Suche schließen',
+                    tooltip: 'Close search',
                     onPressed: toggleSearch,
                     icon: const Icon(Icons.close),
                   ),
@@ -1612,16 +1781,16 @@ class EditorPaneState extends State<EditorPane> {
                     Expanded(
                       child: Text(
                         _learning
-                            ? 'Lernmodus · zum Aufdecken antippen'
+                            ? 'Study mode · tap to reveal'
                             : _mode == _Mode.lasso
-                            ? 'Inhalte mit dem Stift einkreisen'
-                            : 'Abdeckung mit dem Stift aufziehen',
+                            ? 'Circle content with the pen'
+                            : 'Draw a study cover with the pen',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     IconButton(
-                      tooltip: 'Modus beenden',
+                      tooltip: 'Exit mode',
                       onPressed: () {
                         final old = _returnTool;
                         normalTool();
@@ -1645,64 +1814,22 @@ class EditorPaneState extends State<EditorPane> {
                       TextButton.icon(
                         onPressed: editing.copySelectedAnnotations,
                         icon: const Icon(Icons.copy),
-                        label: const Text('Kopieren'),
+                        label: const Text('Copy'),
                       ),
                       TextButton.icon(
                         onPressed: () {
                           editing.pasteAnnotations(viewer.currentPage);
                         },
                         icon: const Icon(Icons.paste),
-                        label: const Text('Einfügen'),
+                        label: const Text('Paste'),
                       ),
                       IconButton(
-                        tooltip: 'Auswahl nach links',
-                        onPressed: () => editing.moveSelected(-6, 0),
-                        icon: const Icon(Icons.arrow_back),
-                      ),
-                      IconButton(
-                        tooltip: 'Auswahl nach rechts',
-                        onPressed: () => editing.moveSelected(6, 0),
-                        icon: const Icon(Icons.arrow_forward),
-                      ),
-                      IconButton(
-                        tooltip: 'Auswahl nach oben',
-                        onPressed: () => editing.moveSelected(0, 6),
-                        icon: const Icon(Icons.arrow_upward),
-                      ),
-                      IconButton(
-                        tooltip: 'Auswahl nach unten',
-                        onPressed: () => editing.moveSelected(0, -6),
-                        icon: const Icon(Icons.arrow_downward),
-                      ),
-                      IconButton(
-                        tooltip: 'Auswahl verkleinern',
-                        onPressed: () => _resize(.8),
-                        icon: const Icon(Icons.zoom_out),
-                      ),
-                      IconButton(
-                        tooltip: 'Auswahl vergrößern',
-                        onPressed: () => _resize(1.25),
-                        icon: const Icon(Icons.zoom_in),
-                      ),
-                      IconButton(
-                        tooltip: 'Auswahl 15° nach links drehen',
-                        onPressed: () =>
-                            _transform(rotation: -0.2617993877991494),
-                        icon: const Icon(Icons.rotate_left),
-                      ),
-                      IconButton(
-                        tooltip: 'Auswahl 15° nach rechts drehen',
-                        onPressed: () =>
-                            _transform(rotation: 0.2617993877991494),
-                        icon: const Icon(Icons.rotate_right),
-                      ),
-                      IconButton(
-                        tooltip: 'Auswahl transformieren',
+                        tooltip: 'Transform selection',
                         onPressed: _transformDialog,
                         icon: const Icon(Icons.transform),
                       ),
                       IconButton(
-                        tooltip: 'Auswahl löschen',
+                        tooltip: 'Delete selection',
                         onPressed: editing.deleteSelected,
                         icon: const Icon(Icons.delete_outline),
                       ),
@@ -1748,7 +1875,10 @@ class EditorPaneState extends State<EditorPane> {
                               minZoom: .001,
                               backgroundColor: NoterTheme.workspace,
                               pageColor: Colors.white,
-                              presenter: const NoterTextSelectionPresenter(),
+                              presenter: NoterTextSelectionPresenter(
+                                hideAnnotationActions: () =>
+                                    widget.session.ink.selected.isNotEmpty,
+                              ),
                               onAnnotationTap: (details) {
                                 final action = details.annotation.action;
                                 final target = switch (action) {
@@ -1792,7 +1922,10 @@ class EditorPaneState extends State<EditorPane> {
                               chipForegroundColor: NoterTheme.ink,
                             ),
                             showSaveButton: false,
-                            presenter: const NoterTextSelectionPresenter(),
+                            presenter: NoterTextSelectionPresenter(
+                              hideAnnotationActions: () =>
+                                  widget.session.ink.selected.isNotEmpty,
+                            ),
                             onSave: (_) async {
                               await widget.session.save();
                             },
@@ -1833,6 +1966,7 @@ class EditorPaneState extends State<EditorPane> {
                               editing: editing,
                             ),
                           ),
+                        Positioned.fill(child: _selectionHandles()),
                         Positioned.fill(
                           child: IgnorePointer(
                             child: RepaintBoundary(
@@ -1847,9 +1981,7 @@ class EditorPaneState extends State<EditorPane> {
                             child: IgnorePointer(
                               child: ColoredBox(
                                 color: Color(0xCCFFFFFF),
-                                child: Center(
-                                  child: Text('Werkzeug wird geladen …'),
-                                ),
+                                child: Center(child: Text('Loading tool …')),
                               ),
                             ),
                           ),

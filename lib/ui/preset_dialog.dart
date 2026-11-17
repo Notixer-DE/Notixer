@@ -30,7 +30,7 @@ class _PresetDialogState extends State<PresetDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
     scrollable: true,
-    title: const Text('Stiftfavorit bearbeiten'),
+    title: const Text('Edit pen preset'),
     content: SizedBox(
       width: 360,
       child: Form(
@@ -43,18 +43,17 @@ class _PresetDialogState extends State<PresetDialog> {
               controller: name,
               decoration: const InputDecoration(labelText: 'Name'),
               maxLength: 24,
-              validator: (v) => v == null || v.trim().isEmpty
-                  ? 'Bitte einen Namen eingeben.'
-                  : null,
+              validator: (v) =>
+                  v == null || v.trim().isEmpty ? 'Please enter a name.' : null,
             ),
             DropdownButtonFormField<String>(
               initialValue: tool,
-              decoration: const InputDecoration(labelText: 'Werkzeug'),
+              decoration: const InputDecoration(labelText: 'Tool'),
               items: const [
-                DropdownMenuItem(value: 'ink', child: Text('Stift')),
+                DropdownMenuItem(value: 'ink', child: Text('Pen')),
                 DropdownMenuItem(
                   value: 'highlight',
-                  child: Text('Freihandmarker'),
+                  child: Text('Highlighter'),
                 ),
               ],
               onChanged: (value) => setState(() => tool = value!),
@@ -63,12 +62,12 @@ class _PresetDialogState extends State<PresetDialog> {
             TextFormField(
               controller: color,
               decoration: const InputDecoration(
-                labelText: 'Farbe (Hex)',
+                labelText: 'Color (hex)',
                 prefixText: '#',
               ),
               validator: (v) => RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(v ?? '')
                   ? null
-                  : 'Sechs Hex-Zeichen, z. B. 202020.',
+                  : 'Six hexadecimal digits, e.g. 202020.',
             ),
             const SizedBox(height: 8),
             Wrap(
@@ -82,7 +81,7 @@ class _PresetDialogState extends State<PresetDialog> {
                   0x9C3EAD,
                 ])
                   IconButton(
-                    tooltip: 'Farbe #${c.toRadixString(16)}',
+                    tooltip: 'Color #${c.toRadixString(16)}',
                     onPressed: () => setState(
                       () => color.text = c
                           .toRadixString(16)
@@ -93,14 +92,14 @@ class _PresetDialogState extends State<PresetDialog> {
                   ),
               ],
             ),
-            Text('Strichstärke: ${width.toStringAsFixed(1)} pt'),
+            Text('Stroke width: ${width.toStringAsFixed(1)} pt'),
             Slider(
               value: width.clamp(.5, 30),
               min: .5,
               max: 30,
               onChanged: (v) => setState(() => width = v),
             ),
-            Text('Deckkraft: ${(opacity * 100).round()} %'),
+            Text('Opacity: ${(opacity * 100).round()} %'),
             Slider(
               value: opacity,
               min: .05,
@@ -109,7 +108,7 @@ class _PresetDialogState extends State<PresetDialog> {
             ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Feste Strichstärke'),
+              title: const Text('Fixed width'),
               value: !pressureSensitive,
               onChanged: (value) => setState(() => pressureSensitive = !value),
             ),
@@ -120,7 +119,7 @@ class _PresetDialogState extends State<PresetDialog> {
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
-        child: const Text('Abbrechen'),
+        child: const Text('Cancel'),
       ),
       FilledButton(
         onPressed: () {
@@ -138,7 +137,7 @@ class _PresetDialogState extends State<PresetDialog> {
             );
           }
         },
-        child: const Text('Speichern'),
+        child: const Text('Save'),
       ),
     ],
   );

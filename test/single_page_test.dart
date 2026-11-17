@@ -1,4 +1,5 @@
 import 'dart:ui' as ui;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
@@ -108,6 +109,59 @@ void main() {
     expect(editing.bytes, orderedEquals(bytes));
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets(
+    'manual zoom survives mixed-size page jumps and wheel edges stay stable',
+    (tester) async {
+      await mount(tester);
+      viewer.setZoom(viewer.zoom * 3);
+      await frames(tester);
+      final zoom = viewer.zoom;
+      viewer.jumpToPage(1);
+      await frames(tester);
+      expect(viewer.zoom, closeTo(zoom, .001));
+      viewer.jumpToPage(2);
+      await frames(tester);
+      expect(viewer.zoom, closeTo(zoom, .001));
+      final position = tester.getCenter(find.byType(SinglePageView));
+      for (var i = 0; i < 30; i++) {
+        await tester.sendEventToBinding(
+          PointerScrollEvent(
+            kind: PointerDeviceKind.mouse,
+            position: position,
+            scrollDelta: const Offset(0, 120),
+          ),
+        );
+        await tester.pump();
+      }
+      expect(viewer.currentPage, 2);
+      final page = viewer.globalRectOf(2, editing.document.page(2).cropBox)!;
+      final viewport = tester.getRect(find.byType(SinglePageView));
+      expect(page.bottom, greaterThanOrEqualTo(viewport.bottom - 1));
+      var changes = 0;
+      void changed() => changes++;
+      viewer.viewportChanges.addListener(changed);
+      await frames(tester);
+      final settled = changes;
+      for (var i = 0; i < 10; i++) {
+        await tester.sendEventToBinding(
+          PointerScrollEvent(
+            kind: PointerDeviceKind.mouse,
+            position: position,
+            scrollDelta: const Offset(0, 120),
+          ),
+        );
+        await tester.pump();
+      }
+      expect(
+        changes - settled,
+        lessThanOrEqualTo(2),
+        reason: 'Scrolling at a boundary must not fight the multi-page list.',
+      );
+      viewer.viewportChanges.removeListener(changed);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets('zoomed panning and multi-touch never turn a page', (
     tester,
@@ -225,6 +279,21 @@ void main() {
       await frames(tester);
       for (final dy in [-600.0, -1200.0, 1800.0]) {
         await tester.drag(find.byType(SinglePageView), Offset(0, dy));
+        await frames(tester);
+        expect(viewer.currentPage, 2);
+        await expectPainted();
+      }
+      for (final delta in [
+        const Offset(900, 900),
+        const Offset(-1800, -1800),
+      ]) {
+        await tester.sendEventToBinding(
+          PointerScrollEvent(
+            kind: PointerDeviceKind.mouse,
+            position: tester.getCenter(find.byType(SinglePageView)),
+            scrollDelta: delta,
+          ),
+        );
         await frames(tester);
         expect(viewer.currentPage, 2);
         await expectPainted();

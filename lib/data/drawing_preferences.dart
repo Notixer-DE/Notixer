@@ -28,7 +28,7 @@ class DrawingToolChoice {
         !choice.opacity.isFinite ||
         choice.opacity < 0 ||
         choice.opacity > 1) {
-      throw const FormatException('Ungültiger Werkzeugzustand.');
+      throw const FormatException('Invalid tool state.');
     }
     return choice;
   }
@@ -100,7 +100,7 @@ class DrawingPreferences extends ChangeNotifier {
     // device preference block the library or all subsequent tool writes.
     await file.copy('${file.path}.invalid');
     _values = {};
-    loadWarning = 'Werkzeugeinstellungen wurden zurückgesetzt: $error';
+    loadWarning = 'Drawing preferences were reset: $error';
     _loaded = true;
     notifyListeners();
   }
@@ -112,21 +112,21 @@ class DrawingPreferences extends ChangeNotifier {
     }
     final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
     if (json['version'] != 1) {
-      throw const FormatException('Unbekannte Werkzeugeinstellungen.');
+      throw const FormatException('Unknown drawing preferences.');
     }
     _values = Map<String, dynamic>.from(json['values'] as Map);
     if (_values['wholeStrokeEraser'] != null &&
         _values['wholeStrokeEraser'] is! bool) {
-      throw const FormatException('Ungültiger Radierermodus.');
+      throw const FormatException('Invalid eraser mode.');
     }
     if (_values['straightStrokes'] != null &&
         _values['straightStrokes'] is! bool) {
-      throw const FormatException('Ungültiger Linealmodus.');
+      throw const FormatException('Invalid ruler mode.');
     }
     final pressure = _values['pressureSensitive'];
     if (pressure != null &&
         (pressure is! Map || pressure.values.any((v) => v is! bool))) {
-      throw const FormatException('Ungültige Druckeinstellung.');
+      throw const FormatException('Invalid pressure setting.');
     }
     if (_values['lastTool'] != null) {
       DrawingToolChoice.fromJson(

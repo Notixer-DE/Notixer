@@ -21,7 +21,7 @@ Future<Uint8List> selectionPdf() async {
       build: (_) => pw.Padding(
         padding: const pw.EdgeInsets.only(top: 100),
         child: pw.Text(
-          'Alpha Beta Gamma\nZweite Zeile mit Text',
+          'Alpha Beta Gamma\nSecond Zeile mit Text',
           style: pw.TextStyle(fontSize: 24),
         ),
       ),
@@ -53,22 +53,22 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Text auswählen'));
+    await tester.tap(find.byTooltip('Select text'));
     await tester.pumpAndSettle();
     return tester.state<EditorPaneState>(find.byType(EditorPane));
   }
 
   for (final (label, subtype) in [
-    ('Markieren', 'Highlight'),
-    ('Unterstreichen', 'Underline'),
-    ('Durchstreichen', 'StrikeOut'),
+    ('Highlight', 'Highlight'),
+    ('Underline', 'Underline'),
+    ('Strikethrough', 'StrikeOut'),
   ]) {
     for (final (name, color) in [
-      ('Rosa', 0xF4BBD0),
-      ('Gelb', 0xFFE481),
-      ('Blau', 0xB3E1F4),
-      ('Grün', 0xBCE9C9),
-      ('Türkis', 0x169FB8),
+      ('Pink', 0xF4BBD0),
+      ('Yellow', 0xFFE481),
+      ('Blue', 0xB3E1F4),
+      ('Green', 0xBCE9C9),
+      ('Turquoise', 0x169FB8),
     ]) {
       testWidgets('$label $name preserves PDF text, pen style and undo', (
         tester,
@@ -178,7 +178,7 @@ void main() {
         expect(pane.viewer.selectedText, contains('Beta'));
         expect(pane.viewer.selectedText, isNot(contains('Gamma')));
       }
-      await tester.tap(find.byTooltip('Markieren · Gelb'));
+      await tester.tap(find.byTooltip('Highlight · Yellow'));
       await tester.pumpAndSettle();
       expect(
         pane.editing.document.page(0).annotations.single.subtype,
@@ -212,10 +212,10 @@ void main() {
     );
     pane.viewer.selectAllTextOn(0);
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Text kopieren'));
+    await tester.tap(find.byTooltip('Copy text'));
     await tester.pumpAndSettle();
     expect(copied, contains('Alpha Beta Gamma'));
-    await tester.tap(find.byTooltip('Textauswahl aufheben'));
+    await tester.tap(find.byTooltip('Clear text selection'));
     await tester.pumpAndSettle();
     expect(pane.viewer.hasSelection, isFalse);
     expect(pane.editing.document.page(0).annotations, isEmpty);
@@ -235,20 +235,20 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
       final pane = await open(tester);
-      await tester.tap(find.byTooltip('Leisten ausblenden'));
+      await tester.tap(find.byTooltip('Hide toolbars'));
       await tester.pumpAndSettle();
       pane.viewer.selectAllTextOn(0);
       await tester.pumpAndSettle();
       final toolbar = find.byType(NoterTextSelectionToolbar);
       await tester.scrollUntilVisible(
-        find.byTooltip('Durchstreichen · Türkis'),
+        find.byTooltip('Strikethrough · Turquoise'),
         150,
         scrollable: find.descendant(
           of: toolbar,
           matching: find.byType(Scrollable),
         ),
       );
-      await tester.tap(find.byTooltip('Durchstreichen · Türkis'));
+      await tester.tap(find.byTooltip('Strikethrough · Turquoise'));
       await tester.pumpAndSettle();
       expect(
         pane.editing.document.page(0).annotations.single.subtype,
@@ -282,31 +282,31 @@ void main() {
     pane.viewer.setZoom(1.5);
     await tester.pumpAndSettle();
     final scale = pane.viewer.zoom;
-    await tester.tap(find.byTooltip('Seitenübersicht'));
+    await tester.tap(find.byTooltip('Page overview'));
     await tester.pumpAndSettle();
     expect(sidebar, findsNothing);
     expect(pane.viewer.zoom, closeTo(scale, .01));
-    await tester.tap(find.byTooltip('Farbe und Strichstärke'));
+    await tester.tap(find.byTooltip('Tool settings'));
     await tester.pumpAndSettle();
     await tester.tap(
       find.descendant(
         of: find.byType(AlertDialog),
-        matching: find.byTooltip('Farbe #238b7e'),
+        matching: find.byTooltip('Color #238b7e'),
       ),
     );
     await tester.pumpAndSettle();
     expect(pane.editing.color, const Color(0xFF238B7E));
-    await tester.tap(find.text('Fertig'));
+    await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Seitenübersicht'));
+    await tester.tap(find.byTooltip('Page overview'));
     await tester.pumpAndSettle();
     expect(sidebar, findsOneWidget);
-    await tester.tap(find.byTooltip('Leisten ausblenden'));
+    await tester.tap(find.byTooltip('Hide toolbars'));
     await tester.pumpAndSettle();
     expect(find.byType(EditorToolbar), findsNothing);
     expect(sidebar, findsNothing);
     expect(pane.viewer.zoom, closeTo(scale, .01));
-    await tester.tap(find.byTooltip('Leisten einblenden'));
+    await tester.tap(find.byTooltip('Show toolbars'));
     await tester.pumpAndSettle();
     expect(find.byType(EditorToolbar), findsOneWidget);
     expect(pane.viewer.zoom, closeTo(scale, .01));
@@ -324,7 +324,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await open(tester);
     expect(find.byKey(const ValueKey('editor-page-sidebar')), findsNothing);
-    await tester.tap(find.byTooltip('Seitenübersicht'));
+    await tester.tap(find.byTooltip('Page overview'));
     await tester.pumpAndSettle();
     final sheet = find.byKey(const ValueKey('editor-page-sheet'));
     expect(sheet, findsOneWidget);

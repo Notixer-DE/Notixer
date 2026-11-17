@@ -24,10 +24,10 @@ void main() {
     'trash survives restart and restores PDF, tags and folder as a new copy',
     () async {
       final pdf = await createPaper('grid', pages: 3);
-      final folder = await repository.catalog.ensureFolder('Studium');
+      final folder = await repository.catalog.ensureFolder('Studies');
       var note = await repository.create('Analysis', pdf, paper: 'grid');
       note = await repository.save(
-        note.copy(folderId: folder.id, tags: ['Mathe', 'Prüfung']),
+        note.copy(folderId: folder.id, tags: ['Maths', 'Exam']),
         pdf,
       );
       await repository.delete(note.id);
@@ -40,8 +40,8 @@ void main() {
       final restored = await reopened.restore(entry);
       expect(restored.id, isNot(note.id));
       expect(restored.paper, 'grid');
-      expect(restored.tags, ['Mathe', 'Prüfung']);
-      expect(reopened.catalog.folderName(restored.folderId), 'Studium');
+      expect(restored.tags, ['Maths', 'Exam']);
+      expect(reopened.catalog.folderName(restored.folderId), 'Studies');
       expect(await reopened.load(restored.id), pdf);
       expect((await reopened.recovery()).single.note.id, note.id);
       expect((await reopened.list()).single.id, restored.id);
@@ -55,19 +55,19 @@ void main() {
       final second = await createPaper('lined', pages: 2);
       final note = await repository.create('Anfang', first);
       expect(await repository.recovery(id: note.id), isEmpty);
-      await repository.save(note.copy(title: 'Zweiter Stand'), second);
+      await repository.save(note.copy(title: 'Secondr Stand'), second);
       var history = await repository.recovery(id: note.id);
       expect(history.single.note.title, 'Anfang');
       expect(history.single.recorded.toUtc(), now);
       expect(await repository.recoveryPdf(history.single), first);
       now = now.add(const Duration(minutes: 1));
-      await repository.save(note.copy(title: 'Dritter Stand'), first);
+      await repository.save(note.copy(title: 'Thirdr Stand'), first);
       expect(await repository.recovery(id: note.id), hasLength(1));
       now = now.add(const Duration(minutes: 4));
       await repository.save(note.copy(title: 'Aktuell'), second);
       final reopened = LocalNotebookRepository(directory);
       history = await reopened.recovery(id: note.id);
-      expect(history.map((e) => e.note.title), ['Dritter Stand', 'Anfang']);
+      expect(history.map((e) => e.note.title), ['Thirdr Stand', 'Anfang']);
       final restored = await reopened.restore(history.last);
       expect(restored.id, isNot(note.id));
       expect(await reopened.load(restored.id), first);

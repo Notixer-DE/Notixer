@@ -87,7 +87,7 @@ void main() {
     }
     expect(finished, isTrue);
     expect(find.text('Aktuell'), findsOneWidget);
-    expect(find.text('Lange Textnotiz'), findsNothing);
+    expect(find.text('Long text note'), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 }

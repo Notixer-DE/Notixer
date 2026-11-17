@@ -37,7 +37,7 @@ Future<void> duplicateNotebookPages(
     final revision = editing.revisionId;
     final copy = await editing.editablePages(sorted);
     if (editing.revisionId != revision) {
-      throw StateError('Die Seiten wurden während des Kopierens verändert.');
+      throw StateError('The pages changed while copying.');
     }
     editing.insertEditablePages(copy, at: sorted.last + 1);
     return;
@@ -312,9 +312,17 @@ void transformNotebookSelection(
   InkController ink, {
   double scale = 1,
   double rotation = 0,
+  double scaleX = 1,
+  double scaleY = 1,
+  Offset delta = Offset.zero,
+  Offset? anchor,
 }) {
-  if (!scale.isFinite || scale <= 0 || !rotation.isFinite) {
-    throw ArgumentError('Ungültige Transformation.');
+  if (![scale, scaleX, scaleY].every((v) => v.isFinite && v > 0) ||
+      !rotation.isFinite ||
+      !delta.dx.isFinite ||
+      !delta.dy.isFinite ||
+      (anchor != null && (!anchor.dx.isFinite || !anchor.dy.isFinite))) {
+    throw ArgumentError('Invalid transformation.');
   }
   final slots = editing.selectedAnnotationSlots.toList();
   final annotations = [
@@ -328,23 +336,30 @@ void transformNotebookSelection(
       Rect.fromLTRB(a.rect.left, a.rect.bottom, a.rect.right, a.rect.top),
   ];
   if (bounds.isEmpty) return;
-  final origin = bounds.reduce((a, b) => a.expandToInclude(b)).center;
+  final origin = anchor ?? bounds.reduce((a, b) => a.expandToInclude(b)).center;
   final cosine = math.cos(rotation), sine = math.sin(rotation);
   Offset target(Offset point) {
-    final x = (point.dx - origin.dx) * scale;
-    final y = (point.dy - origin.dy) * scale;
-    return origin + Offset(x * cosine - y * sine, x * sine + y * cosine);
+    final x = (point.dx - origin.dx) * scale * scaleX;
+    final y = (point.dy - origin.dy) * scale * scaleY;
+    return origin +
+        Offset(x * cosine - y * sine, x * sine + y * cosine) +
+        delta;
   }
 
   final changedInk = [
     for (final stroke in strokes)
-      stroke.transform(origin: origin, scale: scale, rotation: rotation),
+      stroke.transform(
+        origin: origin,
+        scale: scale,
+        scaleX: scaleX,
+        scaleY: scaleY,
+        rotation: rotation,
+        delta: delta,
+      ),
   ];
   if (rotation != 0 &&
       annotations.any((entry) => entry.$2.normalAppearance == null)) {
-    throw StateError(
-      'Eine ausgewählte PDF-Anmerkung hat keine drehbare Darstellung.',
-    );
+    throw StateError('A selected PDF annotation has no rotatable appearance.');
   }
   editing.apply((editor) {
     for (final (page, annotation) in annotations) {
@@ -354,7 +369,7 @@ void transformNotebookSelection(
         (rect.bottom + rect.top) / 2,
       );
       final next = target(center);
-      if (scale != 1) {
+      if (scale != 1 || scaleX != 1 || scaleY != 1) {
         final quad = annotation.appearanceQuad;
         final width = quad == null
             ? rect.width
@@ -364,16 +379,29 @@ void transformNotebookSelection(
             ? rect.height
             : (Offset(quad[3].$1, quad[3].$2) - Offset(quad[0].$1, quad[0].$2))
                   .distance;
-        editor.resizeAnnotationLocal(
-          page,
-          annotation,
-          PdfRect(
-            center.dx - width * scale / 2,
-            center.dy - height * scale / 2,
-            center.dx + width * scale / 2,
-            center.dy + height * scale / 2,
-          ),
-        );
+        if (scaleX != scaleY) {
+          editor.resizeAnnotation(
+            page,
+            annotation,
+            PdfRect(
+              center.dx - rect.width * scale * scaleX / 2,
+              center.dy - rect.height * scale * scaleY / 2,
+              center.dx + rect.width * scale * scaleX / 2,
+              center.dy + rect.height * scale * scaleY / 2,
+            ),
+          );
+        } else {
+          editor.resizeAnnotationLocal(
+            page,
+            annotation,
+            PdfRect(
+              center.dx - width * scale * scaleX / 2,
+              center.dy - height * scale * scaleY / 2,
+              center.dx + width * scale * scaleX / 2,
+              center.dy + height * scale * scaleY / 2,
+            ),
+          );
+        }
       }
       if (rotation != 0) {
         editor.rotateAnnotation(

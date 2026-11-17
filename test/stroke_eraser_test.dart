@@ -135,7 +135,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.byTooltip('Farbe und Strichstärke'));
+    await tester.tap(find.byTooltip('Tool settings'));
     await tester.pumpAndSettle();
     final toggle = tester.widget<SwitchListTile>(
       find.byKey(const ValueKey('whole-stroke-eraser')),

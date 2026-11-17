@@ -38,7 +38,7 @@ void main() {
     root = await Directory.systemTemp.createTemp('noter-study-ui-');
     repo = LocalNotebookRepository(root);
     final bytes = await createPaper('blank');
-    final note = await repo.create('Vorlesung', bytes);
+    final note = await repo.create('Lecture', bytes);
     session = DocumentSession(
       note,
       bytes,
@@ -58,6 +58,54 @@ void main() {
     // Each test waits for its I/O before unmounting. Do not await a Future
     // created in the widget's fake-clock zone from this real-clock teardown.
     await root.delete(recursive: true);
+  });
+
+  testWidgets('a saved rating advances to the next due cover in the note', (
+    tester,
+  ) async {
+    final first = session.tapes.single.id;
+    addTape(session.editing, 0, const PdfRect(50, 400, 230, 460));
+    await tester.runAsync(() => session.save());
+    final key = GlobalKey<EditorPaneState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: EditorPane(
+            key: key,
+            session: session,
+            active: true,
+            split: false,
+            onActivate: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final opening = key.currentState!.beginReview(first);
+    await tester.pumpAndSettle();
+    await opening;
+    await tester.tap(find.text('Reveal answer'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Remembered'));
+    await waitStudyIo(
+      tester,
+      () =>
+          !session.saving &&
+          !session.dirty &&
+          key.currentState!.viewer.currentPage == 0,
+    );
+    expect(session.note.learning.schedule(first)!.count, 1);
+    expect(session.dueTapes.length, 1);
+    expect(find.text('Reveal answer'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, 'Remembered'))
+          .onPressed,
+      isNull,
+    );
+    await tester.pumpWidget(const SizedBox());
+    session.dispose();
+    disposed = true;
   });
 
   testWidgets(
@@ -113,30 +161,30 @@ void main() {
         matching: find.widgetWithText(TextButton, text),
       );
       expect(
-        tester.widget<TextButton>(button(leftPane, 'Gewusst')).onPressed,
+        tester.widget<TextButton>(button(leftPane, 'Remembered')).onPressed,
         isNull,
       );
-      await tester.tap(button(leftPane, 'Antwort aufdecken'));
+      await tester.tap(button(leftPane, 'Reveal answer'));
       await tester.pumpAndSettle();
       expect(
-        tester.widget<TextButton>(button(leftPane, 'Gewusst')).onPressed,
+        tester.widget<TextButton>(button(leftPane, 'Remembered')).onPressed,
         isNotNull,
       );
       expect(
-        tester.widget<TextButton>(button(rightPane, 'Gewusst')).onPressed,
+        tester.widget<TextButton>(button(rightPane, 'Remembered')).onPressed,
         isNull,
       );
       final revision = session.editing.revisionId;
-      await tester.tap(button(leftPane, 'Gewusst'));
+      await tester.tap(button(leftPane, 'Remembered'));
       await tester.pump();
       await waitStudyIo(tester, () => !session.saving && !session.dirty);
       expect(session.note.learning.schedule(id)!.count, 1);
       expect(session.editing.revisionId, revision);
       expect(
-        tester.widget<TextButton>(button(rightPane, 'Gewusst')).onPressed,
+        tester.widget<TextButton>(button(rightPane, 'Remembered')).onPressed,
         isNull,
       );
-      expect(find.textContaining('1 Bewertungen'), findsNWidgets(2));
+      expect(find.textContaining('1 rating'), findsNWidgets(2));
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       session.dispose();
@@ -159,10 +207,10 @@ void main() {
       );
       await waitStudyIo(
         tester,
-        () => find.text('Vorlesung · Seite 2').evaluate().isNotEmpty,
+        () => find.text('Lecture · Page 2').evaluate().isNotEmpty,
       );
-      expect(find.textContaining('1 jetzt fällige Aufgaben'), findsOneWidget);
-      await tester.tap(find.text('Vorlesung · Seite 2'));
+      expect(find.textContaining('1 task due now'), findsOneWidget);
+      await tester.tap(find.text('Lecture · Page 2'));
       await waitStudyIo(
         tester,
         () => find.byType(EditorPage).evaluate().isNotEmpty,
@@ -171,9 +219,66 @@ void main() {
       expect(editor.note.id, session.note.id);
       expect(editor.initialPage, 1);
       expect(editor.initialTapeId, id);
-      expect(find.text('Antwort aufdecken'), findsOneWidget);
+      expect(find.text('Reveal answer'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'global study queue continues to another note after a saved rating',
+    (tester) async {
+      final other = await tester.runAsync(() async {
+        final bytes = await createPaper('blank');
+        final note = await repo.create('Second subject', bytes);
+        final otherSession = DocumentSession(
+          note,
+          bytes,
+          repo,
+          preferencesStore: PdfMemoryPreferencesStore(),
+          autosaveDelay: const Duration(days: 1),
+          checkpointInterval: const Duration(days: 1),
+        );
+        await otherSession.ready;
+        addTape(otherSession.editing, 0, const PdfRect(60, 500, 200, 560));
+        await otherSession.save();
+        final saved = otherSession.note;
+        otherSession.dispose();
+        return saved;
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StudyPage(repository: repo, clock: () => now),
+        ),
+      );
+      await waitStudyIo(
+        tester,
+        () => find.text('Lecture · Page 2').evaluate().isNotEmpty,
+      );
+      await tester.tap(find.text('Lecture · Page 2'));
+      await waitStudyIo(
+        tester,
+        () => find.text('Reveal answer').evaluate().isNotEmpty,
+      );
+      await tester.tap(find.text('Reveal answer'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remembered'));
+      await waitStudyIo(tester, () {
+        final editors = find.byType(EditorPage).evaluate();
+        return editors.length == 1 &&
+            (editors.single.widget as EditorPage).note.id == other!.id;
+      });
+      expect(find.text('Reveal answer'), findsOneWidget);
+      final notes = await tester.runAsync(repo.list);
+      expect(
+        notes!
+            .singleWhere((n) => n.id == session.note.id)
+            .learning
+            .events
+            .length,
+        1,
+      );
+      await tester.pumpWidget(const SizedBox());
     },
   );
 
@@ -191,23 +296,23 @@ void main() {
       );
       await waitStudyIo(
         tester,
-        () => find.text('Für jetzt ist alles erledigt.').evaluate().isNotEmpty,
+        () => find.text('All done for now.').evaluate().isNotEmpty,
       );
       clock = now.add(const Duration(days: 1));
-      await tester.tap(find.byTooltip('Aufgaben neu laden'));
+      await tester.tap(find.byTooltip('Reload tasks'));
       await waitStudyIo(
         tester,
-        () => find.text('Vorlesung · Seite 2').evaluate().isNotEmpty,
+        () => find.text('Lecture · Page 2').evaluate().isNotEmpty,
       );
       session.editing.selectAnnotation(1, 0);
       session.editing.deleteSelected();
       await tester.runAsync(() => session.save());
-      await tester.tap(find.byTooltip('Aufgaben neu laden'));
+      await tester.tap(find.byTooltip('Reload tasks'));
       await waitStudyIo(
         tester,
-        () => find.text('Für jetzt ist alles erledigt.').evaluate().isNotEmpty,
+        () => find.text('All done for now.').evaluate().isNotEmpty,
       );
-      expect(find.textContaining('0 jetzt fällige Aufgaben'), findsOneWidget);
+      expect(find.textContaining('0 tasks due now'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       session.dispose();

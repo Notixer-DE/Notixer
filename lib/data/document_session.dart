@@ -114,7 +114,7 @@ class DocumentSession extends ChangeNotifier {
       }
       _lastTool = _toolChoice();
     } catch (e) {
-      error = 'Werkzeug konnte nicht wiederhergestellt werden: $e';
+      error = 'Could not restore the tool: $e';
     } finally {
       _restoringTool = false;
       _notifyStatus();
@@ -204,7 +204,7 @@ class DocumentSession extends ChangeNotifier {
       ink.onEdit = _inkChanged;
     } catch (e) {
       _inkLoadFailed = true;
-      error = 'Handschrift konnte nicht geladen werden: $e';
+      error = 'Could not load handwriting: $e';
     } finally {
       loadingInk = false;
       _notifyStatus();
@@ -235,7 +235,7 @@ class DocumentSession extends ChangeNotifier {
               })
               .catchError((Object e) {
                 _journalFailed = true;
-                error = 'Tintenjournal konnte nicht gespeichert werden: $e';
+                error = 'Could not save the ink journal: $e';
                 _notifyStatus();
                 unawaited(save());
               }),
@@ -324,11 +324,16 @@ class DocumentSession extends ChangeNotifier {
     return _tapes;
   }
 
+  List<TapeTarget> get dueTapes => tapes.where((tape) {
+    final schedule = note.learning.schedule(tape.id);
+    return schedule == null || schedule.isDue(_clock());
+  }).toList();
+
   /// Learning is not PDF undo state. Deletion hides a task; undoing deletion
   /// restores its existing progress rather than deleting assessments.
   Future<bool> rateTape(String id, ReviewRating rating) {
     if (!tapes.any((tape) => tape.id == id)) {
-      throw StateError('Diese Abdeckung ist nicht mehr vorhanden.');
+      throw StateError('This study cover no longer exists.');
     }
     note = note.copy(
       learning: note.learning.assess(
@@ -360,12 +365,12 @@ class DocumentSession extends ChangeNotifier {
       _savedLearning != _learningRevision ||
       editing.hasPendingInk;
   String get saveStatus => error != null
-      ? 'Nicht gespeichert'
+      ? 'Not saved'
       : saving
-      ? 'Speichert …'
+      ? 'Saving …'
       : dirty
-      ? 'Ungespeicherte Änderungen'
-      : 'Lokal gespeichert';
+      ? 'Unsaved changes'
+      : 'Saved locally';
   void _notifyStatus() {
     if (_disposed) return;
     final status = (
@@ -490,7 +495,7 @@ class DocumentSession extends ChangeNotifier {
       error = null;
       return true;
     } catch (e) {
-      error = 'Speichern fehlgeschlagen: $e';
+      error = 'Could not save: $e';
       return false;
     } finally {
       _saving = null;

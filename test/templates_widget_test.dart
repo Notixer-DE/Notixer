@@ -54,30 +54,30 @@ void main() {
       await tester.pumpAndSettle();
       expect(sourceSession.note.learning.isEmpty, isFalse);
       for (final item in [
-        ('Aktuelle Seite als Vorlage speichern', 'Eine Seite'),
-        ('Notiz als Vorlage speichern', 'Alle Seiten'),
+        ('Save current page as template', 'Eine Page'),
+        ('Save note as template', 'All Pages'),
       ]) {
-        await tester.tap(find.byTooltip('Werkzeuge und Export'));
+        await tester.tap(find.byTooltip('Tools and export'));
         await tester.pumpAndSettle();
         await tester.tap(find.text(item.$1));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, item.$2);
-        await tester.tap(find.widgetWithText(FilledButton, 'Speichern'));
+        await tester.tap(find.widgetWithText(FilledButton, 'Save'));
         await settleFileIo(
           tester,
-          () => find.text('Vorlage gespeichert.').evaluate().isNotEmpty,
+          () => find.text('Template saved.').evaluate().isNotEmpty,
         );
       }
       final entries = await tester.runAsync(() => repository.templates.list());
       expect(
         entries!.where((t) => !t.builtIn).map((t) => (t.name, t.pageCount)),
-        [('Alle Seiten', 3), ('Eine Seite', 1)],
+        [('All Pages', 3), ('Eine Page', 1)],
       );
       expect(pane.editing.bytes, original);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
       await tester.pumpAndSettle();
-      final page = entries.singleWhere((entry) => entry.name == 'Eine Seite');
+      final page = entries.singleWhere((entry) => entry.name == 'Eine Page');
       final copiedBytes = await tester.runAsync(
         () => repository.templates.instantiate(page.id),
       );
@@ -100,8 +100,7 @@ void main() {
       expect(
         find.byWidgetPredicate(
           (widget) =>
-              widget is Semantics &&
-              widget.properties.label == 'Antwort aufdecken',
+              widget is Semantics && widget.properties.label == 'Reveal answer',
         ),
         findsOneWidget,
         reason:
@@ -110,8 +109,7 @@ void main() {
       expect(
         find.byWidgetPredicate(
           (widget) =>
-              widget is Semantics &&
-              widget.properties.label == 'Antwort verdecken',
+              widget is Semantics && widget.properties.label == 'Hide answer',
         ),
         findsNothing,
       );
@@ -132,20 +130,20 @@ void main() {
       tester,
       () =>
           find
-              .text('0 Notizen · Zuletzt geändert zuerst')
+              .text('0 notes · Most recently modified first')
               .evaluate()
               .isNotEmpty &&
           tester
                   .widget<FilledButton>(
-                    find.widgetWithText(FilledButton, 'Neue Notiz'),
+                    find.widgetWithText(FilledButton, 'New note'),
                   )
                   .onPressed !=
               null,
     );
-    await tester.tap(find.text('Neue Notiz'));
+    await tester.tap(find.text('New note'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'Meine Kopie');
-    await tester.tap(find.text('Vorlage auswählen'));
+    await tester.tap(find.text('Choose template'));
     await settleFileIo(
       tester,
       () => find.byKey(ValueKey(entry!.id)).evaluate().isNotEmpty,
@@ -153,12 +151,12 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byKey(ValueKey(entry!.id)),
-        matching: find.text('Verwenden'),
+        matching: find.text('Use'),
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Seminar · 3 Seiten'), findsOneWidget);
-    await tester.tap(find.widgetWithText(FilledButton, 'Erstellen'));
+    expect(find.text('Seminar · 3 Pages'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Create'));
     await settleFileIo(
       tester,
       () => find.byType(EditorPane).evaluate().isNotEmpty,
@@ -180,7 +178,7 @@ void main() {
     (tester) async {
       final entry = await tester.runAsync(
         () async =>
-            repository.templates.save('Drei Seiten', await templateFixture()),
+            repository.templates.save('Drei Pages', await templateFixture()),
       );
       final bytes = await tester.runAsync(
         () => repository.templates.instantiate('starter_cornell'),
@@ -210,15 +208,15 @@ void main() {
                     onCopyTo: (_, _) async {},
                   ),
                 ),
-                child: const Text('Seiten'),
+                child: const Text('Pages'),
               ),
             ),
           ),
         ),
       );
-      await tester.tap(find.text('Seiten'));
+      await tester.tap(find.text('Pages'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Aus Vorlage einfügen'));
+      await tester.tap(find.byTooltip('Insert from template'));
       await settleFileIo(
         tester,
         () => find.byKey(ValueKey(entry!.id)).evaluate().isNotEmpty,
@@ -226,12 +224,12 @@ void main() {
       await tester.tap(
         find.descendant(
           of: find.byKey(ValueKey(entry!.id)),
-          matching: find.text('Verwenden'),
+          matching: find.text('Use'),
         ),
       );
       await settleFileIo(
         tester,
-        () => find.text('Seite 4').evaluate().isNotEmpty,
+        () => find.text('Page 4').evaluate().isNotEmpty,
       );
       expect(session.editing.document.pageCount, 4);
       session.editing.undo();
@@ -255,7 +253,7 @@ void main() {
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
       final entry = await tester.runAsync(
         () async => repository.templates.save(
-          'Eigene Vorlage',
+          'Custom template',
           await templateFixture(),
         ),
       );
@@ -271,40 +269,38 @@ void main() {
         250,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.ensureVisible(find.text('Vorschau').first);
+      await tester.ensureVisible(find.text('Preview').first);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Vorschau').first);
+      await tester.tap(find.text('Preview').first);
       await settleFileIo(
         tester,
-        () => find.text('Seite 1 von 3').evaluate().isNotEmpty,
+        () => find.text('Page 1 of 3').evaluate().isNotEmpty,
       );
-      await tester.tap(find.byTooltip('Nächste Vorlagenseite'));
+      await tester.tap(find.byTooltip('Next template page'));
       await tester.pumpAndSettle();
-      expect(find.text('Seite 2 von 3'), findsOneWidget);
-      await tester.tap(find.byTooltip('Vorschau schließen'));
+      expect(find.text('Page 2 of 3'), findsOneWidget);
+      await tester.tap(find.byTooltip('Close preview'));
       await settleFileIo(
         tester,
         () => find.byType(TemplatePreview).evaluate().isEmpty,
       );
-      await tester.ensureVisible(find.byTooltip('Vorlagenaktionen'));
+      await tester.ensureVisible(find.byTooltip('Template actions'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Vorlagenaktionen'));
+      await tester.tap(find.byTooltip('Template actions'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Umbenennen'));
+      await tester.tap(find.text('Rename'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), ' ');
       await tester.pump();
       expect(
         tester
-            .widget<FilledButton>(
-              find.widgetWithText(FilledButton, 'Speichern'),
-            )
+            .widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'))
             .onPressed,
         isNull,
       );
       await tester.enterText(find.byType(TextField), 'Umbenannt');
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Speichern'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await settleFileIo(
         tester,
         () => find
@@ -315,20 +311,20 @@ void main() {
             .evaluate()
             .isNotEmpty,
       );
-      await tester.ensureVisible(find.byTooltip('Vorlagenaktionen'));
+      await tester.ensureVisible(find.byTooltip('Template actions'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Vorlagenaktionen'));
+      await tester.tap(find.byTooltip('Template actions'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Löschen'));
+      await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Abbrechen'));
+      await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       expect(find.text('Umbenannt'), findsOneWidget);
-      await tester.tap(find.byTooltip('Vorlagenaktionen'));
+      await tester.tap(find.byTooltip('Template actions'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Löschen'));
+      await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Löschen'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
       await settleFileIo(
         tester,
         () => find.text('Umbenannt').evaluate().isEmpty,

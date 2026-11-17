@@ -39,33 +39,33 @@ Future<Uint8List> createStarterTemplate(String id) async {
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Text(
-                  'Cornell-Notizen',
+                  'Cornell notes',
                   style: const pw.TextStyle(fontSize: 22),
                 ),
                 pw.SizedBox(height: 16),
-                pw.Text('Thema:                                      Datum:'),
+                pw.Text('Topic:                                      Date:'),
                 pw.SizedBox(height: 24),
                 pw.Row(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Expanded(child: section('Stichworte / Fragen', 450)),
+                    pw.Expanded(child: section('Keywords / questions', 450)),
                     pw.SizedBox(width: 20),
-                    pw.Expanded(flex: 3, child: section('Notizen', 450)),
+                    pw.Expanded(flex: 3, child: section('Notes', 450)),
                   ],
                 ),
-                section('Zusammenfassung', 100),
+                section('Summary', 100),
               ],
             );
           case 'starter_meeting':
             return pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                pw.Text('Besprechung', style: const pw.TextStyle(fontSize: 22)),
+                pw.Text('Meeting', style: const pw.TextStyle(fontSize: 22)),
                 pw.SizedBox(height: 16),
-                section('Thema / Datum / Teilnehmende', 66),
+                section('Topic / date / participants', 66),
                 section('Agenda', 110),
-                section('Notizen', 220),
-                section('Aufgaben / Entscheidungen / Termine', 110),
+                section('Notes', 220),
+                section('Tasks / decisions / dates', 110),
               ],
             );
           case 'starter_week':
@@ -73,25 +73,25 @@ Future<Uint8List> createStarterTemplate(String id) async {
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Text(
-                  'Wochenplanung',
+                  'Weekly planner',
                   style: const pw.TextStyle(fontSize: 22),
                 ),
                 pw.SizedBox(height: 16),
-                pw.Text('Woche vom:'),
+                pw.Text('Week of:'),
                 pw.SizedBox(height: 20),
                 for (final day in [
-                  'Montag',
-                  'Dienstag',
-                  'Mittwoch',
-                  'Donnerstag',
-                  'Freitag',
-                  'Samstag / Sonntag',
+                  'Monday',
+                  'Tuesday',
+                  'Wednesday',
+                  'Thursday',
+                  'Friday',
+                  'Saturday / Sunday',
                 ])
                   section(day, 55),
               ],
             );
           default:
-            throw const FormatException('Unbekannte Startvorlage.');
+            throw const FormatException('Unknown starter template.');
         }
       },
     ),

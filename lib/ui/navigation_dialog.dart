@@ -23,12 +23,12 @@ class NavigationDialog extends StatelessWidget {
       0,
       editing.document.pageCount - 1,
     );
-    final text = TextEditingController(text: title ?? 'Seite ${page + 1}');
+    final text = TextEditingController(text: title ?? 'Page ${page + 1}');
     final result = await showDialog<String>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: Text(path == null ? 'Lesezeichen anlegen' : 'Umbenennen'),
+          title: Text(path == null ? 'Add bookmark' : 'Rename'),
           content: TextField(
             controller: text,
             autofocus: true,
@@ -42,13 +42,13 @@ class NavigationDialog extends StatelessWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Abbrechen'),
+              child: const Text('Cancel'),
             ),
             FilledButton(
               onPressed: text.text.trim().isEmpty
                   ? null
                   : () => Navigator.pop(context, text.text.trim()),
-              child: const Text('Speichern'),
+              child: const Text('Save'),
             ),
           ],
         ),
@@ -75,20 +75,20 @@ class NavigationDialog extends StatelessWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Lesezeichen löschen?'),
+        title: const Text('Delete bookmark?'),
         content: Text(
-          '„${item.title}“ wird gelöscht.'
-          '${item.children.isEmpty ? '' : ' Untergeordnete Einträge werden ebenfalls gelöscht.'}'
-          ' Rückgängig ist im Editor möglich.',
+          '„${item.title}“ will be deleted.'
+          '${item.children.isEmpty ? '' : ' Child entries will also be deleted.'}'
+          'You can undo this in the editor.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Abbrechen'),
+            child: const Text('Cancel'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Löschen'),
+            child: const Text('Delete'),
           ),
         ],
       ),
@@ -118,8 +118,8 @@ class NavigationDialog extends StatelessWidget {
       title: Text(item.title, maxLines: 2, overflow: TextOverflow.ellipsis),
       subtitle: Text(
         !available
-            ? 'Kein verfügbares Seitenziel'
-            : 'Seite ${destination.pageIndex + 1}',
+            ? 'No available page target'
+            : 'Page ${destination.pageIndex + 1}',
       ),
       onTap: !available
           ? null
@@ -128,7 +128,7 @@ class NavigationDialog extends StatelessWidget {
               Navigator.pop(context);
             },
       trailing: PopupMenuButton<String>(
-        tooltip: 'Lesezeichenaktionen',
+        tooltip: 'Bookmark actions',
         onSelected: (action) {
           if (action == 'rename') {
             _name(context, path: path, title: item.title);
@@ -137,8 +137,8 @@ class NavigationDialog extends StatelessWidget {
           }
         },
         itemBuilder: (_) => const [
-          PopupMenuItem(value: 'rename', child: Text('Umbenennen')),
-          PopupMenuItem(value: 'delete', child: Text('Löschen')),
+          PopupMenuItem(value: 'rename', child: Text('Rename')),
+          PopupMenuItem(value: 'delete', child: Text('Delete')),
         ],
       ),
     );
@@ -161,9 +161,9 @@ class NavigationDialog extends StatelessWidget {
       child: Column(
         children: [
           ListTile(
-            title: const Text('Lesezeichen & Inhaltsverzeichnis'),
+            title: const Text('Bookmarks and table of contents'),
             trailing: IconButton(
-              tooltip: 'Schließen',
+              tooltip: 'Close',
               onPressed: () => Navigator.pop(context),
               icon: const Icon(Icons.close),
             ),
@@ -173,7 +173,7 @@ class NavigationDialog extends StatelessWidget {
             child: FilledButton.icon(
               onPressed: () => _name(context),
               icon: const Icon(Icons.bookmark_add_outlined),
-              label: const Text('Aktuelle Seite merken'),
+              label: const Text('Bookmark current page'),
             ),
           ),
           Expanded(
@@ -186,7 +186,7 @@ class NavigationDialog extends StatelessWidget {
                         child: Padding(
                           padding: EdgeInsets.all(24),
                           child: Text(
-                            'Noch keine Lesezeichen. Dieses PDF enthält kein Inhaltsverzeichnis.',
+                            'No bookmarks yet. This PDF has no table of contents.',
                           ),
                         ),
                       )

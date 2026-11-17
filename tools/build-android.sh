@@ -8,9 +8,6 @@ if [[ -z "${FLUTTER_BIN:-}" ]]; then
     FLUTTER_BIN=flutter
   fi
 fi
-if [[ -z "${PUB_CACHE:-}" && -d .tooling/drive-pub/hosted ]]; then
-  export PUB_CACHE="$PWD/.tooling/drive-pub"
-fi
 if [[ -z "${GRADLE_USER_HOME:-}" && -d .tooling/gradle ]]; then
   export GRADLE_USER_HOME="$PWD/.tooling/gradle"
 fi
@@ -24,7 +21,7 @@ export FLUTTER_SUPPRESS_ANALYTICS=true
 "$FLUTTER_BIN" build apk --release --no-pub
 app_version="$(awk '/^version:/ {sub(/[+].*/, "", $2); print $2}' pubspec.yaml)"
 if [[ ! "$app_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "Ungültige Paketversion: $app_version" >&2
+  echo "Invalid package version: $app_version" >&2
   exit 1
 fi
 mkdir -p dist
@@ -38,4 +35,4 @@ if [[ -x "$sdk_root/build-tools/36.0.0/apksigner" ]]; then
   "$sdk_root/build-tools/36.0.0/apksigner" verify --print-certs "$artifact"
 fi
 sha256sum "$artifact"
-echo "Android-Vorschau erstellt: $artifact"
+echo "Android-Preview created: $artifact"

@@ -41,11 +41,17 @@ class PenPreset {
       pressureSensitive: value['pressureSensitive'] as bool? ?? true,
     );
     if (!['ink', 'highlight'].contains(preset.tool) ||
+        preset.name.trim().isEmpty ||
+        preset.name.length > 24 ||
+        preset.color < 0 ||
+        preset.color > 0xffffffff ||
+        !preset.width.isFinite ||
+        !preset.opacity.isFinite ||
         preset.width <= 0 ||
         preset.width > 40 ||
         preset.opacity < 0.05 ||
         preset.opacity > 1) {
-      throw const FormatException('Ungültiger Stiftfavorit.');
+      throw const FormatException('Invalid pen preset.');
     }
     return preset;
   }
@@ -64,9 +70,9 @@ class LibraryCatalog extends ChangeNotifier {
   final DrawingPreferences drawingPreferences;
   List<NoteFolder> _folders = [];
   List<PenPreset> _presets = const [
-    PenPreset('Schreiben', 'ink', 0xFF202020, 2, 1),
-    PenPreset('Korrektur', 'ink', 0xFFBC2424, 2, 1),
-    PenPreset('Markieren', 'highlight', 0xFFFFD740, 14, 0.35),
+    PenPreset('Writing', 'ink', 0xFF202020, 2, 1),
+    PenPreset('Correction', 'ink', 0xFFBC2424, 2, 1),
+    PenPreset('Highlight', 'highlight', 0xFFFFD740, 14, 0.35),
   ];
   List<NoteFolder> get folders => List.unmodifiable(_folders);
   List<PenPreset> get presets => List.unmodifiable(_presets);
@@ -94,7 +100,7 @@ class LibraryCatalog extends ChangeNotifier {
     // Preserve the source before replacing the in-memory catalog defaults.
     await file.copy('${file.path}.invalid');
     _folders = [];
-    loadWarning = 'Bibliothekskatalog konnte nicht gelesen werden: $error';
+    loadWarning = 'Could not read the library catalog: $error';
   }
 
   Future<void> _load() async {
@@ -102,7 +108,7 @@ class LibraryCatalog extends ChangeNotifier {
     if (!await file.exists()) return;
     final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
     if (json['version'] != 1) {
-      throw const FormatException('Nicht unterstützter Bibliothekskatalog.');
+      throw const FormatException('Unsupported library catalog.');
     }
     final folders = (json['folders'] as List)
         .map((v) => NoteFolder(v['id'] as String, v['name'] as String))
@@ -152,7 +158,7 @@ class LibraryCatalog extends ChangeNotifier {
   Future<NoteFolder> ensureFolder(String name) => _change(() async {
     name = name.trim();
     if (name.isEmpty) {
-      throw const FormatException('Bitte einen Ordnernamen eingeben.');
+      throw const FormatException('Please enter a folder name.');
     }
     for (final folder in _folders) {
       if (folder.name.toLowerCase() == name.toLowerCase()) return folder;
@@ -168,7 +174,7 @@ class LibraryCatalog extends ChangeNotifier {
           (f) => f.id != id && f.name.toLowerCase() == name.toLowerCase(),
         )) {
       throw const FormatException(
-        'Der Ordnername ist leer oder bereits vergeben.',
+        'The folder name is empty or already in use.',
       );
     }
     await _persist([

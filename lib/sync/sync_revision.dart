@@ -60,7 +60,7 @@ class SyncRevision {
         (json['deleted'] == true &&
             digest !=
                 sha256.convert(utf8.encode('noter:deleted:v1')).toString())) {
-      throw const FormatException('Ungültige Synchronisationsdaten.');
+      throw const FormatException('Invalid sync data.');
     }
     final result = SyncRevision(
       noteId: id,
@@ -71,7 +71,7 @@ class SyncRevision {
     if (result.revision != json['revision'] ||
         parents.length != result.parents.length ||
         parents.contains(result.revision)) {
-      throw const FormatException('Ungültige Revisionskennung.');
+      throw const FormatException('Invalid revision identifier.');
     }
     return result;
   }

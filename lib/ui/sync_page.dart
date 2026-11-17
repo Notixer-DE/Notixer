@@ -38,7 +38,7 @@ class _SyncPageState extends State<SyncPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                'Die ausgewählte Notiz ist nicht mehr vorhanden. Bitte die Sync-Auswahl erneut prüfen.',
+                'The selected note no longer exists. Please check the sync selection again.',
               ),
             ),
           );
@@ -65,12 +65,12 @@ class _SyncPageState extends State<SyncPage> {
       final selected = await showDialog<String>(
         context: context,
         builder: (context) => SimpleDialog(
-          title: const Text('Einzelne Notiz auswählen'),
+          title: const Text('Select a single note'),
           children: [
             if (notes.isEmpty)
               const Padding(
                 padding: EdgeInsets.all(24),
-                child: Text('Keine lokalen Notizen vorhanden.'),
+                child: Text('No local notes available.'),
               ),
             for (final note in notes)
               SimpleDialogOption(
@@ -79,7 +79,7 @@ class _SyncPageState extends State<SyncPage> {
               ),
             SimpleDialogOption(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Abbrechen'),
+              child: const Text('Cancel'),
             ),
           ],
         ),
@@ -93,9 +93,7 @@ class _SyncPageState extends State<SyncPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Notizliste konnte nicht geladen werden. Bitte erneut versuchen.',
-          ),
+          content: Text('Could not load the note list. Please try again.'),
         ),
       );
     }
@@ -113,9 +111,7 @@ class _SyncPageState extends State<SyncPage> {
     } catch (_) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Zuerst eine gültige Serveradresse ohne Pfad eingeben.',
-          ),
+          content: Text('First enter a valid server address without a path.'),
         ),
       );
       return;
@@ -124,22 +120,22 @@ class _SyncPageState extends State<SyncPage> {
       context: context,
       builder: (context) => AlertDialog(
         scrollable: true,
-        title: const Text('HTTP ohne Transportschutz erlauben?'),
+        title: const Text('Allow HTTP without transport security?'),
         content: Text(
-          'Für ${server.origin} wird kein TLS verwendet. Der Geräte-Zugangstoken '
-          'und Verbindungsmetadaten können mitgelesen oder manipuliert werden. '
-          'Ein gestohlener Token kann Zugriff auf dein Serverkonto ermöglichen. '
-          'Die Notizinhalte bleiben Ende-zu-Ende verschlüsselt; das ersetzt HTTPS nicht. '
-          'Nur für bewusst gewählte, vertrauenswürdige Netze verwenden.',
+          '${server.origin} does not use TLS. The device access token '
+          'and connection metadata can be read or modified in transit. '
+          'A stolen token can provide access to your server account. '
+          'Note contents remain end-to-end encrypted; this does not replace HTTPS. '
+          'Use only on trusted networks you have deliberately chosen.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Abbrechen'),
+            child: const Text('Cancel'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('HTTP trotzdem erlauben'),
+            child: const Text('Allow HTTP anyway'),
           ),
         ],
       ),
@@ -168,7 +164,7 @@ class _SyncPageState extends State<SyncPage> {
           canPop: !sync.busy && !_validating,
           child: Scaffold(
             appBar: AppBar(
-              title: const Text('Eigener Sync-Server'),
+              title: const Text('Self-hosted sync server'),
               automaticallyImplyLeading: !sync.busy,
             ),
             body: Center(
@@ -178,14 +174,14 @@ class _SyncPageState extends State<SyncPage> {
                   padding: const EdgeInsets.all(24),
                   children: [
                     const Text(
-                      'Notizen Ende-zu-Ende verschlüsselt synchronisieren',
+                      'Sync notes with end-to-end encryption',
                       style: TextStyle(fontSize: 22),
                     ),
                     const SizedBox(height: 12),
                     const Text(
-                      'Nur deine Geräte entschlüsseln Notizen, PDFs, Titel, Tags und Ordnernamen. '
-                      'Der Server sieht technische Kennungen, Datenmengen und Zugriffszeiten. '
-                      'Offline bleibt Notixer vollständig nutzbar.',
+                      'Only your devices decrypt notes, PDFs, titles, tags and folder names. '
+                      'The server sees technical identifiers, data sizes and access times. '
+                      'Notixer remains fully usable offline.',
                     ),
                     const SizedBox(height: 16),
                     Semantics(
@@ -206,20 +202,18 @@ class _SyncPageState extends State<SyncPage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 const Text(
-                                  'HTTP aktiv – Verbindung ohne TLS',
+                                  'HTTP active – connection without TLS',
                                   style: TextStyle(fontWeight: FontWeight.bold),
                                 ),
                                 Text(sync.serverUrl),
                                 const Text(
-                                  'Der Zugangstoken ist auf dem Transportweg ungeschützt. Ende-zu-Ende-Verschlüsselung schützt nur die Notizinhalte.',
+                                  'The access token is unprotected in transit. End-to-end encryption only protects note contents.',
                                 ),
                                 TextButton(
                                   onPressed: sync.busy
                                       ? null
                                       : sync.disableHttp,
-                                  child: const Text(
-                                    'HTTP-Verbindung deaktivieren',
-                                  ),
+                                  child: const Text('Disable HTTP connection'),
                                 ),
                               ],
                             ),
@@ -227,13 +221,13 @@ class _SyncPageState extends State<SyncPage> {
                         ),
                       ListTile(
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('Sync-Datei (optional)'),
-                        subtitle: Text(_noteTitle ?? 'Alle Notizen'),
+                        title: const Text('Sync note (optional)'),
+                        subtitle: Text(_noteTitle ?? 'All notes'),
                         onTap: sync.busy ? null : _chooseNote,
                         trailing: _noteId == null
                             ? const Icon(Icons.chevron_right)
                             : IconButton(
-                                tooltip: 'Auswahl aufheben',
+                                tooltip: 'Clear selection',
                                 onPressed: sync.busy
                                     ? null
                                     : () => setState(() {
@@ -244,22 +238,20 @@ class _SyncPageState extends State<SyncPage> {
                               ),
                       ),
                       const Text(
-                        'Die Auswahl gilt nur für den manuellen Abgleich. '
-                        'Die Regeln für automatischen Sync bleiben unverändert.',
+                        'This selection only applies to manual sync. '
+                        'Automatic sync rules remain unchanged.',
                       ),
                       FilledButton.icon(
                         onPressed: sync.busy ? null : _synchronize,
                         icon: const Icon(Icons.sync),
                         label: Text(
-                          _noteId == null
-                              ? 'Jetzt synchronisieren'
-                              : 'Ausgewählte Notiz synchronisieren',
+                          _noteId == null ? 'Sync now' : 'Sync selected note',
                         ),
                       ),
                       SwitchListTile.adaptive(
-                        title: const Text('Automatisch synchronisieren'),
+                        title: const Text('Automatic sync'),
                         subtitle: const Text(
-                          'Beim Start und nach Änderungen in der Übersicht. Geöffnete Notizen nach dem Schließen.',
+                          'At startup and after changes in the library. Open notes sync after closing.',
                         ),
                         value: sync.automatic,
                         onChanged: sync.busy ? null : sync.setAutomatic,
@@ -274,24 +266,22 @@ class _SyncPageState extends State<SyncPage> {
                                   context: context,
                                   builder: (context) => AlertDialog(
                                     title: const Text(
-                                      'Wiederherstellungsschlüssel sicher aufbewahren',
+                                      'Keep your recovery key safe',
                                     ),
                                     content: SelectableText(
-                                      'Dieser Schlüssel gibt Zugriff auf sämtliche Notizen. '
-                                      'Nicht an den Serverbetreiber senden. Ohne ihn und ohne eingerichtetes Gerät sind die Daten verloren.\n\n$key',
+                                      'This key provides access to all notes. '
+                                      'Do not send it to the server operator. Without it or a configured device, the data is lost.\n\n$key',
                                     ),
                                     actions: [
                                       TextButton(
                                         onPressed: () => Navigator.pop(context),
-                                        child: const Text('Schließen'),
+                                        child: const Text('Close'),
                                       ),
                                     ],
                                   ),
                                 );
                               },
-                        child: const Text(
-                          'Wiederherstellungsschlüssel anzeigen',
-                        ),
+                        child: const Text('Show recovery key'),
                       ),
                       TextButton(
                         onPressed: sync.busy
@@ -300,24 +290,22 @@ class _SyncPageState extends State<SyncPage> {
                                 final confirmed = await showDialog<bool>(
                                   context: context,
                                   builder: (context) => AlertDialog(
-                                    title: const Text(
-                                      'Geräteschlüssel entfernen?',
-                                    ),
+                                    title: const Text('Remove device key?'),
                                     content: const Text(
-                                      'Zugang und Wiederherstellungsschlüssel werden aus dem Schlüsselbund dieses Geräts entfernt. '
-                                      'Nur fortfahren, wenn der Wiederherstellungsschlüssel sicher gesichert oder auf einem weiteren Gerät vorhanden ist.',
+                                      'Credentials and the recovery key will be removed from this device\'s keychain. '
+                                      'Only continue if the recovery key is safely backed up or available on another device.',
                                     ),
                                     actions: [
                                       TextButton(
                                         onPressed: () =>
                                             Navigator.pop(context, false),
-                                        child: const Text('Abbrechen'),
+                                        child: const Text('Cancel'),
                                       ),
                                       FilledButton(
                                         onPressed: () =>
                                             Navigator.pop(context, true),
                                         child: const Text(
-                                          'Schlüssel gesichert, trennen',
+                                          'Key backed up, disconnect',
                                         ),
                                       ),
                                     ],
@@ -333,18 +321,18 @@ class _SyncPageState extends State<SyncPage> {
                                   }
                                 }
                               },
-                        child: const Text('Auf diesem Gerät trennen'),
+                        child: const Text('Disconnect this device'),
                       ),
                     ],
                     const Divider(height: 40),
                     const Text(
-                      'Neue Verbindung einrichten',
+                      'Set up a new connection',
                       style: TextStyle(fontWeight: FontWeight.w600),
                     ),
                     const Text(
-                      'Für jedes Gerät einen eigenen Zugangstoken beim Betreiber anlegen. '
-                      'Auf allen Geräten desselben Kontos denselben Wiederherstellungsschlüssel verwenden. '
-                      'Neue Schlüssel nur für ein noch leeres Konto erzeugen.',
+                      'Ask the server operator for a separate access token for each device. '
+                      'Use the same recovery key on all devices belonging to the same account. '
+                      'Only generate new keys for an empty account.',
                     ),
                     TextField(
                       controller: _server,
@@ -353,17 +341,15 @@ class _SyncPageState extends State<SyncPage> {
                       autocorrect: false,
                       onChanged: (_) => setState(() => _allowHttp = false),
                       decoration: const InputDecoration(
-                        labelText: 'Serveradresse',
+                        labelText: 'Server address',
                         hintText: 'https://sync.example.org',
                       ),
                     ),
                     SwitchListTile.adaptive(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text(
-                        'HTTP für diese neue Verbindung erlauben',
-                      ),
+                      title: const Text('Allow HTTP for this new connection'),
                       subtitle: const Text(
-                        'Unsicher: nur nach ausdrücklicher Bestätigung. HTTPS bleibt empfohlen. Bei geänderter Serveradresse erneut bestätigen. HTTP auf localhost bleibt wie bisher möglich.',
+                        'Insecure: requires explicit confirmation. HTTPS is recommended. Confirm again if the server address changes. HTTP remains available on localhost.',
                       ),
                       value: _allowHttp,
                       onChanged:
@@ -380,7 +366,7 @@ class _SyncPageState extends State<SyncPage> {
                       autocorrect: false,
                       enableSuggestions: false,
                       decoration: const InputDecoration(
-                        labelText: 'Geräte-Zugangstoken',
+                        labelText: 'Device access token',
                       ),
                     ),
                     TextField(
@@ -390,7 +376,7 @@ class _SyncPageState extends State<SyncPage> {
                       autocorrect: false,
                       enableSuggestions: false,
                       decoration: InputDecoration(
-                        labelText: 'Wiederherstellungsschlüssel',
+                        labelText: 'Recovery key',
                         suffixIcon: IconButton(
                           onPressed: () => setState(() => _showKey = !_showKey),
                           icon: Icon(
@@ -411,7 +397,7 @@ class _SyncPageState extends State<SyncPage> {
                                 _showKey = true;
                               });
                             },
-                      child: const Text('Schlüssel für neues Konto erzeugen'),
+                      child: const Text('Generate key for a new account'),
                     ),
                     const SizedBox(height: 16),
                     FilledButton(
@@ -421,24 +407,22 @@ class _SyncPageState extends State<SyncPage> {
                               final confirmed = await showDialog<bool>(
                                 context: context,
                                 builder: (context) => AlertDialog(
-                                  title: const Text(
-                                    'Wiederherstellungsschlüssel gesichert?',
-                                  ),
+                                  title: const Text('Recovery key backed up?'),
                                   content: const Text(
-                                    'Ohne diesen Schlüssel und ohne eingerichtetes Gerät lassen sich deine Notizen nicht wiederherstellen. '
-                                    'Speichere ihn sicher außerhalb dieses Geräts. Der Serverbetreiber kann ihn nicht zurücksetzen. '
-                                    'Beim anschließenden Abgleich werden alle lokalen Notizen mit diesem Serverkonto zusammengeführt.',
+                                    'Without this key or a configured device, your notes cannot be recovered. '
+                                    'Store it safely outside this device. The server operator cannot reset it. '
+                                    'The next sync will merge all local notes with this server account.',
                                   ),
                                   actions: [
                                     TextButton(
                                       onPressed: () =>
                                           Navigator.pop(context, false),
-                                      child: const Text('Zurück'),
+                                      child: const Text('Back'),
                                     ),
                                     FilledButton(
                                       onPressed: () =>
                                           Navigator.pop(context, true),
-                                      child: const Text('Sicher gespeichert'),
+                                      child: const Text('Safely saved'),
                                     ),
                                   ],
                                 ),
@@ -456,14 +440,14 @@ class _SyncPageState extends State<SyncPage> {
                                 setState(() => _allowHttp = false);
                               }
                             },
-                      child: const Text('Mit Server verbinden'),
+                      child: const Text('Connect to server'),
                     ),
                     const SizedBox(height: 24),
                     const Text(
-                      'Parallele Änderungen bleiben als Konfliktkopien erhalten. '
-                      'Löschungen werden übertragen. Stiftfavoriten und leere Ordner bleiben lokal. '
-                      'Bestehende Cloudkopien werden weder importiert noch gelöscht. '
-                      'Vor dem Wechsel lokale .noter-Sicherungen erstellen.',
+                      'Concurrent changes are preserved as conflict copies. '
+                      'Deletions are synced. Pen presets and empty folders stay local. '
+                      'Existing cloud copies are neither imported nor deleted. '
+                      'Create local .noter backups before switching.',
                     ),
                   ],
                 ),

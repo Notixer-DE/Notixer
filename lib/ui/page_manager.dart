@@ -106,18 +106,18 @@ class _PageManagerState extends State<PageManager> {
     final answer = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Seiten löschen?'),
+        title: const Text('Delete pages?'),
         content: Text(
-          '${selected.length} ausgewählte Seiten werden entfernt. Rückgängig ist im Editor möglich.',
+          '${selected.length}selected pages will be removed. You can undo this in the editor.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Abbrechen'),
+            child: const Text('Cancel'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Löschen'),
+            child: const Text('Delete'),
           ),
         ],
       ),
@@ -136,7 +136,7 @@ class _PageManagerState extends State<PageManager> {
     final note = await showDialog<Notebook>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: const Text('In andere Notiz kopieren'),
+        title: const Text('Copy to another note'),
         children: [
           for (final n in targets.where((n) => n.id != widget.session.note.id))
             SimpleDialogOption(
@@ -146,7 +146,7 @@ class _PageManagerState extends State<PageManager> {
           if (targets.length < 2)
             const Padding(
               padding: EdgeInsets.all(24),
-              child: Text('Lege zuerst eine weitere Notiz an.'),
+              child: Text('Create another note first.'),
             ),
         ],
       ),
@@ -156,7 +156,7 @@ class _PageManagerState extends State<PageManager> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('Seiten kopiert.')));
+        ).showSnackBar(const SnackBar(content: Text('Pages copied.')));
       }
     }
   }
@@ -192,12 +192,12 @@ class _PageManagerState extends State<PageManager> {
               children: [
                 const Expanded(
                   child: Text(
-                    'Seiten verwalten',
+                    'Manage pages',
                     style: TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Schließen',
+                  tooltip: 'Close',
                   onPressed: () => Navigator.pop(context),
                   icon: const Icon(Icons.close),
                 ),
@@ -219,24 +219,24 @@ class _PageManagerState extends State<PageManager> {
                       );
                     }
                   }),
-                  child: const Text('Alle auswählen'),
+                  child: const Text('Select all'),
                 ),
                 IconButton(
-                  tooltip: 'Auswahl nach oben',
+                  tooltip: 'Move selection up',
                   onPressed: busy || selected.isEmpty
                       ? null
                       : () => run(() => _move(true)),
                   icon: const Icon(Icons.arrow_upward),
                 ),
                 IconButton(
-                  tooltip: 'Auswahl nach unten',
+                  tooltip: 'Move selection down',
                   onPressed: busy || selected.isEmpty
                       ? null
                       : () => run(() => _move(false)),
                   icon: const Icon(Icons.arrow_downward),
                 ),
                 IconButton(
-                  tooltip: 'Seiten duplizieren',
+                  tooltip: 'Duplicate pages',
                   onPressed: busy || selected.isEmpty
                       ? null
                       : () => run(() async {
@@ -250,7 +250,7 @@ class _PageManagerState extends State<PageManager> {
                   icon: const Icon(Icons.copy_all),
                 ),
                 IconButton(
-                  tooltip: 'Seiten kopieren',
+                  tooltip: 'Copy pages',
                   onPressed: busy || selected.isEmpty
                       ? null
                       : () => run(() async {
@@ -259,7 +259,7 @@ class _PageManagerState extends State<PageManager> {
                   icon: const Icon(Icons.copy),
                 ),
                 IconButton(
-                  tooltip: 'Seiten einfügen',
+                  tooltip: 'Paste pages',
                   onPressed: busy || !editing.hasPageClipboard
                       ? null
                       : () => run(() {
@@ -274,19 +274,19 @@ class _PageManagerState extends State<PageManager> {
                   icon: const Icon(Icons.paste),
                 ),
                 IconButton(
-                  tooltip: 'In andere Notiz kopieren',
+                  tooltip: 'Copy to another note',
                   onPressed: busy || selected.isEmpty
                       ? null
                       : () => run(_copyTo),
                   icon: const Icon(Icons.drive_file_move_outline),
                 ),
                 IconButton(
-                  tooltip: 'Aus Vorlage einfügen',
+                  tooltip: 'Insert from template',
                   onPressed: busy ? null : () => run(_insertTemplate),
                   icon: const Icon(Icons.dashboard_customize_outlined),
                 ),
                 IconButton(
-                  tooltip: 'Seiten löschen',
+                  tooltip: 'Delete pages',
                   onPressed:
                       busy ||
                           selected.isEmpty ||
@@ -359,7 +359,7 @@ class _PageManagerState extends State<PageManager> {
                             Navigator.pop(context);
                           },
                           child: Text(
-                            'Seite ${index + 1}',
+                            'Page ${index + 1}',
                             textAlign: TextAlign.left,
                           ),
                         ),

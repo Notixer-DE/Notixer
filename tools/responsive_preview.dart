@@ -66,31 +66,34 @@ Future<void> main() async {
         build: (_) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            pw.Text('LINEARE ALGEBRA / VORLESUNG 04'),
+            pw.Text('LINEAR ALGEBRA / LECTURE 04'),
             pw.SizedBox(height: 28),
             pw.Text(
-              'Vektorraeume verstehen.',
+              'Understanding vector spaces.',
               style: pw.TextStyle(fontSize: 28),
             ),
             pw.SizedBox(height: 25),
             pw.Text(
-              'Ein Vektorraum ist eine Menge von Vektoren.\n'
-              'Addition und skalare Multiplikation sind definiert.',
+              'A vector space is a set of vectors.\n'
+              'Addition and scalar multiplication are defined.',
               style: pw.TextStyle(fontSize: 16),
             ),
             pw.SizedBox(height: 24),
             pw.Text(
-              'Lineare Unabhaengigkeit bedeutet, dass kein Vektor\n'
-              'als Linearkombination der anderen dargestellt wird.',
+              'Linear independence means that no vector\n'
+              'is a linear combination of the others.',
               style: pw.TextStyle(fontSize: 16),
             ),
             pw.SizedBox(height: 65),
-            pw.Text('Geometrisch gedacht', style: pw.TextStyle(fontSize: 18)),
+            pw.Text(
+              'Thinking geometrically',
+              style: pw.TextStyle(fontSize: 18),
+            ),
             pw.SizedBox(height: 30),
             pw.Text('A x = lambda x', style: pw.TextStyle(fontSize: 26)),
             pw.SizedBox(height: 45),
             pw.Text(
-              'Eine Basis beschreibt alle Richtungen im Raum.',
+              'A basis describes all directions in the space.',
               style: pw.TextStyle(fontSize: 15),
             ),
           ],
@@ -98,46 +101,43 @@ Future<void> main() async {
       ),
     );
     final bytes = await document.save();
-    final folder = await repository.catalog.ensureFolder('Studium');
-    for (final data in [
-      ('Vorlesungsnotizen', 'lined'),
-      ('Mathematik', 'grid'),
-    ]) {
+    final folder = await repository.catalog.ensureFolder('Studies');
+    for (final data in [('Lecture notes', 'lined'), ('Mathematics', 'grid')]) {
       final note = await repository.create(
         data.$1,
         await createPaper(data.$2),
         paper: data.$2,
       );
       await repository.save(
-        note.copy(folderId: folder.id, tags: ['Mathe']),
+        note.copy(folderId: folder.id, tags: ['Maths']),
         await repository.load(note.id),
       );
     }
-    final note = await repository.create('Lineare Algebra', bytes);
+    final note = await repository.create('Linear algebra', bytes);
     await repository.save(
-      note.copy(folderId: folder.id, tags: ['Prüfung']),
+      note.copy(folderId: folder.id, tags: ['Exam']),
       bytes,
     );
     final markdown = await MarkdownLibrary(
       repository,
-    ).create('Lernplan für diese Woche');
+    ).create('Study plan for this week');
     final questions = await MarkdownLibrary(
       repository,
-    ).create('Prüfungsfragen');
+    ).create('Exam questions');
     final markdownBytes = MarkdownDocument(
-      'Ein klarer Kopf. Ein kleiner Schritt nach dem anderen.\n\n'
-      'Diese Woche möchte ich **die Grundlagen wirklich verstehen**, '
-      'statt nur alles auswendig zu lernen.\n\n'
-      '## Worauf es ankommt\n\n'
-      '> Lieber jeden Tag 30 Minuten konzentriert lernen als alles auf '
-      'den letzten Abend verschieben.\n\n'
-      '## Meine nächsten Schritte\n\n'
-      '- [x] Vorlesungsnotizen sortieren\n'
-      '- [ ] Kapitel 3 zusammenfassen\n'
-      '- [ ] Übungsblatt mit Lea durchgehen\n\n'
-      '## Weiterführende Notizen\n\n'
-      '[Lineare Algebra](${note.documentPath}) · '
-      '[Prüfungsfragen](${questions.documentPath})\n',
+      'A clear head. One small step at a time.\n\n'
+      'This week I want to **really understand the basics**, '
+      'rather than simply memorize everything.\n\n'
+      '## What matters\n\n'
+      '> Prefer 30 minutes of focused study each day to leaving everything '
+      'until the final evening.\n\n'
+      '## My next steps\n\n'
+      '- [x] Organize lecture notes\n'
+      '- [ ] Summarize chapter 3\n'
+      '- [ ] Review the worksheet with Lea\n\n'
+      '## Further notes\n\n'
+      '[Linear algebra](${note.documentPath}) · '
+      '[Exam questions](${questions.documentPath})\n',
     ).encode();
     final textNote = await repository.save(
       markdown.copy(folderId: folder.id),
@@ -146,7 +146,7 @@ Future<void> main() async {
     await repository.save(
       questions,
       MarkdownDocument(
-        '# Prüfungsfragen\n\n[Lernplan](${markdown.documentPath})\n',
+        '# Exam questions\n\n[Study plan](${markdown.documentPath})\n',
       ).encode(),
     );
     runApp(
@@ -225,7 +225,7 @@ Future<void> main() async {
     Element? toggle;
     void findToggle(Element element) {
       if (element.widget is Tooltip &&
-          (element.widget as Tooltip).message == 'Notizliste einblenden') {
+          (element.widget as Tooltip).message == 'Show note list') {
         toggle = element;
       }
       element.visitChildren(findToggle);

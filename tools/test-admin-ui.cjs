@@ -1,0 +1,49 @@
+#!/usr/bin/env node
+// Exercise the actual dashboard script without a server, browser or dependencies.
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const html = fs.readFileSync(path.join(__dirname, '../server/src/assets/admin.html'), 'utf8');
+const script = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)]
+  .map(match => match[1]).find(source => source.includes('createApp('));
+assert.ok(script, 'The dashboard inline script must exist');
+let app, response = {ok: false, status: 500}, copySucceeds = false, removed = 0;
+const context = {
+  Vue: {
+    ref: value => ({value}),
+    computed: callback => ({get value() { return callback(); }}),
+    onMounted: () => {},
+    createApp: options => ({mount() { app = options.setup(); }}),
+  },
+  fetch: async () => response,
+  setTimeout: () => 0,
+  navigator: {},
+  document: {
+    createElement: () => ({style: {}, select() {}, remove() { removed++; }}),
+    body: {appendChild() {}},
+    execCommand: () => copySucceeds,
+  },
+};
+vm.runInNewContext(script, context, {filename: 'admin.html'});
+const lastToast = () => app.toasts.value.at(-1);
+(async () => {
+  app.authenticated.value = true;
+  await app.loadAccounts();
+  assert.equal(lastToast().type, 'danger');
+  assert.equal(app.loading.value, false);
+  await app.logout();
+  assert.equal(app.authenticated.value, true, 'A failed logout must not claim success');
+  assert.equal(lastToast().type, 'danger');
+  response = {ok: true, status: 200};
+  await app.logout();
+  assert.equal(app.authenticated.value, false);
+  app.copyText('example');
+  assert.equal(lastToast().type, 'danger', 'A failed copy must not claim success');
+  assert.equal(removed, 1);
+  copySucceeds = true;
+  app.copyText('example');
+  assert.equal(lastToast().type, 'success');
+  assert.equal(removed, 2);
+  console.log('PASS: dashboard load, logout and clipboard error handling');
+})().catch(error => { console.error(error); process.exitCode = 1; });

@@ -39,7 +39,7 @@ void main() {
     'Markdown, unknown syntax and binary images round trip losslessly',
     () async {
       const source =
-          '# Grüße\n\n**Fett** und *kursiv*\n\n- [ ] Aufgabe\n\n'
+          '# Grüße\n\n**Bold** and *italic*\n\n- [ ] Task\n\n'
           '[Link][ref]\n\n[ref]: https://example.org\n\n'
           '<custom data-value="keep">Unbekannt</custom>\n\n![Bild](assets/a.png)\n';
       final document = MarkdownDocument(source, {
@@ -49,7 +49,7 @@ void main() {
       expect(decoded.source, source);
       expect(decoded.assets['assets/a.png'], [1, 2, 3]);
       final note = await repo.create(
-        'Notiz',
+        'Note',
         document.encode(),
         paper: 'markdown',
       );
@@ -59,7 +59,7 @@ void main() {
       expect(imported.isMarkdown, true);
       expect(imported.toJson()['version'], 4);
       expect(MarkdownDocument.decode(bytes).source, source);
-      expect((await repo.list()).single.title, 'Notiz');
+      expect((await repo.list()).single.title, 'Note');
       expect(MarkdownDocument.decode(await repo.load(note.id)).source, source);
     },
   );
@@ -69,8 +69,8 @@ void main() {
     () {
       const source =
           '- [ ] oben\n'
-          '  - [x] Kind\n'
-          '> - [ ] Zitat\n\n'
+          '  - [x] Child\n'
+          '> - [ ] Quote\n\n'
           '1. [X] Nummer\n\n'
           '```\n- [ ] kein Task\n```\n\n'
           '    - [ ] auch Code\n\n'
@@ -88,15 +88,15 @@ void main() {
     'parser discovers reference links, not fenced examples; headings are stable',
     () {
       const source =
-          '# Grüße!\n\n# Grüße!\n\n[Notiz][n]\n\n[n]: other.md#abschnitt\n\n'
+          '# Grüße!\n\n# Grüße!\n\n[Note][n]\n\n[n]: other.md#section\n\n'
           '```\n[kein Link](code.md)\n```\n![Bild](assets/p.png)';
       expect(markdownLinks(source).map((l) => l.href), [
-        'other.md#abschnitt',
+        'other.md#section',
         'assets/p.png',
       ]);
       expect(markdownHeadings(source), ['grüße', 'grüße-1']);
       expect(
-        resolveMarkdownPath('gruppe/note.md', '../other.md#abschnitt'),
+        resolveMarkdownPath('gruppe/note.md', '../other.md#section'),
         'other.md',
       );
       expect(resolveMarkdownPath('note.md', '../../secret'), isNull);
@@ -152,15 +152,15 @@ void main() {
       final b = await library.create('B');
       final source = '[B](<${MarkdownLibrary.linkTo(a, b)}>)';
       await repo.save(a, MarkdownDocument(source).encode());
-      final folder = await repo.catalog.ensureFolder('Studium');
+      final folder = await repo.catalog.ensureFolder('Studies');
       final renamed = await repo.save(
-        b.copy(title: 'Neuer Titel', folderId: folder.id),
+        b.copy(title: 'Neuer Title', folderId: folder.id),
         await repo.load(b.id),
       );
       final notes = await repo.list();
       expect(
         MarkdownLibrary.target(notes, a, MarkdownLibrary.linkTo(a, b))?.title,
-        'Neuer Titel',
+        'Neuer Title',
       );
       expect((await library.backlinks(renamed)).single.id, a.id);
     },
@@ -175,7 +175,7 @@ void main() {
           'kurs/a.md': textBytes(
             '# A\n\n[B](b.md#grundlagen)\n![Bild](assets/p.png)\n[PDF](skript.pdf)',
           ),
-          'kurs/b.md': textBytes('# B\n\n## Grundlagen\n\n[Zurück](a.md)'),
+          'kurs/b.md': textBytes('# B\n\n## Grundlagen\n\n[Back](a.md)'),
           'kurs/assets/p.png': image,
           'kurs/skript.pdf': await createPaper('blank'),
         }),
@@ -292,19 +292,19 @@ void main() {
   test(
     'autosave drains edits made during a write and retries without losing source',
     () async {
-      final note = await library.create('Speichern');
+      final note = await library.create('Save');
       final delayed = _DelayedRepository(repo);
       final session = MarkdownSession(note, MarkdownDocument(''), delayed);
       session.update(MarkdownDocument('Erster Stand'));
       final saving = session.save();
       await delayed.started.future;
-      session.update(MarkdownDocument('Zweiter Stand'));
+      session.update(MarkdownDocument('Secondr Stand'));
       delayed.release.complete();
       expect(await saving, true);
       expect(session.dirty, false);
       expect(
         MarkdownDocument.decode(await repo.load(note.id)).source,
-        'Zweiter Stand',
+        'Secondr Stand',
       );
       delayed.fail = true;
       session.update(MarkdownDocument('Bleibt erhalten'));

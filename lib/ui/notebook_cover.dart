@@ -11,15 +11,15 @@ class NotebookCover extends StatelessWidget {
 
   String get label => switch (paper) {
     'pdf' => 'PDF',
-    'lined' => 'Liniert',
-    'grid' => 'Kariert',
-    _ => 'Blanko',
+    'lined' => 'Ruled',
+    'grid' => 'Grid',
+    _ => 'Blank',
   };
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      label: 'Papiertyp: $label',
+      label: 'Paper type: $label',
       child: ExcludeSemantics(
         child: Container(
           height: height,

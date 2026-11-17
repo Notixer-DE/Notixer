@@ -49,6 +49,7 @@ jobs:
       - run: flutter pub get --enforce-lockfile
       - run: dart format --output=none --set-exit-if-changed lib test tools
       - run: flutter analyze
+      - run: node tools/test-admin-ui.cjs
       - run: flutter test --reporter expanded
       - name: Check large-PDF event-loop responsiveness
         run: python3 tools/performance.py
@@ -216,16 +217,16 @@ jobs:
           sha256sum -- *.apk *.deb *.zip > SHA256SUMS
           notes="$RUNNER_TEMP/release-notes.md"
           cat > "$notes" <<NOTES
-          Automatischer Build von main: $SOURCE_SHA
+          Automatic build from main: $SOURCE_SHA
 
-          - Android: installierbare, mit dem bestehenden Vorschau-Schlüssel signierte Release-APK, Versionscode $BUILD_NUMBER.
-          - Debian: Paket für Debian 13, amd64.
-          - Windows: x64-ZIP mit noter.exe und allen erforderlichen Laufzeitdateien; ZIP vollständig entpacken und noter.exe starten.
-          - Optionaler E2EE-Sync über den selbst gehosteten Notixer-Server; Einrichtung siehe docs/sync-server.md.
-          - Google Drive wurde entfernt. Bestehende Cloudkopien vorher lokal sichern; sie werden nicht automatisch übernommen oder gelöscht.
-          - Der Sync-Server ist eine erste funktionale Fassung, noch keine Großdienst-Freigabe. Lasttests, automatische Speicherbereinigung und Schlüsselrotation sind offen.
+          - Android: installable release APK signed with the existing preview key, version code $BUILD_NUMBER.
+          - Debian: package for Debian 13, amd64.
+          - Windows: x64 ZIP containing noter.exe and all required runtime files. Extract the entire archive before running noter.exe.
+          - Optional end-to-end encrypted sync through the self-hosted Notixer server. See docs/sync-server.md.
+          - Google Drive support has been removed. Back up existing cloud copies locally; they are not imported or deleted automatically.
+          - The sync server is an initial functional release. Large-scale load testing, automatic storage cleanup and key rotation remain future work.
 
-          Die APK nutzt den optimierten Release-Modus und den bestehenden Vorschau-Schlüssel.
+          The APK uses optimized release mode and the existing preview signing key.
           NOTES
           latest=false
           if [[ "$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')" == "$SOURCE_SHA" ]]; then

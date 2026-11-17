@@ -26,7 +26,7 @@ class _ScrollBenchmarkState extends State<_ScrollBenchmark> {
   final _preview = GlobalKey<MarkdownPreviewState>();
   final _document = MarkdownDocument(longMarkdown());
   final _frames = <FrameTiming>[];
-  String _status = 'Aufwärmen …';
+  String _status = 'Warming up …';
 
   @override
   void initState() {
@@ -47,7 +47,7 @@ class _ScrollBenchmarkState extends State<_ScrollBenchmark> {
       curve: Curves.linear,
     );
     if (!mounted) return;
-    setState(() => _status = 'Messen: 10 Sekunden abwärts, 10 aufwärts …');
+    setState(() => _status = 'Measuring: 10 seconds down, 10 seconds up …');
     // Flush the warm-up timing batch before collecting scroll frames.
     await Future<void>.delayed(const Duration(seconds: 1));
     if (!mounted) return;

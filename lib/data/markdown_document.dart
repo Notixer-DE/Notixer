@@ -36,7 +36,7 @@ class MarkdownDocument {
   Uint8List encode() {
     final text = utf8.encode(source);
     if (text.length > maxTextBytes) {
-      throw const FormatException('Markdown ist zu groß (maximal 4 MB).');
+      throw const FormatException('Markdown is too large (maximum 4 MB).');
     }
     var total = text.length;
     final archive = Archive()
@@ -45,24 +45,26 @@ class MarkdownDocument {
       if (!safePath(entry.key) ||
           !entry.key.startsWith('assets/') ||
           entry.value.length > maxAssetBytes) {
-        throw const FormatException('Ungültiger Markdown-Anhang.');
+        throw const FormatException('Invalid Markdown attachment.');
       }
       total += entry.value.length;
       archive.addFile(ArchiveFile(entry.key, entry.value.length, entry.value));
     }
     if (total > maxTotalBytes) {
-      throw const FormatException('Markdown mit Anhängen ist zu groß (64 MB).');
+      throw const FormatException(
+        'Markdown with attachments is too large (64 MB).',
+      );
     }
     final bytes = ZipEncoder().encodeBytes(archive);
     if (bytes.length > maxTotalBytes) {
-      throw const FormatException('Markdown-Paket ist zu groß (64 MB).');
+      throw const FormatException('The Markdown bundle is too large (64 MB).');
     }
     return bytes;
   }
 
   factory MarkdownDocument.decode(Uint8List bytes) {
     if (bytes.length > maxTotalBytes) {
-      throw const FormatException('Markdown-Paket ist zu groß.');
+      throw const FormatException('The Markdown bundle is too large.');
     }
     final archive = ZipDecoder().decodeBytes(bytes, verify: true);
     var total = 0;
@@ -74,13 +76,13 @@ class MarkdownDocument {
           !safePath(file.name) ||
           !names.add(file.name) ||
           (file.name != 'document.md' && !file.name.startsWith('assets/'))) {
-        throw const FormatException('Ungültiges Markdown-Paket.');
+        throw const FormatException('Invalid Markdown bundle.');
       }
       total += file.size;
       if (total > maxTotalBytes ||
           file.size >
               (file.name == 'document.md' ? maxTextBytes : maxAssetBytes)) {
-        throw const FormatException('Markdown-Inhalt ist zu groß.');
+        throw const FormatException('Markdown content is too large.');
       }
       if (file.name == 'document.md') {
         source = utf8.decode(file.content);
@@ -88,16 +90,14 @@ class MarkdownDocument {
         assets[file.name] = file.content;
       }
     }
-    if (source == null) throw const FormatException('Markdown fehlt.');
+    if (source == null) throw const FormatException('Markdown is missing.');
     return MarkdownDocument(source, assets);
   }
 
   /// Content-addressed names avoid image collisions when exporting notes together.
   (MarkdownDocument, String) withImage(Uint8List bytes, String extension) {
     if (!['png', 'jpg', 'jpeg'].contains(extension.toLowerCase())) {
-      throw const FormatException(
-        'Nur PNG- und JPEG-Bilder werden unterstützt.',
-      );
+      throw const FormatException('Only PNG and JPEG images are supported.');
     }
     final name = 'assets/${sha256.convert(bytes)}.${extension.toLowerCase()}';
     final result = copy(assets: {...assets, name: bytes});
@@ -105,7 +105,7 @@ class MarkdownDocument {
         utf8.encode(source).length +
                 result.assets.values.fold<int>(0, (sum, b) => sum + b.length) >
             maxTotalBytes) {
-      throw const FormatException('Bild oder Markdown-Paket ist zu groß.');
+      throw const FormatException('The image or Markdown bundle is too large.');
     }
     return (result, name);
   }

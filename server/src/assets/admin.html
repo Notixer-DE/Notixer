@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -496,14 +496,14 @@
       </div>
       <div class="user-nav" v-if="authenticated">
         <div class="user-badge">
-          <span>Angemeldet als</span>
+          <span>Signed in as</span>
           <strong>{{ username }}</strong>
         </div>
         <button class="btn btn-outline btn-sm" @click="showPasswordModal = true">
-          Passwort ändern
+          Change password
         </button>
         <button class="btn btn-danger btn-sm" @click="logout">
-          Abmelden
+          Sign out
         </button>
       </div>
     </header>
@@ -513,7 +513,7 @@
       <div class="login-container">
         <h2 style="font-size: 1.4rem; font-weight: 700; margin-bottom: 0.5rem;">Administration Login</h2>
         <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.5rem;">
-          Melde dich an, um Konten und Geräte-Zugangstokens zu verwalten.
+          Sign in to manage accounts and device access tokens.
         </p>
 
         <div class="error-msg" v-if="loginError">
@@ -522,20 +522,20 @@
 
         <form @submit.prevent="login">
           <div class="form-group">
-            <label class="form-label">Benutzername</label>
+            <label class="form-label">Username</label>
             <input type="text" class="form-control" v-model="loginForm.username" required autocomplete="username" autofocus>
           </div>
           <div class="form-group">
-            <label class="form-label">Passwort</label>
+            <label class="form-label">Password</label>
             <input type="password" class="form-control" v-model="loginForm.password" required autocomplete="current-password">
           </div>
           <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 0.5rem;" :disabled="loggingIn">
-            {{ loggingIn ? 'Anmelden...' : 'Anmelden' }}
+            {{ loggingIn ? 'Sign in...' : 'Sign in' }}
           </button>
         </form>
 
         <div style="margin-top: 1.5rem; text-align: center; font-size: 0.8rem; color: var(--text-muted); background: rgba(255,255,255,0.03); padding: 0.75rem; border-radius: 8px;">
-          Initialer Standard-Zugang: <strong>admin</strong> / <strong>admin</strong>
+          Initial default credentials: <strong>admin</strong> / <strong>admin</strong>
         </div>
       </div>
     </div>
@@ -545,19 +545,19 @@
       <!-- Quick Stats -->
       <div class="stats-grid">
         <div class="stat-card">
-          <div class="stat-title">Registrierte Konten</div>
+          <div class="stat-title">Registered accounts</div>
           <div class="stat-value">{{ accounts.length }}</div>
-          <div class="stat-sub">Aktive Benutzerkonten</div>
+          <div class="stat-sub">Active user accounts</div>
         </div>
         <div class="stat-card">
-          <div class="stat-title">Geräte Insgesamt</div>
+          <div class="stat-title">Total devices</div>
           <div class="stat-value">{{ totalDevices }}</div>
-          <div class="stat-sub">{{ activeDevices }} aktiv / {{ revokedDevices }} widerrufen</div>
+          <div class="stat-sub">{{ activeDevices }} active / {{ revokedDevices }} revoked</div>
         </div>
         <div class="stat-card">
-          <div class="stat-title">Speicherverbrauch</div>
+          <div class="stat-title">Storage used</div>
           <div class="stat-value">{{ formatBytes(totalUsedBytes) }}</div>
-          <div class="stat-sub">Notizen-Blobdaten & Manifeste</div>
+          <div class="stat-sub">Note blobs and manifests</div>
         </div>
       </div>
 
@@ -565,32 +565,32 @@
       <div class="action-bar">
         <div style="display: flex; gap: 0.75rem; align-items: center;">
           <button class="btn btn-primary" @click="createAccount" :disabled="creatingAccount">
-            + Neues Konto anlegen
+            + Create account
           </button>
           <button class="btn btn-outline" @click="loadAccounts" :disabled="loading">
-            Aktualisieren
+            Refresh
           </button>
         </div>
-        <input 
-          type="text" 
-          class="search-input" 
-          placeholder="Nach Konto-ID filtern..." 
+        <input
+          type="text"
+          class="search-input"
+          placeholder="Filter by account ID..."
           v-model="searchQuery"
         >
       </div>
 
       <!-- Loading Indicator -->
       <div v-if="loading && accounts.length === 0" style="text-align: center; padding: 3rem; color: var(--text-muted);">
-        Lade Konten...
+        Loading accounts...
       </div>
 
       <!-- Empty State -->
       <div v-else-if="filteredAccounts.length === 0" style="text-align: center; padding: 4rem 2rem; background: var(--card-bg); border-radius: 12px; border: 1px dashed var(--card-border);">
         <p style="color: var(--text-muted); font-size: 1rem; margin-bottom: 1rem;">
-          {{ searchQuery ? 'Kein Konto entspricht deiner Suchanfrage.' : 'Noch keine Konten auf diesem Server vorhanden.' }}
+          {{ searchQuery ? 'No accounts match your search.' : 'No accounts on this server yet.' }}
         </p>
         <button class="btn btn-primary" @click="createAccount" v-if="!searchQuery">
-          Erstes Konto anlegen
+          Create your first account
         </button>
       </div>
 
@@ -602,30 +602,30 @@
             <div class="account-title-group">
               <span class="uuid-tag">
                 {{ acc.id }}
-                <button class="copy-btn" title="UUID kopieren" @click="copyText(acc.id, 'Konto-UUID kopiert')">
+                <button class="copy-btn" title="Copy UUID" @click="copyText(acc.id, 'Account UUID copied')">
                   📋
                 </button>
               </span>
               <span class="badge badge-success" v-if="acc.key_check">
-                E2EE bestätigt
+                E2EE confirmed
               </span>
               <span class="badge badge-warning" v-else>
-                Wartet auf ersten Sync
+                Waiting for first sync
               </span>
             </div>
 
             <div class="account-meta">
               <div class="account-meta-item">
-                Speicher: <strong>{{ formatBytes(acc.used_bytes) }}</strong> / {{ formatBytes(acc.quota_bytes) }}
+                Storage: <strong>{{ formatBytes(acc.used_bytes) }}</strong> / {{ formatBytes(acc.quota_bytes) }}
               </div>
               <div class="account-meta-item">
-                Revisionen: <strong>{{ acc.revision_count }}</strong>
+                Revisions: <strong>{{ acc.revision_count }}</strong>
               </div>
               <button class="btn btn-primary btn-sm" @click="addDevice(acc.id)">
-                + Gerät hinzufügen
+                + Add device
               </button>
-              <button class="btn btn-danger btn-sm" title="Konto und alle zugehörigen Daten unwiderruflich löschen" @click="deleteAccount(acc.id)">
-                Konto löschen
+              <button class="btn btn-danger btn-sm" title="Permanently delete the account and all its data" @click="deleteAccount(acc.id)">
+                Delete account
               </button>
             </div>
           </div>
@@ -633,20 +633,20 @@
           <!-- Card Body: Devices -->
           <div class="account-body">
             <div class="devices-header">
-              <span class="devices-title">Verknüpfte Geräte ({{ acc.devices ? acc.devices.length : 0 }})</span>
+              <span class="devices-title">Linked devices ({{ acc.devices ? acc.devices.length : 0 }})</span>
             </div>
 
             <div v-if="!acc.devices || acc.devices.length === 0" style="color: var(--text-muted); font-size: 0.85rem; padding: 0.5rem 0;">
-              Noch keine Geräte registriert. Klicke oben auf <em>„+ Gerät hinzufügen“</em>, um einen Zugangstoken zu erzeugen.
+              No devices registered yet. Click <em>“+ Add device”</em> above to generate an access token.
             </div>
 
             <table class="device-table" v-else>
               <thead>
                 <tr>
-                  <th>Geräte-ID</th>
-                  <th>Registriert am</th>
+                  <th>Device ID</th>
+                  <th>Registered on</th>
                   <th>Status</th>
-                  <th style="text-align: right;">Aktion</th>
+                  <th style="text-align: right;">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -654,30 +654,30 @@
                   <td>
                     <span class="device-id">
                       {{ dev.id }}
-                      <button class="copy-btn" title="Geräte-ID kopieren" @click="copyText(dev.id, 'Geräte-ID kopiert')">
+                      <button class="copy-btn" title="Copy device ID" @click="copyText(dev.id, 'Device ID copied')">
                         📋
                       </button>
                     </span>
                   </td>
                   <td>{{ formatDate(dev.created_at) }}</td>
                   <td>
-                    <span class="badge badge-danger" v-if="dev.revoked">Widerrufen</span>
-                    <span class="badge badge-success" v-else>Aktiv</span>
+                    <span class="badge badge-danger" v-if="dev.revoked">Revoked</span>
+                    <span class="badge badge-success" v-else>Active</span>
                   </td>
                   <td style="text-align: right;">
-                    <button 
-                      class="btn btn-danger btn-sm" 
-                      v-if="!dev.revoked" 
+                    <button
+                      class="btn btn-danger btn-sm"
+                      v-if="!dev.revoked"
                       @click="revokeDevice(dev.id)"
                     >
-                      Widerrufen
+                      Revoke
                     </button>
-                    <button 
-                      class="btn btn-outline btn-sm" 
-                      v-else 
+                    <button
+                      class="btn btn-outline btn-sm"
+                      v-else
                       @click="unrevokeDevice(dev.id)"
                     >
-                      Reaktivieren
+                      Reactivate
                     </button>
                   </td>
                 </tr>
@@ -691,27 +691,27 @@
     <!-- Device Created / Token Modal -->
     <div class="modal-backdrop" v-if="createdDevice" @click.self="createdDevice = null">
       <div class="modal">
-        <h3 class="modal-title">Neues Gerät & Zugangstoken erzeugt</h3>
+        <h3 class="modal-title">Device and access token created</h3>
         <p class="modal-subtitle">
-          Geräte-ID: <code style="color: #38bdf8;">{{ createdDevice.id }}</code>
+          Device ID: <code style="color: #38bdf8;">{{ createdDevice.id }}</code>
         </p>
 
         <div class="token-box">
-          <div class="token-label">Geräte-Zugangstoken (Token):</div>
+          <div class="token-label">Device access token (Token):</div>
           <div class="token-value">{{ createdDevice.token }}</div>
         </div>
 
         <div class="alert-box">
-          <strong>Wichtig:</strong> Dieser Zugangstoken wird aus Sicherheitsgründen <strong>nur ein einziges Mal</strong> angezeigt! 
-          Kopiere ihn jetzt und trage ihn in der Notixer-App auf dem entsprechenden Endgerät ein. Auf dem Server wird nur ein SHA-256 Hash gespeichert.
+          <strong>Important:</strong> For security, this access token is displayed <strong>only once</strong>!
+          Copy it now and enter it in Notixer on the corresponding device. The server only stores a SHA-256 hash.
         </div>
 
         <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
           <button class="btn btn-outline" @click="createdDevice = null">
-            Schließen
+            Close
           </button>
-          <button class="btn btn-primary" @click="copyText(createdDevice.token, 'Zugangstoken in die Zwischenablage kopiert!')">
-            Token kopieren
+          <button class="btn btn-primary" @click="copyText(createdDevice.token, 'Access token copied to clipboard!')">
+            Copy token
           </button>
         </div>
       </div>
@@ -720,28 +720,28 @@
     <!-- Change Password Modal -->
     <div class="modal-backdrop" v-if="showPasswordModal" @click.self="showPasswordModal = false">
       <div class="modal">
-        <h3 class="modal-title">Admin-Passwort ändern</h3>
-        <p class="modal-subtitle">Vergib ein neues, sicheres Passwort für den Benutzer <strong>{{ username }}</strong>.</p>
+        <h3 class="modal-title">Change admin password</h3>
+        <p class="modal-subtitle">Set a new, secure password for the user <strong>{{ username }}</strong>.</p>
 
         <div class="error-msg" v-if="pwdError">{{ pwdError }}</div>
 
         <form @submit.prevent="changePassword">
           <div class="form-group">
-            <label class="form-label">Aktuelles Passwort</label>
+            <label class="form-label">Current password</label>
             <input type="password" class="form-control" v-model="pwdForm.current" required>
           </div>
           <div class="form-group">
-            <label class="form-label">Neues Passwort</label>
+            <label class="form-label">New password</label>
             <input type="password" class="form-control" v-model="pwdForm.new" required minlength="4">
           </div>
           <div class="form-group">
-            <label class="form-label">Neues Passwort wiederholen</label>
+            <label class="form-label">Repeat new password</label>
             <input type="password" class="form-control" v-model="pwdForm.repeat" required minlength="4">
           </div>
           <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
-            <button type="button" class="btn btn-outline" @click="showPasswordModal = false">Abbrechen</button>
+            <button type="button" class="btn btn-outline" @click="showPasswordModal = false">Cancel</button>
             <button type="submit" class="btn btn-primary" :disabled="savingPwd">
-              {{ savingPwd ? 'Speichern...' : 'Passwort aktualisieren' }}
+              {{ savingPwd ? 'Save...' : 'Update password' }}
             </button>
           </div>
         </form>
@@ -750,10 +750,10 @@
 
     <!-- Toast Notifications -->
     <div class="toast-container">
-      <div 
-        class="toast" 
-        :class="t.type === 'danger' ? 'toast-danger' : 'toast-success'" 
-        v-for="t in toasts" 
+      <div
+        class="toast"
+        :class="t.type === 'danger' ? 'toast-danger' : 'toast-success'"
+        v-for="t in toasts"
         :key="t.id"
       >
         {{ t.message }}
@@ -824,13 +824,13 @@
               authenticated.value = true;
               username.value = data.username;
               loginForm.value.password = '';
-              showToast('Erfolgreich angemeldet');
+              showToast('Signed in successfully');
               loadAccounts();
             } else {
-              loginError.value = 'Ungültiger Benutzername oder falsches Passwort.';
+              loginError.value = 'Invalid username or password.';
             }
           } catch (e) {
-            loginError.value = 'Netzwerkfehler beim Anmelden.';
+            loginError.value = 'Network error while signing in.';
           } finally {
             loggingIn.value = false;
           }
@@ -838,11 +838,15 @@
 
         async function logout() {
           try {
-            await fetch('/admin/api/logout', { method: 'POST' });
-          } catch (e) {}
+            const res = await fetch('/admin/api/logout', { method: 'POST' });
+            if (!res.ok) throw new Error('Sign out failed');
+          } catch (e) {
+            showToast('Could not sign out. Please try again.', 'danger');
+            return;
+          }
           authenticated.value = false;
           accounts.value = [];
-          showToast('Erfolgreich abgemeldet');
+          showToast('Signed out successfully');
         }
 
         async function loadAccounts() {
@@ -853,11 +857,10 @@
               authenticated.value = false;
               return;
             }
-            if (res.ok) {
-              accounts.value = await res.json();
-            }
+            if (!res.ok) throw new Error('Could not load accounts');
+            accounts.value = await res.json();
           } catch (e) {
-            showToast('Fehler beim Laden der Konten', 'danger');
+            showToast('Could not load accounts. Please retry.', 'danger');
           } finally {
             loading.value = false;
           }
@@ -869,32 +872,32 @@
             const res = await fetch('/admin/api/accounts', { method: 'POST' });
             if (res.ok) {
               const data = await res.json();
-              showToast(`Neues Konto ${data.id.substring(0, 8)}... erstellt`);
+              showToast(`New account ${data.id.substring(0, 8)}... created`);
               await loadAccounts();
             } else {
-              showToast('Konto konnte nicht erstellt werden', 'danger');
+              showToast('Could not create the account', 'danger');
             }
           } catch (e) {
-            showToast('Netzwerkfehler', 'danger');
+            showToast('Network error', 'danger');
           } finally {
             creatingAccount.value = false;
           }
         }
 
         async function deleteAccount(accountId) {
-          if (!confirm(`Möchtest du das Konto "${accountId}" wirklich unwiderruflich löschen?\n\nAlle zugehörigen Notizen, Revisionen und Geräte auf dem Server werden dauerhaft entfernt!`)) {
+          if (!confirm(`Permanently delete the account "${accountId}"?\n\nAll associated notes, revisions and devices on the server will be permanently removed.`)) {
             return;
           }
           try {
             const res = await fetch(`/admin/api/accounts/${accountId}`, { method: 'DELETE' });
             if (res.ok) {
-              showToast('Konto erfolgreich gelöscht');
+              showToast('Account deleted');
               await loadAccounts();
             } else {
-              showToast('Fehler beim Löschen des Kontos', 'danger');
+              showToast('Could not delete the account', 'danger');
             }
           } catch (e) {
-            showToast('Netzwerkfehler', 'danger');
+            showToast('Network error', 'danger');
           }
         }
 
@@ -904,30 +907,30 @@
             if (res.ok) {
               const data = await res.json();
               createdDevice.value = data;
-              showToast('Gerät und Zugangstoken generiert!');
+              showToast('Device and access token generated!');
               await loadAccounts();
             } else {
-              showToast('Fehler beim Hinzufügen des Geräts', 'danger');
+              showToast('Could not add the device', 'danger');
             }
           } catch (e) {
-            showToast('Netzwerkfehler', 'danger');
+            showToast('Network error', 'danger');
           }
         }
 
         async function revokeDevice(deviceId) {
-          if (!confirm('Möchtest du dieses Gerät wirklich widerrufen? Es kann sich danach nicht mehr synchronisieren.')) {
+          if (!confirm('Revoke this device? It will no longer be able to sync.')) {
             return;
           }
           try {
             const res = await fetch(`/admin/api/devices/${deviceId}/revoke`, { method: 'POST' });
             if (res.ok) {
-              showToast('Gerät erfolgreich widerrufen');
+              showToast('Device revoked');
               await loadAccounts();
             } else {
-              showToast('Fehler beim Widerrufen', 'danger');
+              showToast('Could not revoke the device', 'danger');
             }
           } catch (e) {
-            showToast('Netzwerkfehler', 'danger');
+            showToast('Network error', 'danger');
           }
         }
 
@@ -935,20 +938,20 @@
           try {
             const res = await fetch(`/admin/api/devices/${deviceId}/unrevoke`, { method: 'POST' });
             if (res.ok) {
-              showToast('Gerät wieder aktiviert');
+              showToast('Device reactivated');
               await loadAccounts();
             } else {
-              showToast('Fehler beim Aktivieren', 'danger');
+              showToast('Could not reactivate the device', 'danger');
             }
           } catch (e) {
-            showToast('Netzwerkfehler', 'danger');
+            showToast('Network error', 'danger');
           }
         }
 
         async function changePassword() {
           pwdError.value = '';
           if (pwdForm.value.new !== pwdForm.value.repeat) {
-            pwdError.value = 'Die neuen Passwörter stimmen nicht überein.';
+            pwdError.value = 'The new passwords do not match.';
             return;
           }
           savingPwd.value = true;
@@ -962,20 +965,20 @@
               })
             });
             if (res.ok) {
-              showToast('Passwort erfolgreich geändert');
+              showToast('Password changed successfully');
               showPasswordModal.value = false;
               pwdForm.value = { current: '', new: '', repeat: '' };
             } else {
-              pwdError.value = 'Aktuelles Passwort ist nicht korrekt.';
+              pwdError.value = 'The current password is incorrect.';
             }
           } catch (e) {
-            pwdError.value = 'Fehler beim Ändern des Passworts.';
+            pwdError.value = 'Could not change the password.';
           } finally {
             savingPwd.value = false;
           }
         }
 
-        function copyText(text, successMsg = 'In Zwischenablage kopiert!') {
+        function copyText(text, successMsg = 'Copied to clipboard!') {
           if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(text).then(() => {
               showToast(successMsg);
@@ -992,9 +995,14 @@
           ta.value = text;
           document.body.appendChild(ta);
           ta.select();
-          document.execCommand('copy');
-          document.body.removeChild(ta);
-          showToast(successMsg);
+          try {
+            if (!document.execCommand('copy')) throw new Error('Copy failed');
+            showToast(successMsg);
+          } catch (e) {
+            showToast('Could not copy. Select and copy the text manually.', 'danger');
+          } finally {
+            ta.remove();
+          }
         }
 
         function formatBytes(bytes) {
@@ -1009,7 +1017,7 @@
           if (!dateStr) return '-';
           try {
             const d = new Date(dateStr);
-            return d.toLocaleString('de-DE', {
+            return d.toLocaleString('en-GB', {
               day: '2-digit',
               month: '2-digit',
               year: 'numeric',

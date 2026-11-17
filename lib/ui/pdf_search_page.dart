@@ -71,7 +71,7 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
       if (mounted && generation == _generation) {
         setState(() {
           _searching = false;
-          _openError = 'Notizliste konnte nicht aktualisiert werden: $e';
+          _openError = 'Could not refresh the note list: $e';
         });
       }
       return;
@@ -82,7 +82,7 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
       setState(() {
         for (final id in missing) {
           _messages.add(
-            '„${titles[id] ?? id}“: Suche fehlgeschlagen. Die Notiz ist nicht mehr verfügbar.',
+            '„${titles[id] ?? id}“: Search failed. The note is no longer available.',
           );
         }
       });
@@ -98,7 +98,7 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
           _hits.addAll(result.hits.map((hit) => (note, hit)));
           if (result.truncated) {
             _messages.add(
-              '„${note.title}“: Nur die ersten 500 Treffer angezeigt.',
+              '„${note.title}“: Only the first 500 matches are shown.',
             );
           }
         });
@@ -106,7 +106,7 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
         if (!mounted || generation != _generation) return;
         setState(
           () => _messages.add(
-            '„${note.title}“: Suche fehlgeschlagen. Datei nicht lesbar.',
+            '„${note.title}“: Search failed. The file cannot be read.',
           ),
         );
       }
@@ -123,7 +123,7 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
       final current = (await widget.repository.list()).where(
         (n) => n.id == note.id,
       );
-      if (current.isEmpty) throw StateError('Die Notiz wurde gelöscht.');
+      if (current.isEmpty) throw StateError('The note was deleted.');
       note = current.single;
       final bytes = await widget.repository.load(note.id);
       if (!mounted) return;
@@ -140,7 +140,7 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
       );
       await _reload();
     } catch (e) {
-      if (mounted) setState(() => _openError = 'Öffnen fehlgeschlagen: $e');
+      if (mounted) setState(() => _openError = 'Could not open: $e');
     }
   }
 
@@ -155,7 +155,7 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
   Widget build(BuildContext context) => PopScope(
     canPop: !_searching,
     child: Scaffold(
-      appBar: AppBar(title: const Text('In PDFs suchen')),
+      appBar: AppBar(title: const Text('Search PDFs')),
       body: SafeArea(
         child: Column(
           children: [
@@ -165,14 +165,14 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Durchsucht PDF-Text, keine Scans oder Handschrift. '
-                    'Die Auswahl ist unabhängig von den Filtern der Übersicht.',
+                    'Searches PDF text, excluding scans and handwriting. '
+                    'This selection is independent of the library filters.',
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _query,
                     decoration: const InputDecoration(
-                      labelText: 'Wort oder Text suchen',
+                      labelText: 'Search for a word or text',
                       prefixIcon: Icon(Icons.search),
                     ),
                     textInputAction: TextInputAction.search,
@@ -192,18 +192,18 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
                             : _search,
                         icon: const Icon(Icons.search),
                         label: Text(
-                          'In ${_selected.length} ${_selected.length == 1 ? 'Dokument' : 'Dokumenten'} suchen',
+                          'Search ${_selected.length} ${_selected.length == 1 ? 'document' : 'documents'}',
                         ),
                       ),
                       if (_searching)
                         TextButton(
                           onPressed: _cancel,
-                          child: const Text('Suche abbrechen'),
+                          child: const Text('Cancel search'),
                         )
                       else if (!_choosing)
                         TextButton(
                           onPressed: () => setState(() => _choosing = true),
-                          child: const Text('Auswahl ändern'),
+                          child: const Text('Change selection'),
                         ),
                       if (_choosing)
                         TextButton(
@@ -216,19 +216,19 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
                           }),
                           child: Text(
                             _selected.length == _notes.length
-                                ? 'Auswahl aufheben'
-                                : 'Alle auswählen',
+                                ? 'Clear selection'
+                                : 'Select all',
                           ),
                         ),
                     ],
                   ),
                   if (!_choosing)
                     Text(
-                      '${_hits.length} Treffer für „$_searchedQuery“ · '
-                      '$_completed/${_selected.length} ${_selected.length == 1 ? 'Dokument' : 'Dokumente'} durchsucht',
+                      '${_hits.length} matches for „$_searchedQuery“ · '
+                      '$_completed/${_selected.length} ${_selected.length == 1 ? 'document' : 'documents'} searched',
                     ),
                   if (_searching) const LinearProgressIndicator(),
-                  if (_cancelled) const Text('Suche abgebrochen.'),
+                  if (_cancelled) const Text('Search cancelled.'),
                   if (_openError != null) Text(_openError!),
                 ],
               ),
@@ -267,14 +267,14 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
                         final hitIndex = index - _messages.length;
                         if (hitIndex >= _hits.length) {
                           return const ListTile(
-                            title: Text('Keine Treffer gefunden.'),
+                            title: Text('No matches found.'),
                           );
                         }
                         final (note, hit) = _hits[hitIndex];
                         return ListTile(
                           leading: const Icon(Icons.picture_as_pdf_outlined),
                           title: Text(
-                            '${note.title} · Seite ${hit.pageIndex + 1}',
+                            '${note.title} · Page ${hit.pageIndex + 1}',
                           ),
                           subtitle: Text(hit.snippet),
                           onTap: _searching ? null : () => _open(note, hit),

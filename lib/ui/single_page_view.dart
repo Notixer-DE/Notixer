@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../editor/navigation.dart';
 
 /// A viewport policy over the original PDF, not a one-page document copy.
@@ -37,6 +38,7 @@ class _SinglePageViewState extends State<SinglePageView> {
   Object? _structure;
   Size? _size;
   double _fitZoom = 1;
+  bool _hasFitted = false;
   NavigationViewerController get viewer => widget.viewer;
 
   Rect? get _viewport {
@@ -118,8 +120,10 @@ class _SinglePageViewState extends State<SinglePageView> {
     }
   }
 
-  Future<void> _jump(int page) async {
+  Future<void> _jump(int page, {bool fit = false}) async {
     final generation = ++_generation;
+    final preserveZoom =
+        _hasFitted && !fit && (viewer.zoom - _fitZoom).abs() > .001;
     viewer.pinnedPage = page.clamp(0, widget.editing.document.pageCount - 1);
     _structure = _pageStructure();
     _fitting = true;
@@ -138,7 +142,10 @@ class _SinglePageViewState extends State<SinglePageView> {
           math.max(1, viewport.width - 16) / rect.width,
           math.max(1, viewport.height - 16) / rect.height,
         );
-    viewer.setZoom(_fitZoom);
+    if (!preserveZoom) {
+      viewer.setZoom(_fitZoom);
+      _hasFitted = true;
+    }
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted || generation != _generation) return;
     await viewer.jumpWithoutHistory(viewer.currentPage);
@@ -152,7 +159,7 @@ class _SinglePageViewState extends State<SinglePageView> {
     _queued = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _queued = false;
-      if (!mounted || _fitting) return;
+      if (!mounted || _fitting || _touches.isNotEmpty) return;
       _constrain();
     });
     WidgetsBinding.instance.ensureVisualUpdate();
@@ -171,17 +178,6 @@ class _SinglePageViewState extends State<SinglePageView> {
     final viewport = _viewport;
     final rect = _page;
     if (viewport == null || rect == null) return;
-    _fitZoom =
-        viewer.zoom *
-        math.min(
-          math.max(1, viewport.width - 16) / rect.width,
-          math.max(1, viewport.height - 16) / rect.height,
-        );
-    if (viewer.zoom < _fitZoom - .001) {
-      viewer.setZoom(_fitZoom);
-      _schedule();
-      return;
-    }
     final dx = _correction(
       rect.left,
       rect.right,
@@ -196,11 +192,18 @@ class _SinglePageViewState extends State<SinglePageView> {
     );
     final sync = viewer.viewSync;
     if (sync != null && (dx.abs() > .25 || dy.abs() > .25)) {
-      final transform = sync.transform.clone();
-      final scale = transform.getMaxScaleOnAxis();
-      // Move the list before translating its clipped viewport. Translating
-      // alone can move a lazy page outside the list's painted window.
-      final requestedScroll = math.max(0.0, sync.scrollPixels - dy / scale);
+      _panBy(Offset(dx, dy));
+    }
+  }
+
+  void _panBy(Offset delta) {
+    final sync = viewer.viewSync;
+    if (sync == null || delta.distanceSquared < .01) return;
+    final transform = sync.transform.clone();
+    final scale = transform.getMaxScaleOnAxis();
+    if (!scale.isFinite || scale <= 0) return;
+    final requestedScroll = math.max(0.0, sync.scrollPixels - delta.dy / scale);
+    if ((requestedScroll - sync.scrollPixels).abs() > .5) {
       viewer.applyViewSync(
         PdfViewSync(
           scrollPixels: requestedScroll,
@@ -208,9 +211,12 @@ class _SinglePageViewState extends State<SinglePageView> {
           transform: transform,
         ),
       );
-      final actualScroll = viewer.viewSync?.scrollPixels ?? sync.scrollPixels;
-      transform.storage[12] += dx;
-      transform.storage[13] += dy + (actualScroll - sync.scrollPixels) * scale;
+    }
+    final actualScroll = viewer.viewSync?.scrollPixels ?? sync.scrollPixels;
+    final remainingY = delta.dy + (actualScroll - sync.scrollPixels) * scale;
+    if (delta.dx.abs() > .25 || remainingY.abs() > .25) {
+      transform.storage[12] += delta.dx;
+      transform.storage[13] += remainingY;
       viewer.applyViewSync(
         PdfViewSync(
           scrollPixels: actualScroll,
@@ -219,6 +225,31 @@ class _SinglePageViewState extends State<SinglePageView> {
         ),
       );
     }
+  }
+
+  // Resolve wheel movement before the underlying multi-page list can scroll
+  // away from the pinned page. Ctrl/Cmd+wheel remains native zoom.
+  void _wheel(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent ||
+        HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isMetaPressed) {
+      return;
+    }
+    GestureBinding.instance.pointerSignalResolver.register(event, (_) {
+      final viewport = _viewport, page = _page;
+      if (viewport == null || page == null || _fitting) return;
+      final delta = HardwareKeyboard.instance.isShiftPressed
+          ? Offset(-event.scrollDelta.dy, -event.scrollDelta.dx)
+          : -event.scrollDelta;
+      final next = page.shift(delta);
+      _panBy(
+        delta +
+            Offset(
+              _correction(next.left, next.right, viewport.left, viewport.right),
+              _correction(next.top, next.bottom, viewport.top, viewport.bottom),
+            ),
+      );
+    });
   }
 
   void _down(PointerDownEvent event) {
@@ -259,7 +290,10 @@ class _SinglePageViewState extends State<SinglePageView> {
         }
       }
     }
-    if (_touches.isEmpty) _start = null;
+    if (_touches.isEmpty) {
+      _start = null;
+      _schedule();
+    }
   }
 
   @override
@@ -280,7 +314,7 @@ class _SinglePageViewState extends State<SinglePageView> {
       if (_size != constraints.biggest) {
         _size = constraints.biggest;
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _jump(viewer.currentPage);
+          if (mounted) _jump(viewer.currentPage, fit: true);
         });
       }
       return Listener(
@@ -292,6 +326,12 @@ class _SinglePageViewState extends State<SinglePageView> {
           fit: StackFit.expand,
           children: [
             widget.child,
+            // Translucent sibling hits precede the viewer in the signal path
+            // while leaving drawing, selection and pinch input untouched.
+            Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerSignal: _wheel,
+            ),
             CustomPaint(
               painter: _PageMask(
                 () {

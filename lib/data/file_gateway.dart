@@ -46,7 +46,7 @@ class FileGateway {
     final file = await openFile(
       acceptedTypeGroups: const [
         XTypeGroup(
-          label: 'Bilder',
+          label: 'Images',
           extensions: ['png', 'jpg', 'jpeg'],
           mimeTypes: ['image/png', 'image/jpeg'],
         ),
@@ -54,7 +54,7 @@ class FileGateway {
     );
     if (file == null) return null;
     if (await file.length() > 32 * 1024 * 1024) {
-      throw const FormatException('Bild zu groß (maximal 32 MB).');
+      throw const FormatException('The image is too large (maximum 32 MB).');
     }
     return file.readAsBytes();
   }
@@ -62,7 +62,7 @@ class FileGateway {
   Future<XFile?> pick() => openFile(
     acceptedTypeGroups: const [
       XTypeGroup(
-        label: 'PDF, Notixer oder Markdown',
+        label: 'PDF, Notixer or Markdown',
         extensions: ['pdf', 'noter', 'md', 'zip'],
         mimeTypes: [
           'application/pdf',

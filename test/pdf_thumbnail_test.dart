@@ -52,7 +52,7 @@ void main() {
     cache = InkPathCache();
     directory = await Directory.systemTemp.createTemp('noter-thumbnail-');
     repository = LocalNotebookRepository(directory);
-    note = await repository.create('Vorschau', bytes);
+    note = await repository.create('Preview', bytes);
   });
   tearDown(() async {
     ink.dispose();
@@ -207,7 +207,7 @@ void main() {
       expect(tester.state(find.byType(PdfThumbnail).at(1)), same(first));
       await tester.tap(find.byType(Checkbox).first);
       await tester.pump();
-      await tester.tap(find.byTooltip('Seiten duplizieren'));
+      await tester.tap(find.byTooltip('Duplicate pages'));
       await frames(tester);
       await expectPage(0, 1);
       await expectPage(1, 1);
@@ -329,7 +329,7 @@ void main() {
         ),
         rgb(0),
       );
-      await tester.tap(find.byTooltip('Nächste Vorlagenseite'));
+      await tester.tap(find.byTooltip('Next template page'));
       await frames(tester);
       expect(
         await pixel(
