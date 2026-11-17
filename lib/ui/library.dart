@@ -418,6 +418,19 @@ class _LibraryPageState extends State<LibraryPage> {
           key: _scaffold,
           drawer: wide ? null : Drawer(child: SafeArea(child: _navigation())),
           appBar: AppBar(
+            leadingWidth: DocumentTabsChrome.leadingWidth(context),
+            leading: DocumentTabsChrome.action(context) == null
+                ? null
+                : DocumentNavigation(
+                    child: wide
+                        ? const SizedBox()
+                        : IconButton(
+                            tooltip: 'Open navigation menu',
+                            icon: const Icon(Icons.menu),
+                            onPressed: () =>
+                                _scaffold.currentState?.openDrawer(),
+                          ),
+                  ),
             toolbarHeight: NoterTheme.headerHeight(context),
             title: const Row(
               children: [

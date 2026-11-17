@@ -6,6 +6,7 @@ import '../data/notebook.dart';
 import '../input/stylus_eraser.dart';
 import '../sync/sync_controller.dart';
 import 'document_tab.dart';
+import 'workspace_chrome.dart';
 import 'editor.dart';
 import 'library.dart';
 import 'markdown_editor.dart';
@@ -206,7 +207,8 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
               child: SafeArea(
                 bottom: false,
                 child: SizedBox(
-                  height: 56,
+                  key: const ValueKey('document-tabs-bar'),
+                  height: 44,
                   child: Row(
                     children: [
                       IconButton(
@@ -229,7 +231,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                                 builder: (context, _) => Padding(
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 3,
-                                    vertical: 4,
+                                    vertical: 2,
                                   ),
                                   child: Material(
                                     color: i == _selected
@@ -295,63 +297,62 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
               children: [
                 IgnorePointer(
                   ignoring: _busy,
-                  child: IndexedStack(
-                    index: _selected + 1,
-                    children: [
-                      LibraryPage(
-                        key: const ValueKey('workspace-library'),
-                        repository: widget.repository,
-                        syncController: _sync,
-                        workspaceController: _library,
-                        hasOpenDocuments: () => _tabs.isNotEmpty,
-                        isNotebookOpen: (id) =>
-                            _pdfSessions.contains(id) ||
-                            _tabs.any((tab) => tab.note.id == id),
-                        onOpenNotebook: (note) => openNotebook(note),
-                      ),
-                      for (var i = 0; i < _tabs.length; i++)
-                        KeyedSubtree(
-                          key: ValueKey('document-body-${_tabs[i].note.id}'),
-                          child: TickerMode(
-                            enabled: _selected == i,
-                            child: FocusScope(
-                              canRequestFocus: _selected == i,
-                              child: _tabs[i].note.isMarkdown
-                                  ? MarkdownEditorPage(
-                                      note: _tabs[i].note,
-                                      bytes: _tabs[i].bytes,
-                                      repository: widget.repository,
-                                      initialAnchor: _tabs[i].anchor,
-                                      tabController: _tabs[i].controller,
-                                      onLibrary: showLibrary,
-                                      onOpenNotebook: openNotebook,
-                                    )
-                                  : EditorPage(
-                                      note: _tabs[i].note,
-                                      bytes: _tabs[i].bytes,
-                                      repository: widget.repository,
-                                      tabController: _tabs[i].controller,
-                                      workspaceSessions: _pdfSessions,
-                                      onLibrary: showLibrary,
-                                    ),
-                            ),
+                  child: MediaQuery.removePadding(
+                    context: context,
+                    removeTop: _tabs.isNotEmpty && _showTabs,
+                    child: DocumentTabsChrome(
+                      onShowTabs: _tabs.isNotEmpty && !_showTabs
+                          ? () => setState(() => _showTabs = true)
+                          : null,
+                      child: IndexedStack(
+                        index: _selected + 1,
+                        children: [
+                          LibraryPage(
+                            key: const ValueKey('workspace-library'),
+                            repository: widget.repository,
+                            syncController: _sync,
+                            workspaceController: _library,
+                            hasOpenDocuments: () => _tabs.isNotEmpty,
+                            isNotebookOpen: (id) =>
+                                _pdfSessions.contains(id) ||
+                                _tabs.any((tab) => tab.note.id == id),
+                            onOpenNotebook: (note) => openNotebook(note),
                           ),
-                        ),
-                    ],
-                  ),
-                ),
-                if (_tabs.isNotEmpty && !_showTabs)
-                  Positioned(
-                    left: 8,
-                    bottom: 8,
-                    child: SafeArea(
-                      child: IconButton.filledTonal(
-                        tooltip: 'Show document tabs',
-                        onPressed: () => setState(() => _showTabs = true),
-                        icon: const Icon(Icons.tab),
+                          for (var i = 0; i < _tabs.length; i++)
+                            KeyedSubtree(
+                              key: ValueKey(
+                                'document-body-${_tabs[i].note.id}',
+                              ),
+                              child: TickerMode(
+                                enabled: _selected == i,
+                                child: FocusScope(
+                                  canRequestFocus: _selected == i,
+                                  child: _tabs[i].note.isMarkdown
+                                      ? MarkdownEditorPage(
+                                          note: _tabs[i].note,
+                                          bytes: _tabs[i].bytes,
+                                          repository: widget.repository,
+                                          initialAnchor: _tabs[i].anchor,
+                                          tabController: _tabs[i].controller,
+                                          onLibrary: showLibrary,
+                                          onOpenNotebook: openNotebook,
+                                        )
+                                      : EditorPage(
+                                          note: _tabs[i].note,
+                                          bytes: _tabs[i].bytes,
+                                          repository: widget.repository,
+                                          tabController: _tabs[i].controller,
+                                          workspaceSessions: _pdfSessions,
+                                          onLibrary: showLibrary,
+                                        ),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ),
+                ),
               ],
             ),
           ),
