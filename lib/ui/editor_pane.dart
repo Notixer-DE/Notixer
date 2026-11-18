@@ -8,6 +8,9 @@ import 'package:pdf_document/pdf_document.dart'
     show PdfRect, PdfGoToAction, PdfNamedAction, PdfAnnotationEditing;
 import '../data/document_session.dart';
 import '../data/file_gateway.dart';
+import '../data/knowledge.dart';
+import '../data/notebook.dart';
+import 'markdown_editor.dart';
 import '../data/learning.dart';
 import '../data/tapes.dart';
 import '../data/ink.dart';
@@ -41,6 +44,7 @@ class EditorPane extends StatefulWidget {
     this.onSaveAll,
     this.initialTapeId,
     this.onReviewRated,
+    this.onOpenSourceNote,
   });
   final DocumentSession session;
   final bool active, split, showChrome;
@@ -50,6 +54,7 @@ class EditorPane extends StatefulWidget {
   final VoidCallback? onModeChanged;
   final VoidCallback onActivate;
   final VoidCallback? onReviewRated;
+  final Future<void> Function(Notebook)? onOpenSourceNote;
   final Future<bool> Function()? onSaveAll;
   @override
   State<EditorPane> createState() => EditorPaneState();
@@ -107,13 +112,69 @@ class EditorPaneState extends State<EditorPane> {
   PdfEditingController get editing => widget.session.editing;
   bool _positionReady = false;
   final _initialPosition = Completer<void>();
-  Future<bool> revealLinkedPage(int page) async {
+  Future<bool> revealLinkedPage(int page, {String query = ''}) async {
     await _initialPosition.future;
     if (!mounted || page < 0 || page >= editing.document.pageCount) {
       return false;
     }
+    if (query.isNotEmpty) {
+      await viewer.search(
+        query,
+        options: const PdfSearchOptions(searchAnnotations: false),
+      );
+    }
+    if (!mounted) return false;
     navigation.jumpToPage(page);
     return true;
+  }
+
+  bool _creatingSource = false;
+  Future<void> _sourceNote() async {
+    if (_creatingSource) return;
+    final repository = widget.session.repository;
+    if (repository is! LocalNotebookRepository || !viewer.hasSelection) return;
+    _creatingSource = true;
+    final text = viewer.selectedText;
+    final page = viewer.selectionPages.isEmpty
+        ? viewer.currentPage
+        : viewer.selectionPages.first;
+    try {
+      if (widget.onSaveAll != null && !await widget.onSaveAll!()) {
+        throw const FormatException(
+          'Save the PDF before creating its source note.',
+        );
+      }
+      final note = await KnowledgeStore(
+        repository,
+      ).sourceNote(widget.session.note, page + 1, text);
+      if (!mounted) return;
+      viewer.clearSelection();
+      if (widget.onOpenSourceNote != null) {
+        await widget.onOpenSourceNote!(note);
+      } else {
+        final bytes = await repository.load(note.id);
+        if (mounted) {
+          await Navigator.push<void>(
+            context,
+            MaterialPageRoute(
+              builder: (_) => MarkdownEditorPage(
+                note: note,
+                bytes: bytes,
+                repository: repository,
+              ),
+            ),
+          );
+        }
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not create source note: $error')),
+        );
+      }
+    } finally {
+      _creatingSource = false;
+    }
   }
 
   bool get lassoActive => _mode == _Mode.lasso;
@@ -1975,6 +2036,11 @@ class EditorPaneState extends State<EditorPane> {
                             !_learning)
                           Positioned.fill(
                             child: NoterTextSelectionOverlay(
+                              onCreateSourceNote:
+                                  widget.session.repository
+                                      is LocalNotebookRepository
+                                  ? _sourceNote
+                                  : null,
                               viewer: viewer,
                               editing: editing,
                             ),

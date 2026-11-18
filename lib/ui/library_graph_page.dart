@@ -9,8 +9,10 @@ class LibraryGraphPage extends StatefulWidget {
     super.key,
     required this.repository,
     this.sourceOverrides = const {},
+    this.focusNoteId,
   });
   final NotebookRepository repository;
+  final String? focusNoteId;
   final Map<String, String> sourceOverrides;
   @override
   State<LibraryGraphPage> createState() => _LibraryGraphPageState();
@@ -23,6 +25,10 @@ class _LibraryGraphPageState extends State<LibraryGraphPage> {
   );
   final _transform = TransformationController();
   bool _showTags = true;
+  late bool _local = widget.focusNoteId != null;
+  late String? _focusId = widget.focusNoteId == null
+      ? null
+      : 'note:${widget.focusNoteId}';
   String _query = '';
   String? _tag;
   bool _fitPending = true;
@@ -132,6 +138,13 @@ class _LibraryGraphPageState extends State<LibraryGraphPage> {
                     ),
                   );
                 }
+                final localIds = <String>{
+                  ?_focusId,
+                  for (final edge in graph.edges)
+                    if (edge.from == _focusId) edge.to,
+                  for (final edge in graph.edges)
+                    if (edge.to == _focusId) edge.from,
+                };
                 final neighbors = <String>{
                   ?_tag,
                   for (final edge in graph.edges)
@@ -140,6 +153,7 @@ class _LibraryGraphPageState extends State<LibraryGraphPage> {
                 final nodes = graph.nodes
                     .where(
                       (node) =>
+                          (!_local || localIds.contains(node.id)) &&
                           (_showTags || !node.isTag) &&
                           (_tag == null || neighbors.contains(node.id)),
                     )
@@ -162,6 +176,55 @@ class _LibraryGraphPageState extends State<LibraryGraphPage> {
                     .toList();
                 return Column(
                   children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Wrap(
+                        spacing: 12,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          FilterChip(
+                            label: const Text('Local graph'),
+                            selected: _local,
+                            onSelected: (value) => setState(() {
+                              _local = value;
+                              _focusId ??= graph.nodes
+                                  .where((node) => !node.isTag)
+                                  .firstOrNull
+                                  ?.id;
+                              _fitPending = true;
+                            }),
+                          ),
+                          if (_local)
+                            DropdownButton<String>(
+                              value:
+                                  graph.nodes.any((node) => node.id == _focusId)
+                                  ? _focusId
+                                  : null,
+                              hint: const Text('Choose file'),
+                              items: [
+                                for (final node in graph.nodes.where(
+                                  (node) => !node.isTag,
+                                ))
+                                  DropdownMenuItem(
+                                    value: node.id,
+                                    child: SizedBox(
+                                      width: 160,
+                                      child: Text(
+                                        node.label,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                              onChanged: (value) => setState(() {
+                                _focusId = value;
+                                _tag = null;
+                                _fitPending = true;
+                              }),
+                            ),
+                        ],
+                      ),
+                    ),
                     Padding(
                       padding: const EdgeInsets.all(8),
                       child: Text(

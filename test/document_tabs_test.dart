@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noter/data/file_gateway.dart';
+import 'package:noter/data/knowledge.dart';
 import 'package:noter/data/markdown_document.dart';
 import 'package:noter/data/markdown_library.dart';
 import 'package:noter/data/notebook.dart';
@@ -217,6 +218,21 @@ void main() {
         expect(find.text('Ungespeichert'), findsOneWidget);
         expect(tester.widget<TextField>(source).controller, same(controller));
         expect(controller.text, contains('Ungespeichert'));
+        // Completing a task from the hub must update the mounted editor too.
+        controller.text += '\n- [ ] A task in an open tab';
+        final taskOffset = controller.text.lastIndexOf('[ ]') + 1;
+        final task = KnowledgeTask(
+          c,
+          taskOffset,
+          5,
+          'A task in an open tab',
+          markdownRevision(controller.text),
+        );
+        var taskSaved = false;
+        FileGateway.completeKnowledgeTask!(task).then((_) => taskSaved = true);
+        await io(() => taskSaved);
+        expect(taskSaved, isTrue);
+        expect(controller.text, contains('- [x] A task in an open tab'));
         // Closing an inactive PDF must not dispose the active Markdown editor.
         var closed = false;
         key.currentState!.closeNotebook(b.id).then((value) => closed = value);

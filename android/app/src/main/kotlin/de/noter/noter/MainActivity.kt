@@ -10,14 +10,34 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private var pending: MethodChannel.Result? = null
     private var pendingBytes: ByteArray? = null
+    private var fileChannel: MethodChannel? = null
+    private var sharedText: String? = null
+    private fun sharedTextFrom(intent: Intent?): String? {
+        if (intent?.action != Intent.ACTION_SEND || intent.type?.startsWith("text/") != true) return null
+        return intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()?.take(1024 * 1024)
+    }
+    override fun onCreate(savedInstanceState: Bundle?) {
+        sharedText = sharedTextFrom(intent)
+        super.onCreate(savedInstanceState)
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        sharedTextFrom(intent)?.let { text ->
+            sharedText = text
+            fileChannel?.invokeMethod("sharedText", text)
+        }
+    }
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "de.noter/files")
-            .setMethodCallHandler { call, result ->
+        val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "de.noter/files")
+        fileChannel = channel
+        channel.setMethodCallHandler { call, result ->
+                if (call.method == "getSharedText") { result.success(sharedText); sharedText = null; return@setMethodCallHandler }
                 if (call.method != "save") { result.notImplemented(); return@setMethodCallHandler }
-                if (pending != null) { result.error("BUSY", "Ein Speicherdialog ist bereits offen.", null); return@setMethodCallHandler }
+                if (pending != null) { result.error("BUSY", "A save dialog is already open.", null); return@setMethodCallHandler }
                 val bytes = call.argument<ByteArray>("bytes")
-                if (bytes == null) { result.error("DATA", "Keine Dateidaten.", null); return@setMethodCallHandler }
+                if (bytes == null) { result.error("DATA", "No file data.", null); return@setMethodCallHandler }
                 pending = result
                 pendingBytes = bytes
                 try {

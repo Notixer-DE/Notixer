@@ -22,6 +22,9 @@ import 'workspace_chrome.dart';
 import 'sync_button.dart';
 import 'document_tab.dart';
 import 'library_graph_page.dart';
+import 'knowledge_page.dart';
+import '../data/knowledge.dart';
+import '../data/markdown_document.dart';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({
@@ -32,7 +35,13 @@ class LibraryPage extends StatefulWidget {
     this.workspaceController,
     this.isNotebookOpen,
     this.hasOpenDocuments,
+    this.onOpenDestination,
+    this.onCompleteTask,
+    this.onRefreshDocuments,
   });
+  final OpenNotebookTab? onOpenDestination;
+  final Future<void> Function(KnowledgeTask)? onCompleteTask;
+  final Future<void> Function()? onRefreshDocuments;
   final LocalNotebookRepository repository;
   final SyncController? syncController;
   final Future<void> Function(Notebook)? onOpenNotebook;
@@ -64,6 +73,8 @@ class _LibraryPageState extends State<LibraryPage> {
     super.initState();
     widget.workspaceController?.refresh = _refresh;
     _sync.addListener(_syncChanged);
+    FileGateway.sharedText.addListener(_sharedCapture);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _sharedCapture());
     _initializeSync();
   }
 
@@ -131,6 +142,7 @@ class _LibraryPageState extends State<LibraryPage> {
   void dispose() {
     widget.workspaceController?.refresh = null;
     _sync.removeListener(_syncChanged);
+    FileGateway.sharedText.removeListener(_sharedCapture);
     if (widget.syncController == null) _sync.dispose();
     _previews.dispose();
     _searchFocus.dispose();
@@ -307,6 +319,74 @@ class _LibraryPageState extends State<LibraryPage> {
     await _refresh();
     await _open(note);
   });
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (FileGateway.sharedText.value != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _sharedCapture());
+    }
+  }
+
+  void _sharedCapture() {
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+    final text = FileGateway.sharedText.value;
+    if (text == null) return;
+    FileGateway.sharedText.value = null;
+    _knowledge(section: 'Inbox', sharedText: text);
+  }
+
+  Future<void> _knowledge({
+    String section = 'Search',
+    String? sharedText,
+  }) async {
+    if (!await FileGateway.prepareClose() || !mounted) return;
+    final destination = await Navigator.push<KnowledgeDestination>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => KnowledgePage(
+          repository: widget.repository,
+          initialSection: section,
+          sharedText: sharedText,
+          onCompleteTask: widget.onCompleteTask,
+        ),
+      ),
+    );
+    await widget.onRefreshDocuments?.call();
+    if (!mounted) return;
+    await _refresh();
+    if (destination == null || !mounted) return;
+    if (widget.onOpenDestination != null) {
+      await widget.onOpenDestination!(
+        destination.note,
+        anchor: destination.anchor,
+      );
+      return;
+    }
+    final bytes = await widget.repository.load(destination.note.id);
+    if (!mounted) return;
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => destination.note.isMarkdown
+            ? MarkdownEditorPage(
+                note: destination.note,
+                bytes: bytes,
+                repository: widget.repository,
+                initialAnchor: destination.anchor,
+              )
+            : EditorPage(
+                note: destination.note,
+                bytes: bytes,
+                repository: widget.repository,
+                initialPage: markdownPdfPage(destination.anchor) == null
+                    ? null
+                    : markdownPdfPage(destination.anchor)! - 1,
+              ),
+      ),
+    );
+    await _refresh();
+  }
+
   Future<void> _graphView() async {
     final note = await Navigator.push<Notebook>(
       context,
@@ -461,6 +541,11 @@ class _LibraryPageState extends State<LibraryPage> {
               ),
               if (!phone) ...[
                 IconButton(
+                  tooltip: 'Knowledge hub',
+                  onPressed: _busy ? null : _knowledge,
+                  icon: const Icon(Icons.manage_search),
+                ),
+                IconButton(
                   tooltip: 'Graph view',
                   icon: const Icon(Icons.hub_outlined),
                   onPressed: _busy ? null : _graphView,
@@ -506,6 +591,12 @@ class _LibraryPageState extends State<LibraryPage> {
                 PopupMenuButton<String>(
                   tooltip: 'Library actions',
                   onSelected: (value) {
+                    if (value == 'knowledge') _knowledge();
+                    if (value == 'journal') _knowledge(section: 'Journal');
+                    if (value == 'tasks') _knowledge(section: 'Tasks');
+                    if (value == 'capture') {
+                      _knowledge(section: 'Inbox', sharedText: '');
+                    }
                     if (value == 'graph') _graphView();
                     if (value == 'import') _import();
                     if (value == 'pdf') _searchPdfs();
@@ -515,6 +606,26 @@ class _LibraryPageState extends State<LibraryPage> {
                     if (value == 'view') setState(() => _grid = !_grid);
                   },
                   itemBuilder: (_) => [
+                    PopupMenuItem(
+                      value: 'knowledge',
+                      enabled: !_busy,
+                      child: const Text('Knowledge hub'),
+                    ),
+                    PopupMenuItem(
+                      value: 'journal',
+                      enabled: !_busy,
+                      child: const Text('Journal'),
+                    ),
+                    PopupMenuItem(
+                      value: 'tasks',
+                      enabled: !_busy,
+                      child: const Text('All open tasks'),
+                    ),
+                    PopupMenuItem(
+                      value: 'capture',
+                      enabled: !_busy,
+                      child: const Text('Quick capture'),
+                    ),
                     PopupMenuItem(
                       value: 'graph',
                       enabled: !_busy,
@@ -891,6 +1002,10 @@ class _LibraryPageState extends State<LibraryPage> {
       setState(() => _tagFilter = value);
       _scaffold.currentState?.closeDrawer();
     },
+    onKnowledge: () => _knowledge(),
+    onJournal: () => _knowledge(section: 'Journal'),
+    onTasks: () => _knowledge(section: 'Tasks'),
+    onCapture: () => _knowledge(section: 'Inbox', sharedText: ''),
     onManage: _folders,
     onTrash: () {
       _scaffold.currentState?.closeDrawer();

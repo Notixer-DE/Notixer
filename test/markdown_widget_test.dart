@@ -12,6 +12,7 @@ import 'package:noter/ui/editor_pane.dart';
 import 'package:noter/main.dart';
 import 'package:noter/ui/markdown_editor.dart';
 import 'package:noter/ui/markdown_preview.dart';
+import 'package:noter/ui/wiki_link_suggestions.dart';
 import 'package:noter/ui/noter_theme.dart';
 
 import 'fixtures/long_markdown.dart';
@@ -391,6 +392,49 @@ void main() {
       expect(find.text('Linked from'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
+    'wiki completion inserts stable file and heading links with keyboard support',
+    (tester) async {
+      await open(tester, const Size(1440, 1000));
+      await tester.tap(find.text('Markdown'));
+      await tester.pumpAndSettle();
+      final field = find.byKey(const ValueKey('markdown-source'));
+      await tester.enterText(field, '[[Other');
+      await tester.pump(const Duration(milliseconds: 200));
+      final suggestion = find.descendant(
+        of: find.byType(WikiLinkSuggestions),
+        matching: find.text('Other note'),
+      );
+      await markdownIo(tester, () => suggestion.evaluate().isNotEmpty);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(
+        tester.widget<TextField>(field).controller!.text,
+        contains(b.documentPath),
+      );
+      expect(
+        tester.widget<TextField>(field).controller!.text,
+        isNot(contains('[[')),
+      );
+      await tester.enterText(field, '[[Other note#Target');
+      await tester.pump(const Duration(milliseconds: 200));
+      final heading = find.descendant(
+        of: find.byType(WikiLinkSuggestions),
+        matching: find.text('Target section'),
+      );
+      await markdownIo(tester, () => heading.evaluate().isNotEmpty);
+      await tester.tap(heading);
+      await tester.pump();
+      expect(
+        tester.widget<TextField>(field).controller!.text,
+        contains('#target-section'),
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
       await tester.pumpAndSettle();
     },
   );

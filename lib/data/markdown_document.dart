@@ -130,8 +130,39 @@ Future<(MarkdownDocument, String)> addMarkdownImageAsync(
 
 List<md.Node> parseMarkdown(String source) => md.Document(
   extensionSet: md.ExtensionSet.gitHubFlavored,
+  inlineSyntaxes: [WikiLinkSyntax()],
   encodeHtml: false,
 ).parseLines(const LineSplitter().convert(source));
+
+/// Wiki links are parsed as inline syntax, so code spans/fences stay literal.
+class WikiLinkSyntax extends md.InlineSyntax {
+  WikiLinkSyntax() : super(r'\[\[([^\]\n]+)\]\]');
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final parts = match[1]!.split('|');
+    final target = parts.first.trim();
+    final hash = target.indexOf('#');
+    final title = hash < 0 ? target : target.substring(0, hash);
+    final heading = hash < 0 ? null : target.substring(hash + 1);
+    final slug = heading == null
+        ? null
+        : heading.startsWith('page=')
+        ? heading
+        : markdownHeadings('# $heading').firstOrNull ?? '';
+    final href = Uri(
+      scheme: 'noter-wiki',
+      path: title,
+      fragment: slug,
+    ).toString();
+    final node = md.Element.text(
+      'a',
+      parts.length > 1 ? parts.skip(1).join('|').trim() : target,
+    );
+    node.attributes['href'] = href;
+    parser.addNode(node);
+    return true;
+  }
+}
 
 class MarkdownLink {
   const MarkdownLink(this.href, {required this.image});
@@ -387,6 +418,17 @@ List<md.Node> parseMarkdownForPreview(String source) {
 
 /// PDF destinations use one-based page numbers in portable Markdown links.
 int? markdownPdfPage(String fragment) {
-  final match = RegExp(r'^page=([1-9][0-9]*)$').firstMatch(fragment);
+  final match = RegExp(
+    r'^page=([1-9][0-9]*)(?:&quote=[^&]*)?$',
+  ).firstMatch(fragment);
   return match == null ? null : int.tryParse(match[1]!);
+}
+
+String markdownPdfQuote(String fragment) {
+  if (markdownPdfPage(fragment) == null) return '';
+  try {
+    return Uri.splitQueryString(fragment)['quote'] ?? '';
+  } on FormatException {
+    return '';
+  }
 }

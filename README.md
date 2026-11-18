@@ -37,6 +37,27 @@ An English-language, offline-first note-taking app with handwriting, PDF annotat
 - Assign tags through **Folders and tags** in a file's library menu or the Markdown editor's **Note actions** menu. Tag names are matched without case differences. Automatic backlinks remain available in Markdown notes.
 - Embed local PNG/JPEG images. Import/export individual `.md` files or linked collections as ZIP archives. External images are not downloaded automatically.
 
+## Knowledge hub, journals and tasks
+
+Open **Knowledge hub** from the library sidebar, the phone's library-actions menu, or a Markdown note's **Note actions** menu.
+
+- **Search** searches Markdown content and PDF text with snippets. Results open at the matching source line or PDF page. Combine text, file type, folder, tag and open-task filters; save combinations in **Views**. Searches run file by file with background text/PDF processing and can be cancelled after the current file finishes. PDF matches are limited to 50 per file with an explicit warning. Image-only scans require an existing PDF text layer; this is not OCR.
+- **Tasks** collects all unchecked Markdown list checkboxes, including journal entries. Code examples and completed tasks are excluded. Tap a task to edit its source line, or check it off directly. A revision check rejects stale edits; open tabs receive the change without losing other content.
+- **Journal** provides one Markdown note per local calendar date, with Today, previous/next day and a date picker. Open an existing day or create it using the selected default template. Entries are ordinary portable Markdown notes and participate in search, links, tags, backlinks and the graph. Applying a new default never replaces existing journal content.
+- **Templates** creates, edits and deletes reusable Markdown text templates. Supported placeholders are `{{date}}` (YYYY-MM-DD), `{{weekday}}`, `{{year}}` and `{{title}}`. A Markdown note's menu can save its source as a template or insert a rendered template at the cursor. Journal templates are chosen from the same collection; image attachments are not copied into text templates.
+- **Inbox** lists quick captures. Use **Quick capture** to save text or Markdown before organizing it with folders and tags. Android's Share sheet accepts shared text and URLs into the same capture dialog.
+- **Tags** renames tags, merges them case-insensitively, or removes a tag from every file. Corresponding saved-view filters are updated too.
+
+Type `[[` in Markdown source for file suggestions, or `[[File title#` / `[[#` for heading suggestions. Arrow keys select, Enter inserts, and Escape dismisses suggestions. Completion inserts standard relative Markdown links, which remain stable when titles change. Literal `[[Title]]`, `[[Title#Heading]]` and `[[Title|Label]]` also render as wiki links, resolving only unique file titles; code examples stay literal. Literal title links need an unambiguous current title.
+
+Use **Outline** in a Markdown note's menu to jump to a heading. Opening the graph from a note starts a **Local graph** showing its direct connections; switch to the full graph or choose another focus file. Select PDF text and choose **Create linked source note** to capture the quotation in Markdown with a return link to its page and searchable passage.
+
+### Library backups
+
+**Backups** creates complete checksummed snapshots of notes (including ink, attachments, tags and study state), Markdown templates, saved views and PDF templates. Automatic backups are enabled by default: while the app is running, a first check occurs after 30 seconds and further checks every 15 minutes, saving only changed nonempty libraries. The latest seven snapshots are retained locally, and the backup screen reports the last automatic result. Automatic scheduling is not an Android background service.
+
+Export snapshots to separate storage through the system save dialog. Local snapshots alone do not protect against device loss. Restore validates archive paths, checksums and notebook payloads before importing, then adds namespaced copies; existing notes remain intact and relative links within the restored collection keep working. Templates and views are merged. Library backups are limited to 512 MB; credentials and sync secrets are excluded. Saved views and text templates are local settings, included in backups; journal notes themselves sync like other notes.
+
 ## Study covers and spaced repetition
 
 Draw rectangular covers over questions or answers, then reveal them in study mode.

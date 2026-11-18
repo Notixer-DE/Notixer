@@ -129,12 +129,24 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
             setState(() => _active = index);
             pane.key.currentState?.activateTools();
           }
-          final found = await pane.key.currentState?.revealLinkedPage(page - 1);
+          final found = await pane.key.currentState?.revealLinkedPage(
+            page - 1,
+            query: markdownPdfQuote(anchor),
+          );
           if (found != true && mounted) {
             _message('PDF page $page does not exist.');
           }
         },
       );
+      tab.refreshMetadata = () async {
+        final notes = await widget.repository.list();
+        if (!mounted) return;
+        for (final session in _sessions.values) {
+          final current = notes.where((n) => n.id == session.note.id);
+          if (current.isNotEmpty) session.note = current.first;
+        }
+        _changed();
+      };
     } else {
       FileGateway.beforeClose = _closeHandler;
       NoterBinding.resolveEraser = _eraserResolver;
@@ -616,6 +628,11 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         key: pane.key,
         session: pane.session,
         onSaveAll: _saveAll,
+        onOpenSourceNote: widget.tabController == null
+            ? null
+            : (note) async {
+                await FileGateway.openDocument?.call(note);
+              },
         onReviewRated: widget.onReviewRated == null
             ? null
             : () {

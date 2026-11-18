@@ -6,6 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noter/data/notebook.dart';
+import 'package:noter/data/markdown_document.dart';
+import 'package:noter/data/markdown_library.dart';
+import 'package:noter/ui/markdown_editor.dart';
 import 'package:noter/ui/editor.dart';
 import 'package:noter/ui/editor_pane.dart';
 import 'package:noter/ui/noter_theme.dart';
@@ -57,6 +60,39 @@ void main() {
     await tester.pumpAndSettle();
     return tester.state<EditorPaneState>(find.byType(EditorPane));
   }
+
+  testWidgets(
+    'selected PDF text creates a quoted Markdown source note with a return link',
+    (tester) async {
+      tester.view.physicalSize = const Size(1100, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final pane = await open(tester);
+      pane.viewer.selectAllTextOn(0);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Create linked source note'));
+      for (var i = 0; i < 200; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump(const Duration(milliseconds: 30));
+        if (find.byType(MarkdownEditorPage).evaluate().isNotEmpty) break;
+      }
+      final notes = await tester.runAsync(repository.list);
+      final source = notes!.singleWhere((n) => n.isMarkdown);
+      final document = await tester.runAsync(
+        () async => MarkdownDocument.decode(await repository.load(source.id)),
+      );
+      expect(document!.source, contains('> Alpha Beta Gamma'));
+      final link = markdownLinks(document.source).single.href;
+      expect(MarkdownLibrary.target(notes, source, link)?.id, note.id);
+      expect(markdownPdfPage(Uri.parse(link).fragment), 1);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    },
+  );
 
   for (final (label, subtype) in [
     ('Highlight', 'Highlight'),

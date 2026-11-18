@@ -11,6 +11,8 @@ import 'package:noter/data/markdown_library.dart';
 import 'package:noter/data/notebook.dart';
 import 'package:noter/main.dart';
 import 'package:noter/ui/editor.dart';
+import 'package:noter/ui/knowledge_page.dart';
+import 'package:noter/data/knowledge.dart';
 import 'package:noter/ui/library_graph_page.dart';
 import 'package:noter/ui/markdown_editor.dart';
 import 'package:noter/ui/noter_theme.dart';
@@ -172,6 +174,19 @@ Future<void> main() async {
     await _capture('library-$device');
     await _show(_app(LibraryGraphPage(repository: repository)));
     await _capture('graph-$device');
+    await KnowledgeStore(repository).journal(DateTime(2026, 11, 18));
+    await _show(
+      _app(KnowledgePage(repository: repository, initialSection: 'Tasks')),
+    );
+    await _capture('tasks-$device');
+    await _show(
+      _app(KnowledgePage(repository: repository, initialSection: 'Journal')),
+    );
+    await _capture('journal-$device');
+    await _show(
+      _app(KnowledgePage(repository: repository, initialSection: 'Templates')),
+    );
+    await _capture('templates-$device');
     await _show(
       _app(EditorPage(note: pdfNote, bytes: bytes, repository: repository)),
     );

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../data/file_gateway.dart';
 import '../data/notebook.dart';
+import '../data/knowledge.dart';
 import '../data/markdown_document.dart';
 import '../input/stylus_eraser.dart';
 import '../sync/sync_controller.dart';
@@ -53,9 +54,27 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
   String? get activeNotebookId =>
       _selected < 0 ? null : _tabs[_selected].note.id;
 
+  Future<void> _completeKnowledgeTask(KnowledgeTask task) async {
+    final tabs = _tabs.where((tab) => tab.note.id == task.note.id);
+    if (tabs.isNotEmpty && tabs.first.controller.completeTask != null) {
+      await tabs.first.controller.completeTask!(task);
+    } else {
+      await KnowledgeStore(widget.repository).completeTask(task);
+    }
+  }
+
+  Future<void> _refreshOpenDocuments() async {
+    for (final tab in _tabs) {
+      await tab.controller.refreshMetadata?.call();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    FileGateway.openDocument = openNotebook;
+    FileGateway.completeKnowledgeTask = _completeKnowledgeTask;
+    FileGateway.refreshOpenDocuments = _refreshOpenDocuments;
     WidgetsBinding.instance.addObserver(this);
     _previousClose = FileGateway.beforeClose;
     _previousWorkspaceClose = FileGateway.workspaceBeforeClose;
@@ -323,6 +342,25 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                                 _pdfSessions.contains(id) ||
                                 _tabs.any((tab) => tab.note.id == id),
                             onOpenNotebook: (note) => openNotebook(note),
+                            onOpenDestination: openNotebook,
+                            onCompleteTask: (task) async {
+                              final tabs = _tabs.where(
+                                (tab) => tab.note.id == task.note.id,
+                              );
+                              if (tabs.isNotEmpty &&
+                                  tabs.first.controller.completeTask != null) {
+                                await tabs.first.controller.completeTask!(task);
+                              } else {
+                                await KnowledgeStore(
+                                  widget.repository,
+                                ).completeTask(task);
+                              }
+                            },
+                            onRefreshDocuments: () async {
+                              for (final tab in _tabs) {
+                                await tab.controller.refreshMetadata?.call();
+                              }
+                            },
                           ),
                           for (var i = 0; i < _tabs.length; i++)
                             KeyedSubtree(
@@ -349,6 +387,9 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                                           repository: widget.repository,
                                           tabController: _tabs[i].controller,
                                           initialPage: _tabs[i].initialPdfPage,
+                                          initialQuery: markdownPdfQuote(
+                                            _tabs[i].anchor,
+                                          ),
                                           workspaceSessions: _pdfSessions,
                                           onLibrary: showLibrary,
                                         ),
@@ -371,6 +412,9 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    FileGateway.openDocument = null;
+    FileGateway.completeKnowledgeTask = null;
+    FileGateway.refreshOpenDocuments = null;
     if (identical(FileGateway.beforeClose, _closeHandler)) {
       FileGateway.beforeClose = _previousClose;
     }
