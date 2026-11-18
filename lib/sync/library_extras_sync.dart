@@ -390,8 +390,9 @@ class LibraryExtrasSync {
               as String;
       folderNames.add(name.toLowerCase());
       final folder = await repository.catalog.ensureFolder(name);
-      if (folder.name != name)
+      if (folder.name != name) {
         await repository.catalog.renameFolder(folder.id, name);
+      }
     }
     for (final record in records) {
       final conflict = record.note.id != _id(record.kind, record.key);
