@@ -1,4 +1,375 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Notixer: offline-first note-taking with handwriting, PDF annotations, Markdown and optional encrypted self-hosted sync."><title>Notixer — Think freely. Stay offline.</title><style>
-:root{color-scheme:light;--bg:#f8fafc;--border:#dbe4ef;--surface:#fff;--muted:#53657c;--primary:#315fe5;--teal:#138b85;--ink:#17253b}
-*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(ellipse at 65% 0,#e5efff 0,transparent 48%),var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,'Segoe UI',sans-serif}a{color:inherit}a:focus-visible{outline:3px solid var(--primary);outline-offset:4px}.wrap{max-width:1120px;margin:auto;padding:0 24px}header{background:#ffffffb8;backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}header .wrap{display:flex;align-items:center;justify-content:space-between;gap:20px;padding-top:20px;padding-bottom:20px}.logo{font-weight:800;font-size:24px;letter-spacing:-.04em;text-decoration:none}.logo span{color:var(--teal)}nav{display:flex;gap:23px}nav a{text-decoration:none;font-size:14px;color:var(--muted)}nav a:hover{color:var(--primary)}.hero{padding:100px 0;max-width:900px}.eyebrow{font-size:12px;font-weight:800;letter-spacing:.17em;text-transform:uppercase;color:var(--teal)}h1{font-size:clamp(44px,7.3vw,85px);letter-spacing:-.07em;line-height:1.06;margin:22px 0 28px}h1 em{font-style:normal;color:var(--primary)}.lead{color:var(--muted);font-size:clamp(18px,2.2vw,22px);max-width:750px;margin:0 0 33px}.actions{display:flex;gap:14px;flex-wrap:wrap}.btn{display:inline-block;border-radius:12px;padding:13px 23px;border:1px solid var(--border);font-weight:700;text-decoration:none;transition:transform .15s,box-shadow .15s}.btn:hover{transform:translateY(-2px);box-shadow:0 7px 18px #24365520}.btn.primary{background:var(--primary);color:#fff;border-color:var(--primary)}.btn.secondary{background:#fff;color:var(--ink)}.tags{margin-top:35px;display:flex;gap:10px;flex-wrap:wrap}.tag{padding:5px 12px;border-radius:100px;border:1px solid var(--border);font-size:13px;color:var(--muted);background:#ffffffbc}section{padding:50px 0}h2{font-size:clamp(30px,4vw,44px);line-height:1.2;letter-spacing:-.04em;margin:10px 0 14px}.intro{color:var(--muted);max-width:680px;margin:0 0 32px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.card{background:#fff;border:1px solid var(--border);box-shadow:0 9px 28px #27426809;border-radius:18px;padding:28px}.symbol{color:var(--teal);font-size:27px;font-weight:600}h3{margin:18px 0 8px;font-size:19px}.card p{color:var(--muted);margin:0;font-size:15px}.band{border-radius:22px;border:1px solid #c6daf4;padding:44px;background:linear-gradient(120deg,#e8efff,#e4f7f3)}.band p{color:var(--muted);max-width:700px}.band .actions{margin-top:27px}footer{margin-top:60px;border-top:1px solid var(--border);padding:30px 0 45px;color:var(--muted);font-size:14px}footer .wrap{display:flex;justify-content:space-between;gap:15px;flex-wrap:wrap}@media(max-width:750px){.hero{padding:70px 0}.grid{grid-template-columns:1fr}.band{padding:28px}nav{gap:12px;flex-wrap:wrap;justify-content:flex-end}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.btn{transition:none}}
-</style></head><body><header><div class="wrap"><a class="logo" href="#">Notixer<span>.</span></a><nav><a href="#features">Features</a><a href="#sync">Sync</a><a href="https://github.com/Notixer-DE/Notixer">GitHub</a></nav></div></header><main><div class="wrap"><div class="hero"><div class="eyebrow">Open source · Offline first · Your notes</div><h1>Think freely.<br><em>Stay offline.</em></h1><p class="lead">Notixer brings handwritten notes, PDF annotations, Markdown, and study tools into one workspace. Work without an account or internet connection, with optional end-to-end encrypted sync on your own server.</p><div class="actions"><a class="btn primary" href="https://github.com/Notixer-DE/Notixer/releases/latest">Download Notixer ↗</a><a class="btn secondary" href="https://github.com/Notixer-DE/Notixer">Explore on GitHub ↗</a></div><div class="tags"><span class="tag">Android 8+</span><span class="tag">Windows x64</span><span class="tag">Debian 13 amd64</span><span class="tag">Built with Flutter</span></div></div></div><section id="features"><div class="wrap"><div class="eyebrow">One place for your ideas</div><h2>Everything you need to capture and connect.</h2><p class="intro">A flexible workspace for notes, research, planning, and learning.</p><div class="grid"><article class="card"><span class="symbol">✎</span><h3>Handwriting</h3><p>Write and sketch with stylus support, pen presets, highlighting, lasso selections, and page templates.</p></article><article class="card"><span class="symbol">▤</span><h3>PDF annotation</h3><p>Import PDFs, mark up text, add notes, search document text, and export your annotations.</p></article><article class="card"><span class="symbol">#</span><h3>Markdown knowledge base</h3><p>Create linked notes with checklists, tags, backlinks, journals, templates, and graph view.</p></article><article class="card"><span class="symbol">✓</span><h3>Tasks and quick capture</h3><p>Collect unfinished Markdown tasks, save ideas quickly, and find content across your library.</p></article><article class="card"><span class="symbol">◷</span><h3>Study and review</h3><p>Use study covers and spaced repetition to practise and revisit material over time.</p></article><article class="card"><span class="symbol">↺</span><h3>Backups and recovery</h3><p>Keep local backups, export notes, and recover previous versions or deleted work.</p></article></div></div></section><section id="sync"><div class="wrap"><div class="band"><div class="eyebrow">Privacy by design</div><h2>Offline by default.<br>Sync on your terms.</h2><p>Your notes stay usable without the cloud. If you want to work across devices, you can connect an optional self-hosted sync server with end-to-end encryption. You control the infrastructure and recovery key.</p><div class="actions"><a class="btn primary" href="https://github.com/Notixer-DE/Notixer/blob/main/docs/sync-server.md">Self-hosting guide ↗</a><a class="btn secondary" href="https://github.com/Notixer-DE/Notixer/blob/main/README.md">Read documentation ↗</a></div></div></div></section><section><div class="wrap"><h2>Get started with Notixer.</h2><p class="intro">Download a release for your platform or explore the source code and build instructions on GitHub.</p><div class="actions"><a class="btn primary" href="https://github.com/Notixer-DE/Notixer/releases/latest">View latest release ↗</a><a class="btn secondary" href="https://github.com/Notixer-DE/Notixer">View source code ↗</a></div></div></section></main><footer><div class="wrap"><span>© Notixer contributors · Open-source project</span><span><a href="https://github.com/Notixer-DE/Notixer/blob/main/LICENSE">License</a> · <a href="https://github.com/Notixer-DE/Notixer/issues">Issues</a> · <a href="https://github.com/Notixer-DE/Notixer">GitHub</a></span></div></footer></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="description" content="Notixer: offline-first note-taking with handwriting, PDF annotations, Markdown and optional encrypted self-hosted sync.">
+    <title>
+      Notixer — Think freely. Stay offline.
+    </title>
+    <style>
+      :root {
+      color-scheme:light;
+      --bg:#f8fafc;
+      --border:#dbe4ef;
+      --surface:#fff;
+      --muted:#53657c;
+      --primary:#315fe5;
+      --teal:#138b85;
+      --ink:#17253b
+      }
+      * {
+      box-sizing:border-box
+      }
+      html {
+      scroll-behavior:smooth
+      }
+      body {
+      margin:0;
+      background:radial-gradient(ellipse at 65% 0,#e5efff 0,transparent 48%),var(--bg);
+      color:var(--ink);
+      font:16px/1.6 system-ui,-apple-system,'Segoe UI',sans-serif
+      }
+      a {
+      color:inherit
+      }
+      a:focus-visible {
+      outline:3px solid var(--primary);
+      outline-offset:4px
+      }
+      .wrap {
+      max-width:1120px;
+      margin:auto;
+      padding:0 24px
+      }
+      header {
+      background:#ffffffb8;
+      backdrop-filter:blur(12px);
+      border-bottom:1px solid var(--border)
+      }
+      header .wrap {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:20px;
+      padding-top:20px;
+      padding-bottom:20px
+      }
+      .logo {
+      font-weight:800;
+      font-size:24px;
+      letter-spacing:-.04em;
+      text-decoration:none
+      }
+      .logo span {
+      color:var(--teal)
+      }
+      nav {
+      display:flex;
+      gap:23px
+      }
+      nav a {
+      text-decoration:none;
+      font-size:14px;
+      color:var(--muted)
+      }
+      nav a:hover {
+      color:var(--primary)
+      }
+      .hero {
+      padding:100px 0;
+      max-width:900px
+      }
+      .eyebrow {
+      font-size:12px;
+      font-weight:800;
+      letter-spacing:.17em;
+      text-transform:uppercase;
+      color:var(--teal)
+      }
+      h1 {
+      font-size:clamp(44px,7.3vw,85px);
+      letter-spacing:-.07em;
+      line-height:1.06;
+      margin:22px 0 28px
+      }
+      h1 em {
+      font-style:normal;
+      color:var(--primary)
+      }
+      .lead {
+      color:var(--muted);
+      font-size:clamp(18px,2.2vw,22px);
+      max-width:750px;
+      margin:0 0 33px
+      }
+      .actions {
+      display:flex;
+      gap:14px;
+      flex-wrap:wrap
+      }
+      .btn {
+      display:inline-block;
+      border-radius:12px;
+      padding:13px 23px;
+      border:1px solid var(--border);
+      font-weight:700;
+      text-decoration:none;
+      transition:transform .15s,box-shadow .15s
+      }
+      .btn:hover {
+      transform:translateY(-2px);
+      box-shadow:0 7px 18px #24365520
+      }
+      .btn.primary {
+      background:var(--primary);
+      color:#fff;
+      border-color:var(--primary)
+      }
+      .btn.secondary {
+      background:#fff;
+      color:var(--ink)
+      }
+      .tags {
+      margin-top:35px;
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap
+      }
+      .tag {
+      padding:5px 12px;
+      border-radius:100px;
+      border:1px solid var(--border);
+      font-size:13px;
+      color:var(--muted);
+      background:#ffffffbc
+      }
+      section {
+      padding:50px 0
+      }
+      h2 {
+      font-size:clamp(30px,4vw,44px);
+      line-height:1.2;
+      letter-spacing:-.04em;
+      margin:10px 0 14px
+      }
+      .intro {
+      color:var(--muted);
+      max-width:680px;
+      margin:0 0 32px
+      }
+      .grid {
+      display:grid;
+      grid-template-columns:repeat(3,1fr);
+      gap:18px
+      }
+      .card {
+      background:#fff;
+      border:1px solid var(--border);
+      box-shadow:0 9px 28px #27426809;
+      border-radius:18px;
+      padding:28px
+      }
+      .symbol {
+      color:var(--teal);
+      font-size:27px;
+      font-weight:600
+      }
+      h3 {
+      margin:18px 0 8px;
+      font-size:19px
+      }
+      .card p {
+      color:var(--muted);
+      margin:0;
+      font-size:15px
+      }
+      .band {
+      border-radius:22px;
+      border:1px solid #c6daf4;
+      padding:44px;
+      background:linear-gradient(120deg,#e8efff,#e4f7f3)
+      }
+      .band p {
+      color:var(--muted);
+      max-width:700px
+      }
+      .band .actions {
+      margin-top:27px
+      }
+      footer {
+      margin-top:60px;
+      border-top:1px solid var(--border);
+      padding:30px 0 45px;
+      color:var(--muted);
+      font-size:14px
+      }
+      footer .wrap {
+      display:flex;
+      justify-content:space-between;
+      gap:15px;
+      flex-wrap:wrap
+      }
+      @media(max-width:750px) {
+      .hero {
+      padding:70px 0
+      }
+      .grid {
+      grid-template-columns:1fr
+      }
+      .band {
+      padding:28px
+      }
+      nav {
+      gap:12px;
+      flex-wrap:wrap;
+      justify-content:flex-end
+      }
+      }
+      @media(prefers-reduced-motion:reduce) {
+      html {
+      scroll-behavior:auto
+      }
+      .btn {
+      transition:none
+      }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap">
+        <a class="logo" href="#">Notixer<span>.</span></a>
+        <nav>
+          <a href="#features">Features</a><a href="#sync">Sync</a><a href="https://github.com/Notixer-DE/Notixer">GitHub</a>
+        </nav>
+      </div>
+    </header>
+    <main>
+      <div class="wrap">
+        <div class="hero">
+          <div class="eyebrow">
+            Open source · Offline first · Your notes
+          </div>
+          <h1>
+            Think freely.<br><em>Stay offline.</em>
+          </h1>
+          <p class="lead">
+            Notixer brings handwritten notes, PDF annotations, Markdown, and study tools into one workspace. Work without an account or internet connection, with optional end-to-end encrypted sync on your own server.
+          </p>
+          <div class="actions">
+            <a class="btn primary" href="https://github.com/Notixer-DE/Notixer/releases/latest">Download Notixer ↗</a><a class="btn secondary" href="https://github.com/Notixer-DE/Notixer">Explore on GitHub ↗</a>
+          </div>
+          <div class="tags">
+            <span class="tag">Android 8+</span><span class="tag">Windows x64</span><span class="tag">Debian 13 amd64</span><span class="tag">Built with Flutter</span>
+          </div>
+        </div>
+      </div>
+      <section id="features">
+        <div class="wrap">
+          <div class="eyebrow">
+            One place for your ideas
+          </div>
+          <h2>
+            Everything you need to capture and connect.
+          </h2>
+          <p class="intro">
+            A flexible workspace for notes, research, planning, and learning.
+          </p>
+          <div class="grid">
+            <article class="card">
+              <span class="symbol">✎</span>
+              <h3>
+                Handwriting
+              </h3>
+              <p>
+                Write and sketch with stylus support, pen presets, highlighting, lasso selections, and page templates.
+              </p>
+            </article>
+            <article class="card">
+              <span class="symbol">▤</span>
+              <h3>
+                PDF annotation
+              </h3>
+              <p>
+                Import PDFs, mark up text, add notes, search document text, and export your annotations.
+              </p>
+            </article>
+            <article class="card">
+              <span class="symbol">#</span>
+              <h3>
+                Markdown knowledge base
+              </h3>
+              <p>
+                Create linked notes with checklists, tags, backlinks, journals, templates, and graph view.
+              </p>
+            </article>
+            <article class="card">
+              <span class="symbol">✓</span>
+              <h3>
+                Tasks and quick capture
+              </h3>
+              <p>
+                Collect unfinished Markdown tasks, save ideas quickly, and find content across your library.
+              </p>
+            </article>
+            <article class="card">
+              <span class="symbol">◷</span>
+              <h3>
+                Study and review
+              </h3>
+              <p>
+                Use study covers and spaced repetition to practise and revisit material over time.
+              </p>
+            </article>
+            <article class="card">
+              <span class="symbol">↺</span>
+              <h3>
+                Backups and recovery
+              </h3>
+              <p>
+                Keep local backups, export notes, and recover previous versions or deleted work.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+      <section id="sync">
+        <div class="wrap">
+          <div class="band">
+            <div class="eyebrow">
+              Privacy by design
+            </div>
+            <h2>
+              Offline by default.<br>Sync on your terms.
+            </h2>
+            <p>
+              Your notes stay usable without the cloud. If you want to work across devices, you can connect an optional self-hosted sync server with end-to-end encryption. You control the infrastructure and recovery key.
+            </p>
+            <div class="actions">
+              <a class="btn primary" href="https://github.com/Notixer-DE/Notixer/blob/main/docs/sync-server.md">Self-hosting guide ↗</a><a class="btn secondary" href="https://github.com/Notixer-DE/Notixer/blob/main/README.md">Read documentation ↗</a>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section>
+        <div class="wrap">
+          <h2>
+            Get started with Notixer.
+          </h2>
+          <p class="intro">
+            Download a release for your platform or explore the source code and build instructions on GitHub.
+          </p>
+          <div class="actions">
+            <a class="btn primary" href="https://github.com/Notixer-DE/Notixer/releases/latest">View latest release ↗</a><a class="btn secondary" href="https://github.com/Notixer-DE/Notixer">View source code ↗</a>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <div class="wrap">
+        <span>© Notixer contributors · Open-source project</span><span><a href="https://github.com/Notixer-DE/Notixer/blob/main/LICENSE">License</a> · <a href="https://github.com/Notixer-DE/Notixer/issues">Issues</a> · <a href="https://github.com/Notixer-DE/Notixer">GitHub</a></span>
+      </div>
+    </footer>
+  </body>
+</html>
