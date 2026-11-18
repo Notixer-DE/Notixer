@@ -439,6 +439,37 @@ void main() {
     },
   );
 
+  testWidgets('wiki suggestions stay inactive inside fenced code examples', (
+    tester,
+  ) async {
+    await open(tester, const Size(1440, 1000));
+    await tester.tap(find.text('Markdown'));
+    await tester.pumpAndSettle();
+    final field = find.byKey(const ValueKey('markdown-source'));
+    await tester.enterText(field, '```text\n[[Other');
+    await tester.pump(const Duration(milliseconds: 250));
+    for (var i = 0; i < 20; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    expect(
+      find.descendant(
+        of: find.byType(WikiLinkSuggestions),
+        matching: find.text('Other note'),
+      ),
+      findsNothing,
+    );
+    expect(
+      tester.widget<TextField>(field).controller!.text,
+      '```text\n[[Other',
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('source undo survives switching to the formatted view', (
     tester,
   ) async {

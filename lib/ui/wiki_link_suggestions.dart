@@ -9,6 +9,16 @@ import '../data/notebook.dart';
 Future<List<MarkdownHeading>> _headings(String source) =>
     Isolate.run(() => markdownHeadingTargets(source));
 
+Future<bool> _allowsCompletion(String source, int start, int end) =>
+    Isolate.run(() {
+      var marker = 'noter-completion:target';
+      while (source.contains(marker)) {
+        marker += 'x';
+      }
+      final marked = source.replaceRange(start, end, '[candidate](<$marker>)');
+      return markdownLinks(marked).any((link) => link.href == marker);
+    });
+
 class WikiLinkSuggestions extends StatefulWidget {
   const WikiLinkSuggestions({
     super.key,
@@ -92,6 +102,19 @@ class WikiLinkSuggestionsState extends State<WikiLinkSuggestions> {
   Future<void> _find(String query, int generation) async {
     final options = <({String label, String href, String detail})>[];
     try {
+      final allowed = await _allowsCompletion(
+        widget.controller.text,
+        _start,
+        _end,
+      );
+      if (!mounted || generation != _generation) return;
+      if (!allowed) {
+        setState(() {
+          _options = [];
+          _error = null;
+        });
+        return;
+      }
       final separator = query.indexOf('#');
       if (separator >= 0) {
         final title = query.substring(0, separator).trim().toLowerCase();
