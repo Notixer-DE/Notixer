@@ -69,6 +69,14 @@ class DrawingPreferences extends ChangeNotifier {
   bool get straightStrokes => _values['straightStrokes'] == true;
   bool pressureSensitive(String tool) =>
       (_values['pressureSensitive'] as Map?)?[tool] != false;
+  Future<void> reload() async {
+    await flush();
+    _loading = null;
+    _values = {};
+    _loaded = false;
+    await load();
+  }
+
   Future<void> load() => _loading ??= _load();
   Future<void> flush() async {
     while (true) {

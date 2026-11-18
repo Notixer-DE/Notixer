@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
 import 'package:pdf_cos/pdf_cos.dart';
@@ -143,6 +144,29 @@ class TemplateRepository {
       ..addAll(result.$2);
     return [...result.$1, ...starterTemplates];
   }
+
+  Future<(NoteTemplate, Uint8List, InkDocument?, Uint8List)> syncSnapshot(
+    String id,
+  ) async {
+    await _queue;
+    final path = _path(id);
+    return Isolate.run(() {
+      final (entry, pdf, ink) = _readTemplate(path);
+      return (entry, pdf!, ink, File(path).readAsBytesSync());
+    });
+  }
+
+  Future<void> applySynced(
+    String id,
+    String name,
+    TemplateKind kind,
+    Uint8List? pdf,
+    InkDocument? ink,
+    Uint8List? expected,
+  ) => _serialize(() async {
+    final path = _path(id);
+    await _applySyncedTemplate(path, id, name, kind, pdf, ink, expected);
+  });
 
   Future<NoteTemplate> save(
     String name,
@@ -377,3 +401,48 @@ void _writeTemplate(
   temp.writeAsBytesSync(bytes, flush: true);
   temp.renameSync(path);
 }
+
+Future<void> _applySyncedTemplate(
+  String path,
+  String id,
+  String name,
+  TemplateKind kind,
+  Uint8List? pdf,
+  InkDocument? ink,
+  Uint8List? expected,
+) => Isolate.run(() {
+  final file = File(path);
+  final current = file.existsSync() ? file.readAsBytesSync() : null;
+  if (!listEquals(current, expected)) {
+    throw StateError('The template changed during sync. Sync again.');
+  }
+  if (pdf == null) {
+    if (file.existsSync()) file.deleteSync();
+    return;
+  }
+  if (current != null) {
+    final (previous, content, layer) = _readTemplate(path);
+    if (previous.name == name &&
+        previous.kind == kind &&
+        listEquals(content, pdf) &&
+        listEquals(layer?.encode(), ink?.encode())) {
+      return;
+    }
+  }
+  validatePdf(pdf);
+  final pages = PdfDocument.open(pdf).pageCount;
+  if (kind == TemplateKind.page && pages != 1) {
+    throw const FormatException('A page template must contain one page.');
+  }
+  _writeTemplate(
+    path,
+    NoteTemplate(
+      id: id,
+      name: templateName(name),
+      kind: kind,
+      pageCount: pages,
+    ),
+    pdf,
+    ink: ink,
+  );
+});

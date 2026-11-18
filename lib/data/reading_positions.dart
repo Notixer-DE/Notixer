@@ -26,6 +26,15 @@ class ReadingPositions {
     return result;
   }
 
+  Future<void> reload() async {
+    await flush();
+    _pages.clear();
+    _markdown.clear();
+    _loaded = false;
+    _loading = null;
+    await load();
+  }
+
   Future<void> load() => _loaded ? Future.value() : (_loading ??= _load());
 
   Future<void> _load() async {

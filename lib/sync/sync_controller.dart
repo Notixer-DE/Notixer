@@ -1,3 +1,4 @@
+import 'library_extras_sync.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -203,17 +204,47 @@ class SyncController extends ChangeNotifier {
         if (!enabled || _remote == null) {
           throw const SyncFailure('Please connect the server first.');
         }
+        final sessionRemote = SyncSessionRemote(_remote!);
         final report = await NotebookSync(
           repository,
-          _remote!,
+          sessionRemote,
           onProgress: (value) {
             status = value;
             notifyListeners();
           },
         ).run(noteId: noteId, onlyIfChanged: onlyIfChanged);
+        if (noteId == null) {
+          final extras = await LibraryExtrasSync(
+            repository,
+            sessionRemote,
+            onProgress: (value) {
+              status = value;
+              notifyListeners();
+            },
+          ).run();
+          report.uploaded += extras.uploaded;
+          report.downloaded += extras.downloaded;
+          report.deleted += extras.deleted;
+          report.conflicts += extras.conflicts;
+        }
         lastSyncedAt = DateTime.now();
         status = 'Synced: $report';
       });
+
+  Future<void> synchronizePreferences() => _action(() async {
+    await load();
+    if (!enabled || _remote == null) return;
+    final report = await LibraryExtrasSync(
+      repository,
+      SyncSessionRemote(_remote!),
+      onProgress: (value) {
+        status = value;
+        notifyListeners();
+      },
+    ).run(onlyIfChanged: true);
+    lastSyncedAt = DateTime.now();
+    status = 'Templates and preferences synced: $report';
+  });
 
   Future<void> disconnect() => _action(() async {
     enabled = false;

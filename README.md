@@ -35,7 +35,7 @@ An English-language, offline-first note-taking app with handwriting, PDF annotat
 - Use **Insert link** to link entire files, headings in this note or another Markdown note, or a specific PDF page. Examples: `[Section](#study-plan)`, `[Other section](notes.md#study-plan)`, `[PDF page](reference.pdf#page=12)`. PDF page numbers start at 1. Duplicate heading names receive suffixes such as `-1`.
 - Open **Graph view** from library actions or the Markdown editor's **Note actions** menu. Pan and zoom connections between files, search to highlight names, tap a file to open it, or tap a tag to focus its files. Search and graph options are available from the app bar; **Show tags** in **Graph options** toggles tag nodes. Multiple heading/page links to one file share a single connection; external links and embedded images are excluded.
 - Assign tags through **Folders and tags** in a file's library menu or the Markdown editor's **Note actions** menu. Tag names are matched without case differences. Automatic backlinks remain available in Markdown notes.
-- Embed local PNG/JPEG images. Import/export individual `.md` files or linked collections as ZIP archives. External images are not downloaded automatically.
+- Embed local PNG/JPEG/WebP/GIF images and attach local audio/video files. On Android, the image/media attachment menu can take a photo, record video or record a voice message. Import/export individual `.md` files or linked collections as ZIP archives. External images are not downloaded automatically.
 
 ## Knowledge hub, journals and tasks
 
@@ -56,7 +56,7 @@ Use **Outline** in a Markdown note's menu to jump to a heading. Opening the grap
 
 **Backups** creates complete checksummed snapshots of notes (including ink, attachments, tags and study state), Markdown templates, saved views and PDF templates. Automatic backups are enabled by default: while the app is running, a first check occurs after 30 seconds and further checks every 15 minutes, saving only changed nonempty libraries. The latest seven snapshots are retained locally, and the backup screen reports the last automatic result. Automatic scheduling is not an Android background service.
 
-Export snapshots to separate storage through the system save dialog. Local snapshots alone do not protect against device loss. Restore validates archive paths, checksums and notebook payloads before importing, then adds namespaced copies; existing notes remain intact and relative links within the restored collection keep working. Templates and views are merged. Library backups are limited to 512 MB; credentials and sync secrets are excluded. Saved views and text templates are local settings, included in backups; journal notes themselves sync like other notes.
+Export snapshots to separate storage through the system save dialog. Local snapshots alone do not protect against device loss. Restore validates archive paths, checksums and notebook payloads before importing, then adds namespaced copies; existing notes remain intact and relative links within the restored collection keep working. Templates and views are merged. Library backups are limited to 512 MB; credentials and sync secrets are excluded. Saved views, text templates and journal preferences also participate in full-library sync.
 
 ## Study covers and spaced repetition
 
@@ -74,7 +74,7 @@ After a successful save, reviewing advances to the next due cover. The global st
 
 ## Templates
 
-Save a page or an entire notebook as a local template. Cornell notes, Meeting and Weekly planner are included as starter templates. Each use creates an independent copy without folder, tags or study progress. Templates are local and are not synced.
+Save a page or an entire notebook as a local template. Cornell notes, Meeting and Weekly planner are included as starter templates. Each use creates an independent copy without folder, tags or study progress. Custom templates participate in full-library sync. Built-in starter templates are supplied with the app on every device.
 
 ## Saving, export and recovery
 
@@ -90,7 +90,7 @@ Save a page or an entire notebook as a local template. Cornell notes, Meeting an
 Notixer works completely offline. The cloud button can connect a self-hosted Notixer server running Rust/Loco and PostgreSQL with Docker Compose.
 
 - Note contents, titles, tags, folder names and study history are encrypted on the device. The recovery key stays on your devices. Without the key or a configured device, server data cannot be recovered.
-- Concurrent edits become conflict copies. Pen presets, templates, reading positions, trash and local version history are not synced.
+- Concurrent document/template edits become conflict copies. Full-library sync includes custom PDF and Markdown templates, journal settings, saved views, empty folders, pen presets, drawing choices, reading positions and persistent sidebar/Markdown zoom preferences. Independent settings merge per key; concurrent values are preserved in visible settings conflict notes. Account credentials, OS permissions, local trash, local version history and automatic backup files remain device-specific. Selecting one note still syncs only that note.
 - See [Self-hosted sync server](docs/sync-server.md) for setup and operation.
 
 ## Install and build
@@ -145,3 +145,14 @@ python3 tools/markdown_scroll.py
 These are headless CPU/event-loop probes, not device GPU or frame-rate guarantees. See the [UX and code audit](docs/ux-code-audit.md) for the scope, changes and remaining limitations of the English-language overhaul.
 
 Desktop library and Markdown navigation sidebars can be hidden and restored using the sidebar button. The PDF page overview has its own toggle.
+
+
+### Media library
+
+Use **Add media** to add images, videos or audio to the current folder (and tag filter). Existing files can be imported on Android, Windows and Linux. Android additionally provides **Take photo**, **Record video** and **Record voice message**. Microphone access is requested only when recording starts. Cancel discards the recording; **Stop and add** stores it. Recording stops when the app enters the background, and is limited to ten minutes. Failed saves retain the pending import with a retry action. **Recover captured media** exposes captures left unfinished by a camera/app restart; imports can be retried or discarded.
+
+Images open in a zoomable viewer. Android plays voice/audio in the app with pause and seek controls and opens video in an in-app system player. Windows/Linux use the installed default media player. Format and codec support are device-dependent. Supported containers are PNG/JPEG/WebP/GIF, MP4/MOV/WebM, and M4A/MP3/WAV/Ogg/AAC/FLAC. Library media is limited to 128 MB per file; Markdown attachments are limited to 32 MB each and 64 MB per note. Markdown uses portable image syntax and ordinary audio/video attachment links; clicking an attachment opens its viewer/player. ZIP collection export includes referenced attachments and linked standalone media.
+
+Media is stored in version-5 notebook archives and participates in tags, folders, sync, backups, history and trash recovery. Existing PDF/Markdown archives retain their previous formats. Update every connected device to a media-aware version before using the expanded library sync.
+
+Sync reuses local winners instead of downloading unchanged payloads, transfers up to four encrypted blocks concurrently, validates and reuses downloaded blocks, and shares one revision-list snapshot across the document and preference phases. Attachment archives have deterministic timestamps so unchanged source/attachments do not create false revisions. Automatic preference sync checks a local fingerprint before processing payloads or discovering revisions; explicit full sync always checks remote changes.

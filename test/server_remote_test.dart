@@ -269,6 +269,16 @@ void main() {
         await reopened.list();
         expect(requestedCursors.last, 1);
         corrupt = true;
+        expect(
+          await reopened.download(r),
+          bytes,
+          reason: 'Validated cached blocks do not need the server again',
+        );
+        await for (final file in Directory(
+          '${root.path}/b/downloaded',
+        ).list()) {
+          if (file is File) await file.writeAsBytes([0]);
+        }
         await expectLater(reopened.download(r), throwsA(isA<SyncFailure>()));
         corrupt = false;
         commits.single['parents'] = ['b' * 64];

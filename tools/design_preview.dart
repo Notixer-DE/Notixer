@@ -1,6 +1,8 @@
 // Real-font screenshots of the existing application. Not an alternative UI.
 // Run with tools/design_preview.py; all documents are disposable sample data.
 import 'dart:io';
+import 'package:noter/data/media.dart';
+import 'package:noter/ui/media_page.dart';
 import 'dart:ui' as ui;
 import 'package:dart_pdf_editor_assets/dart_pdf_editor_assets.dart';
 import 'package:flutter/foundation.dart';
@@ -178,6 +180,53 @@ Future<void> main() async {
     await repository.save(markdownNote, markdown);
     await MarkdownLibrary(repository).create('Reading list', checklist: true);
     await repository.create('Worksheet · week 03', bytes);
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder)
+      ..drawRect(
+        const Rect.fromLTWH(0, 0, 480, 320),
+        Paint()..color = const Color(0xFFEAF5F1),
+      );
+    canvas.drawCircle(
+      const Offset(160, 130),
+      80,
+      Paint()..color = NoterTheme.accent,
+    );
+    canvas.drawRect(
+      const Rect.fromLTWH(260, 70, 140, 180),
+      Paint()..color = NoterTheme.ink,
+    );
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(480, 320);
+    final imageBytes = (await image.toByteData(
+      format: ui.ImageByteFormat.png,
+    ))!.buffer.asUint8List();
+    image.dispose();
+    picture.dispose();
+    final photo = await repository.create(
+      'Meeting whiteboard',
+      imageBytes,
+      paper: 'media:png',
+    );
+    await repository.save(
+      photo.copy(folderId: folder.id, tags: ['Meeting']),
+      imageBytes,
+    );
+    final audioBytes = Uint8List.fromList([
+      0,
+      0,
+      0,
+      24,
+      ...'ftypM4A '.codeUnits,
+      0,
+      0,
+      0,
+      0,
+    ]);
+    final audio = await repository.create(
+      'Voice message · meeting summary',
+      audioBytes,
+      paper: 'media:m4a',
+    );
 
     await _show(_app(DocumentWorkspace(repository: repository)));
     await _capture('library-$device');
@@ -244,6 +293,30 @@ Future<void> main() async {
     mode.onSelectionChanged!({true});
     await _pause();
     await _capture('markdown-source-$device');
+    await _show(
+      _app(
+        MediaPage(
+          name: photo.title,
+          bytes: imageBytes,
+          format: MediaFormat.of('png')!,
+          note: photo,
+          repository: repository,
+        ),
+      ),
+    );
+    await _capture('media-image-$device');
+    await _show(
+      _app(
+        MediaPage(
+          name: audio.title,
+          bytes: audioBytes,
+          format: MediaFormat.of('m4a')!,
+          note: audio,
+          repository: repository,
+        ),
+      ),
+    );
+    await _capture('media-audio-$device');
     if (errors.isNotEmpty) throw StateError('${errors.length} Flutter errors');
     // ignore: avoid_print
     print('PASS: real application screenshots rendered for $device');

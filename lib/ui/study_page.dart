@@ -47,7 +47,7 @@ class _StudyPageState extends State<StudyPage> {
     try {
       final notes = await widget.repository.list();
       for (final note in notes) {
-        if (note.isMarkdown) continue;
+        if (!note.isPdf) continue;
         if (!mounted) return;
         try {
           // One PDF at a time; parsing and target scanning run off the UI thread.

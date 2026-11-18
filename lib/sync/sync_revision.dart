@@ -83,3 +83,28 @@ abstract class RevisionRemote {
   Future<Uint8List> download(SyncRevision revision);
   Future<void> upload(SyncRevision revision, Uint8List bytes);
 }
+
+/// One discovery snapshot per sync session; successful publications are added
+/// locally so the preferences phase does not refetch/decrypt the same journal.
+class SyncSessionRemote implements RevisionRemote {
+  SyncSessionRemote(this.remote);
+  final RevisionRemote remote;
+  Future<String>? _account;
+  Future<List<SyncRevision>>? _revisions;
+  @override
+  Future<String> accountId() => _account ??= remote.accountId();
+  @override
+  Future<List<SyncRevision>> list() async =>
+      List.of(await (_revisions ??= remote.list()));
+  @override
+  Future<Uint8List> download(SyncRevision revision) =>
+      remote.download(revision);
+  @override
+  Future<void> upload(SyncRevision revision, Uint8List bytes) async {
+    await remote.upload(revision, bytes);
+    final revisions = await (_revisions ??= remote.list());
+    if (!revisions.any((r) => r.revision == revision.revision)) {
+      revisions.add(revision);
+    }
+  }
+}

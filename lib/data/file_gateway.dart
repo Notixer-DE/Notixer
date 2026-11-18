@@ -2,6 +2,8 @@ import 'dart:io';
 import 'dart:async';
 import 'knowledge.dart';
 import 'notebook.dart';
+import 'media.dart';
+import 'media_gateway.dart';
 import 'package:flutter/foundation.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/services.dart';
@@ -15,6 +17,7 @@ class FileGateway {
   static Future<bool> Function()? workspaceBeforeClose;
   static Future<bool> Function()? fallbackBeforeClose;
   static void initialize() {
+    MediaGateway.initialize();
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'sharedText') {
         sharedText.value = call.arguments as String?;
@@ -82,16 +85,23 @@ class FileGateway {
   }
 
   Future<XFile?> pick() => openFile(
-    acceptedTypeGroups: const [
+    acceptedTypeGroups: [
       XTypeGroup(
-        label: 'PDF, Notixer or Markdown',
-        extensions: ['pdf', 'noter', 'md', 'zip'],
+        label: 'Notes and media',
+        extensions: [
+          'pdf',
+          'noter',
+          'md',
+          'zip',
+          ...MediaFormat.formats.map((f) => f.extension),
+        ],
         mimeTypes: [
           'application/pdf',
           'application/zip',
           'application/octet-stream',
           'text/markdown',
           'text/plain',
+          ...MediaFormat.formats.map((f) => f.mime),
         ],
       ),
     ],

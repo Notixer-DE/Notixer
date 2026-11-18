@@ -238,12 +238,17 @@ class ServerRemote implements RevisionRemote {
                 )
                 as Map<String, dynamic>)['missing']
             as List;
-    for (final id in missing.cast<String>()) {
-      final file = files[id];
-      if (file == null) {
-        throw const SyncFailure('The server requested an unknown block.');
-      }
-      await _request('PUT', '/blobs/$id', bytes: await file.readAsBytes());
+    final missingIds = missing.cast<String>().toSet().toList();
+    for (var offset = 0; offset < missingIds.length; offset += 4) {
+      await Future.wait(
+        missingIds.skip(offset).take(4).map((id) async {
+          final file = files[id];
+          if (file == null) {
+            throw const SyncFailure('The server requested an unknown block.');
+          }
+          await _request('PUT', '/blobs/$id', bytes: await file.readAsBytes());
+        }),
+      );
     }
     final id = crypto.wireRevision(revision.revision);
     final manifest = await crypto.encrypt(
@@ -281,22 +286,47 @@ class ServerRemote implements RevisionRemote {
       throw const SyncFailure('Revision missing from the local journal.');
     }
     final output = BytesBuilder(copy: false);
-    for (final id in (envelope['blobs'] as List).cast<String>()) {
-      final encrypted = await _request(
-        'GET',
-        '/blobs/$id',
-        limit: syncBlockBytes + 28,
-      );
-      if (sha256.convert(encrypted).toString() != id) {
-        throw const SyncFailure('An encrypted block is corrupted.');
+    final ids = (envelope['blobs'] as List).cast<String>();
+    Future<Uint8List> block(String id) async {
+      final file = File('${cache.path}/downloaded/$id');
+      Uint8List? encrypted;
+      if (await file.exists()) {
+        final cached = await file.readAsBytes();
+        if (sha256.convert(cached).toString() == id) encrypted = cached;
+      }
+      if (encrypted == null) {
+        encrypted = await _request(
+          'GET',
+          '/blobs/$id',
+          limit: syncBlockBytes + 28,
+        );
+        if (sha256.convert(encrypted).toString() != id) {
+          throw const SyncFailure('An encrypted block is corrupted.');
+        }
       }
       final plain = await crypto.decrypt(encrypted, 'chunk');
-      if (output.length + plain.length > maxSyncBytes) {
-        throw const SyncFailure('The note exceeds the sync limit.');
-      }
+      await _write(file, encrypted);
       final lookup = crypto.identify('chunk:${sha256.convert(plain)}');
       await _write(File('${cache.path}/chunks/$lookup'), encrypted);
-      output.add(plain);
+      return plain;
+    }
+
+    // Four blocks bound temporary transfer/decryption memory, while results
+    // are appended in manifest order. Duplicate blocks share one fetch.
+    for (var offset = 0; offset < ids.length; offset += 4) {
+      final pending = <String, Future<Uint8List>>{};
+      final batch = await Future.wait(
+        ids
+            .skip(offset)
+            .take(4)
+            .map((id) => pending.putIfAbsent(id, () => block(id))),
+      );
+      for (final plain in batch) {
+        if (output.length + plain.length > maxSyncBytes) {
+          throw const SyncFailure('The note exceeds the sync limit.');
+        }
+        output.add(plain);
+      }
     }
     return output.takeBytes();
   }

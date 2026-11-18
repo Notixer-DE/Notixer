@@ -160,6 +160,11 @@ void main() {
       baseOffset: 0,
       extentOffset: controller.text.length,
     );
+    await tester.drag(
+      find.byTooltip('Zoom in (Ctrl++)'),
+      const Offset(-400, 0),
+    );
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.byTooltip('Code block'));
     await tester.tap(find.byTooltip('Code block'));
     await tester.pumpAndSettle();

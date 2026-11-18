@@ -1,3 +1,4 @@
+import 'media_page.dart';
 import 'dart:ui' show AppExitResponse;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -368,7 +369,17 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                                 enabled: _selected == i,
                                 child: FocusScope(
                                   canRequestFocus: _selected == i,
-                                  child: _tabs[i].note.isMarkdown
+                                  child: _tabs[i].note.isMedia
+                                      ? MediaPage(
+                                          name: _tabs[i].note.title,
+                                          bytes: _tabs[i].bytes,
+                                          format: _tabs[i].note.mediaFormat!,
+                                          note: _tabs[i].note,
+                                          repository: widget.repository,
+                                          tabController: _tabs[i].controller,
+                                          onLibrary: showLibrary,
+                                        )
+                                      : _tabs[i].note.isMarkdown
                                       ? MarkdownEditorPage(
                                           note: _tabs[i].note,
                                           bytes: _tabs[i].bytes,

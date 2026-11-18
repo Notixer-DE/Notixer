@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'reading_positions.dart';
+import 'display_preferences.dart';
 import 'drawing_preferences.dart';
 
 class NoteFolder {
@@ -59,7 +60,10 @@ class PenPreset {
 
 class LibraryCatalog extends ChangeNotifier {
   LibraryCatalog(this.file)
-    : drawingPreferences = DrawingPreferences(
+    : displayPreferences = DisplayPreferences(
+        File('${file.parent.path}/.display-preferences.json'),
+      ),
+      drawingPreferences = DrawingPreferences(
         File('${file.parent.path}/.drawing-preferences.json'),
       ),
       readingPositions = ReadingPositions(
@@ -67,6 +71,7 @@ class LibraryCatalog extends ChangeNotifier {
       );
   final File file;
   final ReadingPositions readingPositions;
+  final DisplayPreferences displayPreferences;
   final DrawingPreferences drawingPreferences;
   List<NoteFolder> _folders = [];
   List<PenPreset> _presets = const [
@@ -81,6 +86,18 @@ class LibraryCatalog extends ChangeNotifier {
   Future<void> flush() async {
     await _queue;
     await drawingPreferences.flush();
+    await readingPositions.flush();
+    await displayPreferences.flush();
+  }
+
+  Future<void> reload() async {
+    await flush();
+    await drawingPreferences.reload();
+    await readingPositions.reload();
+    await displayPreferences.reload();
+    _loading = null;
+    await load();
+    notifyListeners();
   }
 
   String? loadWarning;
@@ -105,6 +122,7 @@ class LibraryCatalog extends ChangeNotifier {
 
   Future<void> _load() async {
     await drawingPreferences.load();
+    await displayPreferences.load();
     if (!await file.exists()) return;
     final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
     if (json['version'] != 1) {
@@ -147,6 +165,7 @@ class LibraryCatalog extends ChangeNotifier {
       'presets': presets.map((p) => p.toJson()).toList(),
     });
     await file.parent.create(recursive: true);
+    if (await file.exists() && await file.readAsString() == snapshot) return;
     final temporary = File('${file.path}.tmp');
     await temporary.writeAsString(snapshot, flush: true);
     await temporary.rename(file.path);
