@@ -80,9 +80,17 @@ class WikiLinkSuggestionsState extends State<WikiLinkSuggestions> {
       return;
     }
     final query = value.text.substring(start + 2, end);
+    final unchanged = _active == query && _start == start && _end == end;
     _start = start;
     _end = end;
-    if (_active == query) return;
+    if (unchanged) return;
+    if (mounted) {
+      setState(() {
+        _options = [];
+        _error = null;
+        _selected = 0;
+      });
+    }
     _active = query;
     _debounce?.cancel();
     final generation = ++_generation;
@@ -96,7 +104,12 @@ class WikiLinkSuggestionsState extends State<WikiLinkSuggestions> {
     _debounce?.cancel();
     _active = null;
     _generation++;
-    if (_options.isNotEmpty && mounted) setState(() => _options = []);
+    if ((_options.isNotEmpty || _error != null) && mounted) {
+      setState(() {
+        _options = [];
+        _error = null;
+      });
+    }
   }
 
   Future<void> _find(String query, int generation) async {
@@ -204,9 +217,25 @@ class WikiLinkSuggestionsState extends State<WikiLinkSuggestions> {
     return false;
   }
 
-  void _insert(int index) {
+  void _insert(int index, {int? generation}) {
+    if (!mounted ||
+        (generation != null && generation != _generation) ||
+        index < 0 ||
+        index >= _options.length) {
+      return;
+    }
+    final value = widget.controller.value;
+    final text = value.text;
+    if (_active == null ||
+        !value.selection.isCollapsed ||
+        value.selection.extentOffset != _end ||
+        _start < 0 ||
+        _end > text.length ||
+        text.substring(_start, _end) != '[[$_active') {
+      _hide();
+      return;
+    }
     final option = _options[index];
-    final text = widget.controller.text;
     final end = text.substring(_end).startsWith(']]') ? _end + 2 : _end;
     final replacement = '[${markdownLabel(option.label)}](<${option.href}>)';
     _active = null;
@@ -221,6 +250,7 @@ class WikiLinkSuggestionsState extends State<WikiLinkSuggestions> {
   Widget build(BuildContext context) {
     if (_error != null) return Text(_error!, maxLines: 2);
     if (_options.isEmpty) return const SizedBox.shrink();
+    final generation = _generation;
     return ConstrainedBox(
       constraints: const BoxConstraints(maxHeight: 190),
       child: Material(
@@ -241,7 +271,7 @@ class WikiLinkSuggestionsState extends State<WikiLinkSuggestions> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            onTap: () => _insert(index),
+            onTap: () => _insert(index, generation: generation),
           ),
         ),
       ),

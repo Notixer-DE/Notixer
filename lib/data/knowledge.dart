@@ -92,6 +92,40 @@ class KnowledgeView {
   }
 }
 
+/// Validate preferences completely before a restore writes notebook copies.
+void validateKnowledgeSettings(Map<String, dynamic> value) {
+  if (value['version'] != 1 ||
+      value['templates'] is! List ||
+      value['views'] is! List ||
+      (value['automaticBackups'] != null &&
+          value['automaticBackups'] is! bool) ||
+      (value['journalTemplate'] != null &&
+          value['journalTemplate'] is! String)) {
+    throw const FormatException('Invalid knowledge settings.');
+  }
+  final ids = <String>{};
+  for (final row in value['templates'] as List) {
+    if (row is! Map ||
+        row['id'] is! String ||
+        (row['id'] as String).isEmpty ||
+        !ids.add(row['id'] as String) ||
+        row['name'] is! String ||
+        (row['name'] as String).trim().isEmpty ||
+        row['source'] is! String ||
+        utf8.encode(row['source'] as String).length >
+            MarkdownDocument.maxTextBytes) {
+      throw const FormatException('Invalid Markdown template.');
+    }
+  }
+  for (final row in value['views'] as List) {
+    if (row is! Map) throw const FormatException('Invalid saved view.');
+    KnowledgeView.fromJson(Map<String, dynamic>.from(row));
+  }
+  if (utf8.encode(jsonEncode(value)).length > 8 * 1024 * 1024) {
+    throw const FormatException('Knowledge settings exceed 8 MB.');
+  }
+}
+
 class KnowledgeTask {
   const KnowledgeTask(
     this.note,
@@ -205,9 +239,7 @@ class KnowledgeStore {
       throw const FormatException('Knowledge settings exceed 8 MB.');
     }
     final value = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-    if (value['version'] != 1) {
-      throw const FormatException('Unsupported knowledge settings.');
-    }
+    validateKnowledgeSettings(value);
     templates = [
       for (final row in value['templates'] as List)
         MarkdownTemplate(
@@ -225,13 +257,15 @@ class KnowledgeStore {
   }
 
   Future<void> save() {
-    final snapshot = jsonEncode({
+    final value = <String, dynamic>{
       'version': 1,
       'templates': templates.map((t) => t.toJson()).toList(),
       'views': views.map((v) => v.toJson()).toList(),
       'journalTemplate': journalTemplate,
       'automaticBackups': automaticBackups,
-    });
+    };
+    validateKnowledgeSettings(value);
+    final snapshot = jsonEncode(value);
     if (utf8.encode(snapshot).length > 8 * 1024 * 1024) {
       throw const FormatException('Knowledge settings exceed 8 MB.');
     }
@@ -337,6 +371,7 @@ class KnowledgeStore {
     final notes = (await repository.list())
         .where(
           (note) =>
+              (!view.openTasks || note.isMarkdown) &&
               (view.kind == 'all' ||
                   (view.kind == 'markdown') == note.isMarkdown) &&
               (view.tag.isEmpty ||

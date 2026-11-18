@@ -6,6 +6,7 @@ import 'package:noter/data/knowledge.dart';
 import 'package:noter/data/markdown_document.dart';
 import 'package:noter/data/notebook.dart';
 import 'package:noter/ui/knowledge_page.dart';
+import 'package:noter/ui/library.dart';
 import 'package:noter/ui/noter_theme.dart';
 
 Future<void> waitKnowledge(WidgetTester tester, bool Function() ready) async {
@@ -42,6 +43,56 @@ void main() {
   tearDown(() async {
     await directory.delete(recursive: true);
   });
+  testWidgets('shared text survives a failed save and capture can be retried', (
+    tester,
+  ) async {
+    FileGateway.sharedText.value = null;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: NoterTheme.light,
+        home: LibraryPage(repository: repository),
+      ),
+    );
+    for (var i = 0; i < 100; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump(const Duration(milliseconds: 30));
+      if (find.text('Source note').evaluate().isNotEmpty &&
+          find.byType(LinearProgressIndicator).evaluate().isEmpty &&
+          find.byType(CircularProgressIndicator).evaluate().isEmpty) {
+        break;
+      }
+    }
+    FileGateway.workspaceBeforeClose = () async => false;
+    FileGateway.sharedText.value = 'A shared paragraph';
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(FileGateway.sharedText.value, 'A shared paragraph');
+    expect(find.byType(KnowledgePage), findsNothing);
+    FileGateway.workspaceBeforeClose = () async => true;
+    await tester.tap(find.text('Retry capture'));
+    for (var i = 0; i < 150; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump(const Duration(milliseconds: 30));
+      if (find.byType(AlertDialog).evaluate().isNotEmpty) break;
+    }
+    expect(find.widgetWithText(AlertDialog, 'Quick capture'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.widgetWithText(TextField, 'Text or Markdown'))
+          .controller!
+          .text,
+      'A shared paragraph',
+    );
+    expect(FileGateway.sharedText.value, isNull);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    FileGateway.workspaceBeforeClose = null;
+  });
+
   for (final size in [const Size(390, 844), const Size(1200, 900)]) {
     testWidgets(
       'hub tasks can be completed and sections fit at width ${size.width}',
