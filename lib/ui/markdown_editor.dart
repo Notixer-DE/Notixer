@@ -119,6 +119,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   String _query = '';
   bool _showNotes = false, _source = false, _busy = false, _canPop = false;
   bool _showChrome = true;
+  bool _showSidebar = true;
   double _sourceZoom = 1;
   double _readingZoom = 1;
   double get _activeZoom => _source ? _sourceZoom : _readingZoom;
@@ -1477,6 +1478,15 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                         overflow: TextOverflow.ellipsis,
                       ),
                       actions: [
+                        if (desktop)
+                          IconButton(
+                            tooltip: _showSidebar
+                                ? 'Hide sidebar'
+                                : 'Show sidebar',
+                            icon: const Icon(Icons.view_sidebar_outlined),
+                            onPressed: () =>
+                                setState(() => _showSidebar = !_showSidebar),
+                          ),
                         IconButton(
                           tooltip: 'Hide toolbars',
                           onPressed: () => setState(() => _showChrome = false),
@@ -1616,7 +1626,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                   SafeArea(
                     child: Row(
                       children: [
-                        if (desktop && _showChrome)
+                        if (desktop && _showChrome && _showSidebar)
                           SizedBox(width: 196, child: _rail()),
                         if (desktop && _showChrome && _showNotes)
                           SizedBox(width: 244, child: _list()),

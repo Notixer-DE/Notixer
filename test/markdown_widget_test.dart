@@ -84,6 +84,12 @@ void main() {
     'formatted Markdown zoom rebuilds blocks without reparsing source',
     (tester) async {
       await open(tester, const Size(1440, 1000));
+      await tester.tap(find.byTooltip('Hide sidebar'));
+      await tester.pumpAndSettle();
+      expect(find.text('New text note'), findsNothing);
+      await tester.tap(find.byTooltip('Show sidebar'));
+      await tester.pumpAndSettle();
+      expect(find.text('New text note'), findsOneWidget);
       final preview = find.byType(MarkdownPreview);
       final state = tester.state<MarkdownPreviewState>(preview);
       final parses = state.debugParses;

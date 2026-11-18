@@ -61,6 +61,7 @@ class _LibraryPageState extends State<LibraryPage> {
   String? _folderFilter, _tagFilter;
   String _kind = 'all';
   bool _grid = false;
+  bool _showNavigation = true;
   final _scaffold = GlobalKey<ScaffoldState>();
   final _searchFocus = FocusNode();
   String? _error;
@@ -557,7 +558,18 @@ class _LibraryPageState extends State<LibraryPage> {
           drawer: wide ? null : Drawer(child: SafeArea(child: _navigation())),
           appBar: AppBar(
             leadingWidth: DocumentTabsChrome.leadingWidth(context),
-            leading: DocumentTabsChrome.action(context) == null
+            leading: wide
+                ? DocumentNavigation(
+                    child: IconButton(
+                      tooltip: _showNavigation
+                          ? 'Hide sidebar'
+                          : 'Show sidebar',
+                      icon: const Icon(Icons.view_sidebar_outlined),
+                      onPressed: () =>
+                          setState(() => _showNavigation = !_showNavigation),
+                    ),
+                  )
+                : DocumentTabsChrome.action(context) == null
                 ? null
                 : DocumentNavigation(
                     child: wide
@@ -715,7 +727,8 @@ class _LibraryPageState extends State<LibraryPage> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (wide) SizedBox(width: 220, child: _navigation()),
+                if (wide && _showNavigation)
+                  SizedBox(width: 220, child: _navigation()),
                 Expanded(
                   child: Align(
                     alignment: Alignment.topCenter,

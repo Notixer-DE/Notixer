@@ -143,3 +143,5 @@ python3 tools/markdown_scroll.py
 ```
 
 These are headless CPU/event-loop probes, not device GPU or frame-rate guarantees. See the [UX and code audit](docs/ux-code-audit.md) for the scope, changes and remaining limitations of the English-language overhaul.
+
+Desktop library and Markdown navigation sidebars can be hidden and restored using the sidebar button. The PDF page overview has its own toggle.

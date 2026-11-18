@@ -36,3 +36,5 @@ No notebook format, existing note contents, application identity or signing key 
 - Journal day actions are compact; template selection uses a focused dialog. Backup help is available on demand, and redundant introductory text was removed from populated views.
 - Markdown uses a compact 14px reading base while respecting system text scaling. Source and formatted views retain independent zoom levels, with toolbar controls and Ctrl/Cmd plus/minus/reset. Formatted Markdown supports touch pinch zoom without taking over ordinary one-finger scrolling. Zoom rebuilds visible blocks without reparsing the document.
 - Added landscape keyboard, large-text graph, reading zoom, touch gesture, scrolling and parse-cache regressions. Actual Flutter widgets were rendered at desktop and phone portrait/landscape sizes, including 200% system text.
+
+- Desktop library and Markdown navigation sidebars can be toggled independently of document tabs and toolbars. The existing PDF page overview toggle remains available.
