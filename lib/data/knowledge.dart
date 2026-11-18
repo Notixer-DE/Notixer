@@ -35,6 +35,21 @@ class MarkdownTemplate {
 String journalDate(DateTime date) =>
     '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
+/// Journal identity survives renaming titles/tags and restoring linked copies.
+String? journalEntryDate(Notebook note) {
+  if (!note.isMarkdown) return null;
+  final path = RegExp(
+    r'(?:^|/)journals/(\d{4}-\d{2}-\d{2})\.md$',
+  ).firstMatch(note.documentPath);
+  if (path != null) return path[1];
+  final id = RegExp(r'^journal-(\d{4}-\d{2}-\d{2})$').firstMatch(note.id);
+  if (id != null) return id[1];
+  return note.tags.any((tag) => tag.toLowerCase() == 'journal') &&
+          RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(note.title)
+      ? note.title
+      : null;
+}
+
 class KnowledgeView {
   const KnowledgeView(
     this.name, {
@@ -239,11 +254,7 @@ class KnowledgeStore {
     ) async {
       final key = journalDate(date);
       final existing = (await repository.list()).where(
-        (n) =>
-            n.id == 'journal-$key' ||
-            (n.isMarkdown &&
-                n.tags.any((tag) => tag.toLowerCase() == 'journal') &&
-                n.title == key),
+        (n) => n.id == 'journal-$key' || journalEntryDate(n) == key,
       );
       if (existing.isNotEmpty) {
         final original = existing.where((note) => note.id == 'journal-$key');
@@ -336,7 +347,7 @@ class KnowledgeStore {
         )
         .toList();
     final hits = <KnowledgeHit>[], tasks = <KnowledgeTask>[];
-    final warnings = <String>[];
+    final warnings = List<String>.of(repository.readErrors);
     for (var i = 0; i < notes.length; i++) {
       if (cancelled?.call() == true) break;
       final note = notes[i];

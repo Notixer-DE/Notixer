@@ -526,15 +526,8 @@ class _KnowledgePageState extends State<KnowledgePage> {
   }
 
   Widget _journal() {
-    final entries =
-        _notes
-            .where(
-              (n) =>
-                  n.isMarkdown &&
-                  n.tags.any((t) => t.toLowerCase() == 'journal'),
-            )
-            .toList()
-          ..sort((a, b) => b.title.compareTo(a.title));
+    final entries = _notes.where((n) => journalEntryDate(n) != null).toList()
+      ..sort((a, b) => journalEntryDate(b)!.compareTo(journalEntryDate(a)!));
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [

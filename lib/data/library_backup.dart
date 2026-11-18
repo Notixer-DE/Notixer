@@ -26,7 +26,13 @@ class LibraryBackup {
     await repository.templates.flush();
     final files = <String, Uint8List>{};
     var total = 0;
-    for (final note in await repository.list()) {
+    final notes = await repository.list();
+    if (repository.readErrors.isNotEmpty) {
+      throw const FormatException(
+        'Backup aborted: some library files could not be read. Previous snapshots are preserved.',
+      );
+    }
+    for (final note in notes) {
       final bytes = await repository.exportArchive(note);
       total += bytes.length;
       if (total > maxBytes) {
@@ -295,6 +301,11 @@ class AutomaticBackupScheduler {
       await store.load();
       if (!store.automaticBackups || _disposed) return;
       final notes = await repository.list();
+      if (repository.readErrors.isNotEmpty) {
+        throw const FormatException(
+          'Some library files could not be read; automatic backup was not replaced.',
+        );
+      }
       if (notes.isEmpty) return;
       final settings = await store.file.exists()
           ? await store.file.readAsString()

@@ -63,6 +63,41 @@ void main() {
   );
 
   test(
+    'journal membership survives a changed title, tag and restored namespace',
+    () async {
+      final note = await store.journal(DateTime(2026, 11, 18));
+      await repository.save(
+        note.copy(title: 'My renamed day', tags: ['Daily']),
+        await repository.load(note.id),
+      );
+      final current = (await repository.list()).single;
+      expect(journalEntryDate(current), '2026-11-18');
+      expect((await store.journal(DateTime(2026, 11, 18))).id, note.id);
+      final bytes = await LibraryBackup(repository).snapshot();
+      final copies = await LibraryBackup(repository).restore(bytes);
+      expect(journalEntryDate(copies.single), '2026-11-18');
+      expect((await store.journal(DateTime(2026, 11, 18))).id, note.id);
+    },
+  );
+
+  test(
+    'corrupt library entries are reported by search and never silently omitted from a complete backup',
+    () async {
+      await store.capture('Valid', '- [ ] Task');
+      await File(
+        '${directory.path}/broken.noter',
+      ).writeAsString('Invalid archive');
+      final result = await store.scan(const KnowledgeView('', openTasks: true));
+      expect(result.tasks.length, 1);
+      expect(result.warnings, isNotEmpty);
+      await expectLater(
+        LibraryBackup(repository).snapshot(),
+        throwsFormatException,
+      );
+    },
+  );
+
+  test(
     'open tasks exclude checked boxes and code, and reject stale edits',
     () async {
       final note = await store.capture(
