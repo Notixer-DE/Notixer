@@ -206,7 +206,18 @@ List<String> markdownHeadingsFromNodes(List<md.Node> nodes) {
   return visitor.slugs;
 }
 
+typedef MarkdownHeading = ({String title, String slug, int level});
+
+List<MarkdownHeading> markdownHeadingTargets(String source) {
+  final visitor = _Headings();
+  for (final node in parseMarkdown(source)) {
+    node.accept(visitor);
+  }
+  return visitor.targets;
+}
+
 class _Headings implements md.NodeVisitor {
+  final targets = <MarkdownHeading>[];
   final slugs = <String>[];
   final _used = <String>{};
   @override
@@ -222,6 +233,11 @@ class _Headings implements md.NodeVisitor {
         slug = '$base-${suffix++}';
       }
       slugs.add(slug);
+      targets.add((
+        title: element.textContent,
+        slug: slug,
+        level: int.parse(element.tag.substring(1)),
+      ));
     }
     return true;
   }
@@ -367,4 +383,10 @@ List<md.Node> parseMarkdownForPreview(String source) {
   }
 
   return parseMarkdown(marked).map(clean).toList();
+}
+
+/// PDF destinations use one-based page numbers in portable Markdown links.
+int? markdownPdfPage(String fragment) {
+  final match = RegExp(r'^page=([1-9][0-9]*)$').firstMatch(fragment);
+  return match == null ? null : int.tryParse(match[1]!);
 }

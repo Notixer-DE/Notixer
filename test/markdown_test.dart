@@ -24,6 +24,23 @@ Uint8List zipFiles(Map<String, Uint8List> files) {
 }
 
 void main() {
+  test('heading targets share renderer slugs, labels and duplicate suffixes', () {
+    final targets = markdownHeadingTargets(
+      '## **Grüße** & Code\n\n## Grüße & Code\n\n```\n# Ignored\n```\n\nSetext\n------',
+    );
+    expect(targets, [
+      (title: 'Grüße & Code', slug: 'grüße--code', level: 2),
+      (title: 'Grüße & Code', slug: 'grüße--code-1', level: 2),
+      (title: 'Setext', slug: 'setext', level: 2),
+    ]);
+    expect(
+      targets.map((h) => h.slug),
+      markdownHeadings(
+        '## **Grüße** & Code\n\n## Grüße & Code\n\n```\n# Ignored\n```\n\nSetext\n------',
+      ),
+    );
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory root;
   late LocalNotebookRepository repo;

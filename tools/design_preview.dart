@@ -11,6 +11,7 @@ import 'package:noter/data/markdown_library.dart';
 import 'package:noter/data/notebook.dart';
 import 'package:noter/main.dart';
 import 'package:noter/ui/editor.dart';
+import 'package:noter/ui/library_graph_page.dart';
 import 'package:noter/ui/markdown_editor.dart';
 import 'package:noter/ui/noter_theme.dart';
 import 'package:pdf/pdf.dart';
@@ -169,6 +170,8 @@ Future<void> main() async {
 
     await _show(NoterApp(repository: repository));
     await _capture('library-$device');
+    await _show(_app(LibraryGraphPage(repository: repository)));
+    await _capture('graph-$device');
     await _show(
       _app(EditorPage(note: pdfNote, bytes: bytes, repository: repository)),
     );

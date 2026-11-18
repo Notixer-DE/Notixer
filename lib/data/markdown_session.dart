@@ -37,6 +37,16 @@ class MarkdownSession extends ChangeNotifier {
     _changed();
   }
 
+  void organize(Notebook metadata) {
+    note = note.copy(
+      folderId: metadata.folderId,
+      folderName: metadata.folderName,
+      clearFolder: metadata.folderId == null,
+      tags: metadata.tags,
+    );
+    _changed();
+  }
+
   void _changed() {
     _revision++;
     _timer?.cancel();

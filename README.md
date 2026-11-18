@@ -32,7 +32,9 @@ An English-language, offline-first note-taking app with handwriting, PDF annotat
 - **Tab** inserts four spaces, or indents all selected lines. **Shift+Tab** removes one indentation level. Selection direction and existing line endings are preserved.
 - In source mode, **Ctrl+Plus**, **Ctrl+Minus**, and **Ctrl+0** enlarge, reduce or reset the editor font. Number-pad equivalents and Cmd shortcuts are supported. Toolbar controls offer the same actions. Font zoom does not change note contents.
 - Insert inline code or fenced code blocks. The code-block action safely wraps selections that already contain backticks.
-- Link notes using relative links such as `[Title](file.md)`, heading anchors and automatic backlinks.
+- Use **Insert link** to link entire files, headings in this note or another Markdown note, or a specific PDF page. Examples: `[Section](#study-plan)`, `[Other section](notes.md#study-plan)`, `[PDF page](reference.pdf#page=12)`. PDF page numbers start at 1. Duplicate heading names receive suffixes such as `-1`.
+- Open **Graph view** from library actions or the Markdown editor's **Note actions** menu. Pan and zoom connections between files, search to highlight names, tap a file to open it, or tap a tag to focus its files. The **Tags** filter hides tag nodes. Multiple heading/page links to one file share a single connection; external links and embedded images are excluded.
+- Assign tags through **Folders and tags** in a file's library menu or the Markdown editor's **Note actions** menu. Tag names are matched without case differences. Automatic backlinks remain available in Markdown notes.
 - Embed local PNG/JPEG images. Import/export individual `.md` files or linked collections as ZIP archives. External images are not downloaded automatically.
 
 ## Study covers and spaced repetition

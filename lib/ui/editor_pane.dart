@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -105,6 +106,16 @@ class EditorPaneState extends State<EditorPane> {
   PdfEditTool? _normalTool = PdfEditTool.ink;
   PdfEditingController get editing => widget.session.editing;
   bool _positionReady = false;
+  final _initialPosition = Completer<void>();
+  Future<bool> revealLinkedPage(int page) async {
+    await _initialPosition.future;
+    if (!mounted || page < 0 || page >= editing.document.pageCount) {
+      return false;
+    }
+    navigation.jumpToPage(page);
+    return true;
+  }
+
   bool get lassoActive => _mode == _Mode.lasso;
   bool get tapeActive => _mode == _Mode.tape;
   bool get learningActive => _learning;
@@ -173,6 +184,7 @@ class EditorPaneState extends State<EditorPane> {
         await beginReview(widget.initialTapeId!);
       }
       if (mounted) _positionReady = true;
+      if (!_initialPosition.isCompleted) _initialPosition.complete();
     });
   }
 
@@ -1664,6 +1676,7 @@ class EditorPaneState extends State<EditorPane> {
 
   @override
   void dispose() {
+    if (!_initialPosition.isCompleted) _initialPosition.complete();
     _clearTransformPreview();
     _inkMove?.finish(cancel: true);
     _inkErase?.finish(cancel: true);

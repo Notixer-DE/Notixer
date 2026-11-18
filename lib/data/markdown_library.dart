@@ -3,6 +3,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:pdf_document/pdf_document.dart' as pdf;
 import 'package:path/path.dart' as p;
 
 import 'markdown_document.dart';
@@ -267,3 +268,7 @@ List<_ImportedDocument> _readBundle(Uint8List bytes) {
   }
   return result;
 }
+
+/// Isolate only the PDF bytes; editor/widget state must never be captured.
+Future<int> markdownPdfPageCount(Uint8List bytes) =>
+    Isolate.run(() => pdf.PdfDocument.open(bytes).pageCount);

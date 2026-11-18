@@ -72,7 +72,10 @@ void main() {
             'PDF A',
             await createPaper('blank', pages: 3),
           );
-          final other = await repo.create('PDF B', await createPaper('grid'));
+          final other = await repo.create(
+            'PDF B',
+            await createPaper('grid', pages: 3),
+          );
           final text = await MarkdownLibrary(repo).create('Text C');
           return (directory, repo, pdf, other, text);
         }))!;
@@ -94,9 +97,11 @@ void main() {
           }
         }
 
-        Future<void> open(Notebook note) async {
+        Future<void> open(Notebook note, {String? anchor}) async {
           var finished = false;
-          key.currentState!.openNotebook(note).then((_) => finished = true);
+          key.currentState!
+              .openNotebook(note, anchor: anchor)
+              .then((_) => finished = true);
           await io(() => finished);
           await io();
         }
@@ -169,7 +174,22 @@ void main() {
           ),
         );
         // Changing tabs must commit an in-progress contact rather than cancel it.
-        await open(b);
+        await open(b, anchor: 'page=2');
+        final linkedPane = tester.state<EditorPaneState>(
+          find.byType(EditorPane),
+        );
+        expect(linkedPane.viewer.currentPage, 1);
+        linkedPane.viewer.setZoom(1.6);
+        await io();
+        final linkedZoom = linkedPane.viewer.zoom;
+        await open(a);
+        await open(b, anchor: 'page=3');
+        expect(
+          tester.state<EditorPaneState>(find.byType(EditorPane)),
+          same(linkedPane),
+        );
+        expect(linkedPane.viewer.currentPage, 2);
+        expect(linkedPane.viewer.zoom, closeTo(linkedZoom, .001));
         expect(pane.widget.session.ink.index.strokes, isNotEmpty);
         expect(key.currentState!.openNotebookIds, [a.id, b.id]);
         await open(a);
@@ -193,7 +213,8 @@ void main() {
         final sourceWidget = tester.widget<TextField>(source);
         final controller = sourceWidget.controller!;
         await open(a);
-        await open(c);
+        await open(c, anchor: 'ungespeichert');
+        expect(find.text('Ungespeichert'), findsOneWidget);
         expect(tester.widget<TextField>(source).controller, same(controller));
         expect(controller.text, contains('Ungespeichert'));
         // Closing an inactive PDF must not dispose the active Markdown editor.
