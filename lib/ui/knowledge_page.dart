@@ -428,6 +428,10 @@ class _KnowledgePageState extends State<KnowledgePage> {
                                 value: 'pdf',
                                 child: Text('PDFs'),
                               ),
+                              DropdownMenuItem(
+                                value: 'media',
+                                child: Text('Media'),
+                              ),
                             ],
                             onChanged: _busy
                                 ? null
@@ -568,7 +572,9 @@ class _KnowledgePageState extends State<KnowledgePage> {
                         onChanged: _busy ? null : (_) => _complete(task),
                       )
                     : Icon(
-                        hit.note.isMarkdown
+                        hit.note.isMedia
+                            ? Icons.perm_media_outlined
+                            : hit.note.isMarkdown
                             ? Icons.description_outlined
                             : Icons.picture_as_pdf_outlined,
                       ),

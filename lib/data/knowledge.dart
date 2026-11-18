@@ -271,6 +271,7 @@ class KnowledgeStore {
     }
     final result = _queue.then((_) async {
       await file.parent.create(recursive: true);
+      if (await file.exists() && await file.readAsString() == snapshot) return;
       final temporary = File('${file.path}.tmp');
       await temporary.writeAsString(snapshot, flush: true);
       await temporary.rename(file.path);
@@ -373,7 +374,9 @@ class KnowledgeStore {
           (note) =>
               (!view.openTasks || note.isMarkdown) &&
               (view.kind == 'all' ||
-                  (view.kind == 'markdown') == note.isMarkdown) &&
+                  (view.kind == 'markdown' && note.isMarkdown) ||
+                  (view.kind == 'pdf' && note.isPdf) ||
+                  (view.kind == 'media' && note.isMedia)) &&
               (view.tag.isEmpty ||
                   note.tags.any(
                     (tag) => tag.toLowerCase() == view.tag.toLowerCase(),
@@ -387,6 +390,14 @@ class KnowledgeStore {
       if (cancelled?.call() == true) break;
       final note = notes[i];
       try {
+        if (note.isMedia) {
+          if (view.query.isEmpty ||
+              note.title.toLowerCase().contains(view.query.toLowerCase())) {
+            hits.add(KnowledgeHit(note, note.mediaFormat!.kind, ''));
+          }
+          onProgress?.call(i + 1, notes.length);
+          continue;
+        }
         if (!note.isMarkdown && view.query.trim().isEmpty) {
           hits.add(KnowledgeHit(note, 'PDF / handwriting', ''));
           onProgress?.call(i + 1, notes.length);

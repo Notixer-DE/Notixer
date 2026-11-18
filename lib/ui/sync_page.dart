@@ -174,12 +174,12 @@ class _SyncPageState extends State<SyncPage> {
                   padding: const EdgeInsets.all(24),
                   children: [
                     const Text(
-                      'Sync notes with end-to-end encryption',
+                      'Sync your library',
                       style: TextStyle(fontSize: 22),
                     ),
                     const SizedBox(height: 12),
                     const Text(
-                      'Only your devices decrypt notes, PDFs, titles, tags and folder names. '
+                      'Notes, media, templates and preferences use end-to-end encryption. '
                       'The server sees technical identifiers, data sizes and access times. '
                       'Notixer remains fully usable offline.',
                     ),
@@ -222,7 +222,10 @@ class _SyncPageState extends State<SyncPage> {
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Sync note (optional)'),
-                        subtitle: Text(_noteTitle ?? 'All notes'),
+                        subtitle: Text(
+                          _noteTitle ??
+                              'Entire library, templates and preferences',
+                        ),
                         onTap: sync.busy ? null : _chooseNote,
                         trailing: _noteId == null
                             ? const Icon(Icons.chevron_right)

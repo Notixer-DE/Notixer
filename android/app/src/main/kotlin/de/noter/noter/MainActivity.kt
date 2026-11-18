@@ -8,6 +8,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private var media: MediaBridge? = null
     private var pending: MethodChannel.Result? = null
     private var pendingBytes: ByteArray? = null
     private var fileChannel: MethodChannel? = null
@@ -30,6 +31,7 @@ class MainActivity : FlutterActivity() {
     }
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        media = MediaBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "de.noter/files")
         fileChannel = channel
         channel.setMethodCallHandler { call, result ->
@@ -56,6 +58,7 @@ class MainActivity : FlutterActivity() {
     @Deprecated("Activity result bridge for Flutter")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (media?.onActivityResult(requestCode, resultCode, data) == true) return
         if (requestCode != 701) return
         val reply = pending ?: return
         val bytes = pendingBytes
@@ -75,4 +78,11 @@ class MainActivity : FlutterActivity() {
             }
         }.start()
     }
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        media?.onPermissionsResult(requestCode, grantResults)
+    }
+    override fun onStop() { media?.onStop(); super.onStop() }
+    override fun onDestroy() { media?.dispose(); media = null; super.onDestroy() }
+
 }

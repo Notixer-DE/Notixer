@@ -34,7 +34,7 @@ class NotebookPreviewCache {
   bool _disposed = false;
 
   Future<PdfDocument?> load(Notebook note, bool Function() wanted) {
-    if (note.isMarkdown) return Future.value(null);
+    if (!note.isPdf) return Future.value(null);
     final key = '${note.id}:${note.modified.microsecondsSinceEpoch}';
     final existing = _entries.remove(key);
     if (existing != null) {
@@ -117,7 +117,9 @@ class _NotebookPreviewState extends State<NotebookPreview> {
   }
 
   @override
-  Widget build(BuildContext context) => widget.note.isMarkdown
+  Widget build(BuildContext context) => widget.note.isMedia
+      ? NotebookCover(paper: widget.note.paper, height: widget.height)
+      : widget.note.isMarkdown
       ? _MarkdownPreview(
           key: ValueKey('${widget.note.id}:${widget.note.modified}'),
           note: widget.note,

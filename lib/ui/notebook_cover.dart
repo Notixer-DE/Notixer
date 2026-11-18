@@ -1,5 +1,12 @@
 import 'package:flutter/material.dart';
 import 'noter_theme.dart';
+import '../data/media.dart';
+
+IconData mediaIcon(MediaFormat format) => switch (format.kind) {
+  'image' => Icons.image_outlined,
+  'audio' => Icons.audio_file_outlined,
+  _ => Icons.video_file_outlined,
+};
 
 /// A paper-type cover, not a document thumbnail. The library stays metadata-only:
 /// no PDF needs to be opened or rendered while scrolling through notebooks.
@@ -9,12 +16,16 @@ class NotebookCover extends StatelessWidget {
   final String paper;
   final double height;
 
-  String get label => switch (paper) {
-    'pdf' => 'PDF',
-    'lined' => 'Ruled',
-    'grid' => 'Grid',
-    _ => 'Blank',
-  };
+  MediaFormat? get media =>
+      paper.startsWith('media:') ? MediaFormat.of(paper.substring(6)) : null;
+  String get label =>
+      media?.kind ??
+      switch (paper) {
+        'pdf' => 'PDF',
+        'lined' => 'Ruled',
+        'grid' => 'Grid',
+        _ => 'Blank',
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +48,13 @@ class NotebookCover extends StatelessWidget {
                     border: Border.all(color: NoterTheme.border),
                   ),
                   clipBehavior: Clip.antiAlias,
-                  child: paper == 'pdf'
+                  child: media != null
+                      ? Icon(
+                          mediaIcon(media!),
+                          color: NoterTheme.accent,
+                          size: 36,
+                        )
+                      : paper == 'pdf'
                       ? const Icon(
                           Icons.picture_as_pdf_outlined,
                           color: NoterTheme.accent,

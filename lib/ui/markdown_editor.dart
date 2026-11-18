@@ -1,9 +1,11 @@
+import 'media_acquisition.dart';
+import 'media_page.dart';
+import '../data/media.dart';
 import 'markdown_zoom_surface.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' show AppExitResponse;
 
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -123,13 +125,32 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   double _sourceZoom = 1;
   double _readingZoom = 1;
   double get _activeZoom => _source ? _sourceZoom : _readingZoom;
-  void _setZoom(double value) => setState(() {
-    if (_source) {
-      _sourceZoom = value.clamp(.7, 2.5);
-    } else {
-      _readingZoom = value.clamp(.7, 2.5);
-    }
-  });
+  void _setZoom(double value) {
+    setState(() {
+      if (_source) {
+        _sourceZoom = value.clamp(.7, 2.5);
+      } else {
+        _readingZoom = value.clamp(.7, 2.5);
+      }
+    });
+    unawaited(
+      widget.repository.catalog.displayPreferences
+          .set(_source ? 'sourceZoom' : 'readingZoom', _activeZoom)
+          .catchError((Object _) {}),
+    );
+  }
+
+  Future<void> _restoreDisplay() async {
+    final prefs = widget.repository.catalog.displayPreferences;
+    await prefs.load();
+    if (!mounted) return;
+    setState(() {
+      _sourceZoom = prefs.zoom('sourceZoom');
+      _readingZoom = prefs.zoom('readingZoom');
+      _showSidebar = prefs.flag('markdownSidebar', true);
+    });
+  }
+
   bool _leaving = false;
   bool _loadingNotes = true;
   int _loadGeneration = 0;
@@ -199,11 +220,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
             key == LogicalKeyboardKey.numpad0;
         if (zoomIn || zoomOut || reset) {
           if (event is KeyDownEvent || event is KeyRepeatEvent) {
-            setState(
-              () => _sourceZoom = reset
-                  ? 1
-                  : (_sourceZoom + (zoomIn ? .1 : -.1)).clamp(.7, 2.5),
-            );
+            _setZoom(reset ? 1 : _sourceZoom + (zoomIn ? .1 : -.1));
           }
           return KeyEventResult.handled;
         }
@@ -247,6 +264,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     _undo.addListener(_changed);
     _titleUndo.addListener(_changed);
     _titleFocus.addListener(_changed);
+    _restoreDisplay();
     _reload();
     if (widget.initialAnchor.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback(
@@ -353,8 +371,8 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       throw const FormatException('The note was deleted.');
     }
     note = current.single;
-    final page = note.isMarkdown ? null : markdownPdfPage(anchor);
-    if (!note.isMarkdown && anchor.isNotEmpty) {
+    final page = note.isPdf ? markdownPdfPage(anchor) : null;
+    if (note.isPdf && anchor.isNotEmpty) {
       if (page == null) {
         throw const FormatException(
           'Use #page= followed by a positive page number for PDF links.',
@@ -370,7 +388,24 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       await widget.onOpenNotebook!(note, anchor: anchor);
       return;
     }
-    if (!note.isMarkdown) {
+    if (note.isMedia) {
+      final bytes = await widget.repository.load(note.id);
+      if (!mounted) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => MediaPage(
+            name: note.title,
+            bytes: bytes,
+            format: note.mediaFormat!,
+            note: note,
+            repository: widget.repository,
+          ),
+        ),
+      );
+      return;
+    }
+    if (note.isPdf) {
       final bytes = await widget.repository.load(note.id);
       if (!mounted) return;
       await Navigator.push(
@@ -431,6 +466,23 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
         }
       });
       return;
+    }
+    final asset = markdownAssetPath(uri);
+    if (asset != null && _session.document.assets.containsKey(asset)) {
+      final format = MediaFormat.of(p.extension(asset));
+      if (format != null) {
+        await Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (_) => MediaPage(
+              name: p.basename(asset),
+              bytes: _session.document.assets[asset]!,
+              format: format,
+            ),
+          ),
+        );
+        return;
+      }
     }
     final note = MarkdownLibrary.target(_notes, _session.note, href);
     if (note == null) {
@@ -833,9 +885,15 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                     dense: true,
                     title: Text(note.title),
                     subtitle: Text(
-                      note.isMarkdown ? 'Text note' : 'PDF / handwriting',
+                      note.isMedia
+                          ? note.mediaFormat!.kind
+                          : note.isMarkdown
+                          ? 'Text note'
+                          : 'PDF / handwriting',
                     ),
-                    trailing: note.isMarkdown
+                    trailing: note.isMedia
+                        ? null
+                        : note.isMarkdown
                         ? IconButton(
                             tooltip: 'Link to heading in ${note.title}',
                             icon: const Icon(Icons.segment),
@@ -914,31 +972,25 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     }
   }
 
-  Future<void> _image() => _run(() async {
-    final file = await openFile(
-      acceptedTypeGroups: const [
-        XTypeGroup(
-          label: 'Images',
-          extensions: ['png', 'jpg', 'jpeg'],
-          mimeTypes: ['image/png', 'image/jpeg'],
-        ),
-      ],
+  Future<void> _image() => _attachMedia(imagesOnly: true);
+  Future<void> _attachMedia({bool imagesOnly = false}) => _run(() async {
+    if (!await _session.save() || !mounted) return;
+    final media = await acquireMedia(
+      context,
+      imagesOnly: imagesOnly,
+      limit: MarkdownDocument.maxAssetBytes,
     );
-    if (file == null) return;
-    if (await file.length() > MarkdownDocument.maxAssetBytes) {
-      throw const FormatException('The image is too large (32 MB).');
-    }
-    final bytes = await file.readAsBytes();
-    final (document, path) = await addMarkdownImageAsync(
+    if (media == null) return;
+    final (document, path) = await addMarkdownAttachmentAsync(
       _session.document,
-      bytes,
-      p.extension(file.name).substring(1),
+      media.bytes,
+      media.format.extension,
     );
     if (!mounted) return;
     _session.update(document.copy(source: _text.text));
-    _insertLiteral(
-      '![${markdownLabel(p.basenameWithoutExtension(file.name))}]($path)',
-    );
+    final label = markdownLabel(p.basenameWithoutExtension(media.name));
+    _insertLiteral('${media.format.kind == 'image' ? '!' : ''}[$label]($path)');
+    if (await _session.save()) await media.release();
   });
 
   Future<void> _export(String kind) => _run(() async {
@@ -1078,6 +1130,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
         tool('Quote', Icons.format_quote, () => _insert('\n> ', '\n', 'Quote')),
         tool('Insert link', Icons.link, _linkDialog),
         tool('Insert image', Icons.image_outlined, _image),
+        tool('Attach media', Icons.attach_file, () => _attachMedia()),
         tool('Code', Icons.code, () => _insert('`', '`')),
         tool('Code block', Icons.integration_instructions_outlined, _codeBlock),
       ],
@@ -1171,7 +1224,11 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                         child: Align(
                           alignment: Alignment.centerLeft,
                           child: DocumentTypeBadge(
-                            note.isMarkdown ? 'Markdown' : 'PDF / handwriting',
+                            note.isMedia
+                                ? note.mediaFormat!.kind
+                                : note.isMarkdown
+                                ? 'Markdown'
+                                : 'PDF / handwriting',
                           ),
                         ),
                       ),
@@ -1484,8 +1541,14 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                 ? 'Hide sidebar'
                                 : 'Show sidebar',
                             icon: const Icon(Icons.view_sidebar_outlined),
-                            onPressed: () =>
-                                setState(() => _showSidebar = !_showSidebar),
+                            onPressed: () {
+                              setState(() => _showSidebar = !_showSidebar);
+                              unawaited(
+                                widget.repository.catalog.displayPreferences
+                                    .set('markdownSidebar', _showSidebar)
+                                    .catchError((Object _) {}),
+                              );
+                            },
                           ),
                         IconButton(
                           tooltip: 'Hide toolbars',

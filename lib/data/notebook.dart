@@ -14,6 +14,7 @@ import 'templates.dart';
 import 'learning.dart';
 import 'markdown_document.dart';
 import 'ink.dart';
+import 'media.dart';
 
 // Keep the original 64 KB bound for titles/folders/tags; allow a bounded,
 // lossless assessment log instead of silently truncating learning history.
@@ -58,7 +59,17 @@ class Notebook {
   final LearningProgress learning;
   final String? linkPath;
   bool get isMarkdown => paper == 'markdown';
-  String get documentPath => linkPath ?? '$id.${isMarkdown ? 'md' : 'pdf'}';
+  MediaFormat? get mediaFormat =>
+      paper.startsWith('media:') ? MediaFormat.of(paper.substring(6)) : null;
+  bool get isMedia => mediaFormat != null;
+  bool get isPdf => !isMarkdown && !isMedia;
+  String get extension => mediaFormat?.extension ?? (isMarkdown ? 'md' : 'pdf');
+  String get payloadName => isMedia
+      ? 'document.media'
+      : isMarkdown
+      ? 'document.markdown.zip'
+      : 'document.pdf';
+  String get documentPath => linkPath ?? '$id.$extension';
   Notebook copy({
     String? title,
     int? lineColor,
@@ -82,7 +93,9 @@ class Notebook {
     linkPath: linkPath,
   );
   Map<String, Object?> toJson() => {
-    'version': isMarkdown || linkPath != null
+    'version': isMedia
+        ? 5
+        : isMarkdown || linkPath != null
         ? 4
         : learning.isEmpty
         ? 2
@@ -106,17 +119,24 @@ class Notebook {
         'Titles, folders and tags may use at most 64 KB in total.',
       );
     }
-    if (![1, 2, 3, 4].contains(json['version']) ||
+    if (![1, 2, 3, 4, 5].contains(json['version']) ||
         (json['version'] == 3 && json['learning'] is! Map<String, dynamic>) ||
         (json['version'] != 3 &&
             json['version'] != 4 &&
+            json['version'] != 5 &&
             json.containsKey('learning')) ||
         (json['linkPath'] != null &&
-            (json['version'] != 4 ||
+            ((json['version'] != 4 && json['version'] != 5) ||
                 json['linkPath'] is! String ||
                 !MarkdownDocument.safePath(json['linkPath'] as String) ||
                 !((json['linkPath'] as String).toLowerCase().endsWith(
-                  json['paper'] == 'markdown' ? '.md' : '.pdf',
+                  json['paper'] == 'markdown'
+                      ? '.md'
+                      : json['version'] == 5 &&
+                            json['paper'] is String &&
+                            (json['paper'] as String).startsWith('media:')
+                      ? '.${(json['paper'] as String).substring(6)}'
+                      : '.pdf',
                 )))) ||
         (json['folderId'] != null && json['folderId'] is! String) ||
         (json['folderName'] != null && json['folderName'] is! String) ||
@@ -137,6 +157,8 @@ class Notebook {
           'grid',
           'pdf',
           if (json['version'] == 4) 'markdown',
+          if (json['version'] == 5)
+            ...MediaFormat.formats.map((f) => 'media:${f.extension}'),
         ].contains(json['paper'])) {
       throw const FormatException('Invalid or unsupported note file.');
     }
@@ -188,6 +210,8 @@ void validatePdf(Uint8List bytes) {
 void validateNotebookContent(Notebook note, Uint8List bytes) {
   if (note.isMarkdown) {
     MarkdownDocument.decode(bytes);
+  } else if (note.isMedia) {
+    note.mediaFormat!.validate(bytes);
   } else {
     validatePdf(bytes);
   }
@@ -269,15 +293,12 @@ class LocalNotebookRepository implements NotebookRepository {
     final archive = Archive()
       ..addFile(ArchiveFile('manifest.json', metadata.length, metadata))
       ..addFile(
-        ArchiveFile(
-          note.isMarkdown ? 'document.markdown.zip' : 'document.pdf',
-          pdf.length,
-          pdf,
-        )..compression = CompressionType.none,
+        ArchiveFile(note.payloadName, pdf.length, pdf)
+          ..compression = CompressionType.none,
       );
     if (ink != null) {
       final bytes = ink.encode();
-      if (bytes.length > InkDocument.maxBytes || note.isMarkdown) {
+      if (bytes.length > InkDocument.maxBytes || !note.isPdf) {
         throw const FormatException('Invalid or oversized ink layer.');
       }
       archive.addFile(ArchiveFile('ink.json', bytes.length, bytes));
@@ -307,9 +328,7 @@ class LocalNotebookRepository implements NotebookRepository {
     final note = Notebook.fromJson(
       jsonDecode(utf8.decode(manifest.content)) as Map<String, dynamic>,
     );
-    final pdf = archive.find(
-      note.isMarkdown ? 'document.markdown.zip' : 'document.pdf',
-    );
+    final pdf = archive.find(note.payloadName);
     if (pdf == null || pdf.size > 256 * 1024 * 1024) {
       throw const FormatException('Invalid note archive.');
     }
@@ -317,7 +336,7 @@ class LocalNotebookRepository implements NotebookRepository {
     if (archive.files.any((f) => !f.isFile) ||
         archive.files.map((f) => f.name).toSet().length !=
             archive.files.length ||
-        (archive.files.length == 3 && (ink == null || note.isMarkdown)) ||
+        (archive.files.length == 3 && (ink == null || !note.isPdf)) ||
         (ink != null && ink.size > InkDocument.maxBytes)) {
       throw const FormatException('Invalid note archive.');
     }
@@ -539,6 +558,9 @@ class LocalNotebookRepository implements NotebookRepository {
   }) async {
     if (paper == 'markdown') {
       MarkdownDocument.decode(pdf);
+    } else if (paper.startsWith('media:') &&
+        MediaFormat.of(paper.substring(6)) != null) {
+      MediaFormat.of(paper.substring(6))!.validate(pdf);
     } else {
       await _validatePdfOffThread(pdf);
     }
@@ -575,7 +597,7 @@ class LocalNotebookRepository implements NotebookRepository {
         _loadedInk.remove(note.id);
       }
       await _saveNotebook(path, updated, snapshot);
-      if (isNew && !note.isMarkdown) {
+      if (isNew && note.isPdf) {
         _cacheInk(note.id, (
           InkDocument(generation: _legacyInkGeneration(updated)),
           '',
@@ -648,7 +670,7 @@ class LocalNotebookRepository implements NotebookRepository {
           : p.posix.normalize(
               p.posix.join(
                 p.posix.dirname(note.documentPath),
-                '${newId()}.${note.isMarkdown ? 'md' : 'pdf'}',
+                '${newId()}.${note.extension}',
               ),
             ),
     );
@@ -703,7 +725,7 @@ class LocalNotebookRepository implements NotebookRepository {
           : p.posix.normalize(
               p.posix.join(
                 p.posix.dirname(note.documentPath),
-                '${newId()}.${note.isMarkdown ? 'md' : 'pdf'}',
+                '${newId()}.${note.extension}',
               ),
             ),
     );
@@ -777,13 +799,11 @@ Notebook _readNotebookMetadata(File file) {
         : Notebook.fromJson(
             jsonDecode(utf8.decode(manifest.content)) as Map<String, dynamic>,
           );
-    final pdf = archive.find(
-      note?.isMarkdown == true ? 'document.markdown.zip' : 'document.pdf',
-    );
+    final pdf = archive.find(note?.payloadName ?? 'document.pdf');
     if ((archive.files.length != 2 &&
             !(archive.files.length == 3 &&
                 archive.find('ink.json') != null &&
-                note?.isMarkdown == false)) ||
+                note?.isPdf == true)) ||
         manifest == null ||
         pdf == null ||
         manifest.size > maxNotebookMetadataBytes ||
@@ -968,10 +988,8 @@ void _writeNotebook(
     throw const FormatException('The note file is too large (maximum 256 MB).');
   }
   if (note.isMarkdown) MarkdownDocument.decode(pdf);
-  if (ink == null &&
-      preserveInk &&
-      !note.isMarkdown &&
-      File(path).existsSync()) {
+  if (note.isMedia) note.mediaFormat!.validate(pdf);
+  if (ink == null && preserveInk && note.isPdf && File(path).existsSync()) {
     ink = LocalNotebookRepository.decodeWithInk(
       File(path).readAsBytesSync(),
     ).$3;
@@ -979,15 +997,12 @@ void _writeNotebook(
   final archive = Archive()
     ..addFile(ArchiveFile('manifest.json', metadata.length, metadata))
     ..addFile(
-      ArchiveFile(
-        note.isMarkdown ? 'document.markdown.zip' : 'document.pdf',
-        pdf.length,
-        pdf,
-      )..compression = CompressionType.none,
+      ArchiveFile(note.payloadName, pdf.length, pdf)
+        ..compression = CompressionType.none,
     );
   if (ink != null) {
     final bytes = ink.encode();
-    if (bytes.length > InkDocument.maxBytes || note.isMarkdown) {
+    if (bytes.length > InkDocument.maxBytes || !note.isPdf) {
       throw const FormatException('Invalid or oversized ink layer.');
     }
     archive.addFile(ArchiveFile('ink.json', bytes.length, bytes));

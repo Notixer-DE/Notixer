@@ -24,6 +24,9 @@ String archiveDigest(Uint8List bytes) {
       .toString();
 }
 
+Future<String> archiveDigestAsync(Uint8List bytes) =>
+    Isolate.run(() => archiveDigest(bytes), debugName: 'noter:archive-digest');
+
 /// Assessments and their save timestamp do not constitute a document conflict.
 /// Keep the existing conflict-copy rule for actual PDF/organization edits.
 Future<String> _documentDigest(Uint8List bytes) {
@@ -99,9 +102,15 @@ class SyncReport {
 /// Sync is explicitly scoped to the library: open editors are closed/flushed
 /// before entry. Compare-and-swap also protects against external local writers.
 class NotebookSync {
-  NotebookSync(this.repository, this.remote, {this.onProgress});
+  NotebookSync(
+    this.repository,
+    this.remote, {
+    this.onProgress,
+    this.extras = false,
+  });
   final LocalNotebookRepository repository;
   final RevisionRemote remote;
+  final bool extras;
   final void Function(String)? onProgress;
   bool _running = false;
 
@@ -156,7 +165,8 @@ class NotebookSync {
     }
     onProgress?.call('Loading encrypted revisions …');
     final revisions = <String, SyncRevision>{
-      for (final r in await remote.list()) r.revision: r,
+      for (final r in await remote.list())
+        if (r.noteId.startsWith('extra_') == extras) r.revision: r,
     };
     // A corrupt history must never turn a live document into a deletion.
     for (final r in revisions.values) {
@@ -237,7 +247,20 @@ class NotebookSync {
       }
       final live = heads.where((r) => !r.deleted).toList();
       final winner = live.isEmpty ? heads.first : live.first;
-      var winnerBytes = winner.deleted ? null : await read(winner);
+      if (heads.length == 1 &&
+          baseline != null &&
+          baseline['digest'] == hash &&
+          ((winner.deleted && snapshot == null) ||
+              (!winner.deleted && winner.digest == hash)) &&
+          previousHeads.length == 1 &&
+          previousHeads.single == winner.revision) {
+        continue;
+      }
+      var winnerBytes = winner.deleted
+          ? null
+          : winner.digest == hash && snapshot != null
+          ? snapshot.archive
+          : await read(winner);
       var resolvedDigest = winner.digest;
       var learning = const LearningProgress.empty();
       final winnerContent = winnerBytes == null || live.length < 2
@@ -273,7 +296,7 @@ class NotebookSync {
         final bytes = await read(losing);
         if (await _documentDigest(bytes) == winnerContent) continue;
         final conflictId =
-            'conflict_${sha256.convert(utf8.encode('$id:${losing.digest}')).toString().substring(0, 40)}';
+            '${extras ? 'extra_conflict_' : 'conflict_'}${sha256.convert(utf8.encode('$id:${losing.digest}')).toString().substring(0, 40)}';
         if (revisions.values.any((r) => r.noteId == conflictId) ||
             localIds.contains(conflictId)) {
           continue;
@@ -293,11 +316,11 @@ class NotebookSync {
           folderName: note.folderName,
           tags: note.tags,
           learning: learning,
-          linkPath: note.isMarkdown || note.linkPath != null
+          linkPath: !note.isPdf || note.linkPath != null
               ? p.posix.normalize(
                   p.posix.join(
                     p.posix.dirname(note.documentPath),
-                    '$conflictId.${note.isMarkdown ? 'md' : 'pdf'}',
+                    '$conflictId.${note.extension}',
                   ),
                 )
               : null,

@@ -6,6 +6,7 @@ import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:path/path.dart' as p;
+import 'media.dart';
 
 /// Markdown is the source of truth. Assets travel with it, never as host paths.
 class MarkdownDocument {
@@ -40,7 +41,9 @@ class MarkdownDocument {
     }
     var total = text.length;
     final archive = Archive()
-      ..addFile(ArchiveFile('document.md', text.length, text));
+      ..addFile(
+        ArchiveFile('document.md', text.length, text)..lastModTime = 315532800,
+      );
     for (final entry in assets.entries) {
       if (!safePath(entry.key) ||
           !entry.key.startsWith('assets/') ||
@@ -48,7 +51,10 @@ class MarkdownDocument {
         throw const FormatException('Invalid Markdown attachment.');
       }
       total += entry.value.length;
-      archive.addFile(ArchiveFile(entry.key, entry.value.length, entry.value));
+      archive.addFile(
+        ArchiveFile(entry.key, entry.value.length, entry.value)
+          ..lastModTime = 315532800,
+      );
     }
     if (total > maxTotalBytes) {
       throw const FormatException(
@@ -94,6 +100,25 @@ class MarkdownDocument {
     return MarkdownDocument(source, assets);
   }
 
+  (MarkdownDocument, String) withAttachment(Uint8List bytes, String extension) {
+    final format = MediaFormat.of(extension);
+    if (format == null) {
+      throw const FormatException('Unsupported media attachment.');
+    }
+    format.validate(bytes);
+    final name = 'assets/${sha256.convert(bytes)}.${format.extension}';
+    final result = copy(assets: {...assets, name: bytes});
+    if (bytes.length > maxAssetBytes ||
+        utf8.encode(source).length +
+                result.assets.values.fold<int>(0, (sum, b) => sum + b.length) >
+            maxTotalBytes) {
+      throw const FormatException(
+        'The attachment or Markdown bundle is too large (32 MB per attachment, 64 MB total).',
+      );
+    }
+    return (result, name);
+  }
+
   /// Content-addressed names avoid image collisions when exporting notes together.
   (MarkdownDocument, String) withImage(Uint8List bytes, String extension) {
     if (!['png', 'jpg', 'jpeg'].contains(extension.toLowerCase())) {
@@ -126,6 +151,15 @@ Future<(MarkdownDocument, String)> addMarkdownImageAsync(
 ) => Isolate.run(
   () => document.withImage(bytes, extension),
   debugName: 'noter:add-markdown-image',
+);
+
+Future<(MarkdownDocument, String)> addMarkdownAttachmentAsync(
+  MarkdownDocument document,
+  Uint8List bytes,
+  String extension,
+) => Isolate.run(
+  () => document.withAttachment(bytes, extension),
+  debugName: 'noter:add-markdown-attachment',
 );
 
 List<md.Node> parseMarkdown(String source) => md.Document(

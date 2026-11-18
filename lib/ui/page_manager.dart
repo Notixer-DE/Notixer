@@ -130,7 +130,7 @@ class _PageManagerState extends State<PageManager> {
 
   Future<void> _copyTo() async {
     final targets = (await widget.session.repository.list())
-        .where((n) => !n.isMarkdown)
+        .where((n) => n.isPdf)
         .toList();
     if (!mounted) return;
     final note = await showDialog<Notebook>(

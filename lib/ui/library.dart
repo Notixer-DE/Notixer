@@ -1,3 +1,8 @@
+import '../data/media_gateway.dart';
+import 'notebook_cover.dart';
+import 'media_acquisition.dart';
+import 'media_page.dart';
+import '../data/media.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
@@ -62,6 +67,8 @@ class _LibraryPageState extends State<LibraryPage> {
   String _kind = 'all';
   bool _grid = false;
   bool _showNavigation = true;
+  ImportedMedia? _pendingMedia;
+  List<String> _recoverableCaptures = [];
   final _scaffold = GlobalKey<ScaffoldState>();
   final _searchFocus = FocusNode();
   String? _error;
@@ -74,9 +81,14 @@ class _LibraryPageState extends State<LibraryPage> {
     super.initState();
     widget.workspaceController?.refresh = _refresh;
     _sync.addListener(_syncChanged);
+    MediaGateway.recoveredCapture.addListener(_captureRecovered);
     FileGateway.sharedText.addListener(_sharedCapture);
     WidgetsBinding.instance.addPostFrameCallback((_) => _sharedCapture());
     _initializeSync();
+  }
+
+  void _captureRecovered() {
+    if (mounted) _refresh();
   }
 
   void _syncChanged() {
@@ -106,6 +118,7 @@ class _LibraryPageState extends State<LibraryPage> {
           if (_sync.error != null) break;
         }
       }
+      if (_sync.error == null) await _sync.synchronizePreferences();
       await _refresh();
     }
   }
@@ -143,6 +156,7 @@ class _LibraryPageState extends State<LibraryPage> {
   void dispose() {
     widget.workspaceController?.refresh = null;
     _sync.removeListener(_syncChanged);
+    MediaGateway.recoveredCapture.removeListener(_captureRecovered);
     FileGateway.sharedText.removeListener(_sharedCapture);
     if (widget.syncController == null) _sync.dispose();
     _previews.dispose();
@@ -154,9 +168,17 @@ class _LibraryPageState extends State<LibraryPage> {
     try {
       await widget.repository.catalog.load();
       final notes = await widget.repository.list();
+      final captures = MediaGateway.canCapture
+          ? await MediaGateway.pendingCaptures()
+          : const <String>[];
       if (mounted) {
         setState(() {
           _notes = notes;
+          _recoverableCaptures = captures;
+          _showNavigation = widget.repository.catalog.displayPreferences.flag(
+            'librarySidebar',
+            true,
+          );
           if (_tagFilter != null &&
               !notes.any((n) => n.tags.contains(_tagFilter))) {
             _tagFilter = null;
@@ -202,6 +224,89 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
+  Future<void> _recoverCapture() async {
+    final path = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Unfinished media imports'),
+        content: SizedBox(
+          width: 400,
+          height: 280,
+          child: ListView(
+            children: [
+              for (final path in _recoverableCaptures)
+                ListTile(
+                  leading: const Icon(Icons.perm_media_outlined),
+                  title: Text(p.basename(path)),
+                  onTap: () => Navigator.pop(context, path),
+                  trailing: IconButton(
+                    tooltip: 'Discard captured file',
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () async {
+                      await MediaGateway.discardCapture(path);
+                      if (context.mounted) Navigator.pop(context);
+                      await _refresh();
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+    if (path == null || !mounted) return;
+    try {
+      _pendingMedia = await MediaGateway.consumeCapture(path);
+      await _addMedia();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not recover captured media: $error')),
+        );
+      }
+    }
+  }
+
+  Future<void> _addMedia() => _perform(() async {
+    final media = _pendingMedia ?? await acquireMedia(context);
+    if (media == null || !mounted) return;
+    _pendingMedia = media;
+    final now = DateTime.now();
+    try {
+      final note = await widget.repository.save(
+        Notebook(
+          id: LocalNotebookRepository.newId(),
+          title: p.basenameWithoutExtension(media.name),
+          created: now,
+          modified: now,
+          paper: 'media:${media.format.extension}',
+          folderId: _folderFilter?.isNotEmpty == true ? _folderFilter : null,
+          tags: _tagFilter == null ? const [] : [_tagFilter!],
+        ),
+        media.bytes,
+      );
+      _pendingMedia = null;
+      await media.release();
+      await _refresh();
+      await _open(note);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Media could not be saved: $error'),
+            action: SnackBarAction(label: 'Retry', onPressed: _addMedia),
+          ),
+        );
+      }
+    }
+  });
+
   Future<void> _open(Notebook note) async {
     if (widget.onOpenNotebook != null) {
       await widget.onOpenNotebook!(note);
@@ -211,7 +316,15 @@ class _LibraryPageState extends State<LibraryPage> {
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => note.isMarkdown
+        builder: (_) => note.isMedia
+            ? MediaPage(
+                name: note.title,
+                bytes: bytes,
+                format: note.mediaFormat!,
+                note: note,
+                repository: widget.repository,
+              )
+            : note.isMarkdown
             ? MarkdownEditorPage(
                 note: note,
                 bytes: bytes,
@@ -231,7 +344,7 @@ class _LibraryPageState extends State<LibraryPage> {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => PdfSearchPage(
-          notes: _notes.where((n) => !n.isMarkdown).toList(),
+          notes: _notes.where((n) => n.isPdf).toList(),
           repository: widget.repository,
         ),
       ),
@@ -263,6 +376,10 @@ class _LibraryPageState extends State<LibraryPage> {
       builder: (_) => _NewNoteDialog(templates: widget.repository.templates),
     );
     if (choice == null) return;
+    if (choice.$2 == 'media') {
+      await _addMedia();
+      return;
+    }
     await _perform(() async {
       final template = choice.$3 == null
           ? null
@@ -309,7 +426,14 @@ class _LibraryPageState extends State<LibraryPage> {
       await _open(imported.first);
       return;
     }
-    final note = extension == '.md'
+    final mediaFormat = MediaFormat.of(extension);
+    final note = mediaFormat != null
+        ? await widget.repository.create(
+            p.basenameWithoutExtension(file.name),
+            bytes,
+            paper: 'media:${mediaFormat.extension}',
+          )
+        : extension == '.md'
         ? await MarkdownLibrary(widget.repository).importText(file.name, bytes)
         : extension == '.noter'
         ? await widget.repository.importArchive(bytes)
@@ -415,7 +539,15 @@ class _LibraryPageState extends State<LibraryPage> {
     await Navigator.push<void>(
       context,
       MaterialPageRoute(
-        builder: (_) => destination.note.isMarkdown
+        builder: (_) => destination.note.isMedia
+            ? MediaPage(
+                name: destination.note.title,
+                bytes: bytes,
+                format: destination.note.mediaFormat!,
+                note: destination.note,
+                repository: widget.repository,
+              )
+            : destination.note.isMarkdown
             ? MarkdownEditorPage(
                 note: destination.note,
                 bytes: bytes,
@@ -546,7 +678,8 @@ class _LibraryPageState extends State<LibraryPage> {
               _kind == 'all' ||
               (_kind == 'markdown' && n.isMarkdown) ||
               (_kind == 'pdf' && n.paper == 'pdf') ||
-              (_kind == 'notes' && !n.isMarkdown && n.paper != 'pdf'),
+              (_kind == 'notes' && n.isPdf && n.paper != 'pdf') ||
+              (_kind == 'media' && n.isMedia),
         )
         .toList();
     return LayoutBuilder(
@@ -565,8 +698,12 @@ class _LibraryPageState extends State<LibraryPage> {
                           ? 'Hide sidebar'
                           : 'Show sidebar',
                       icon: const Icon(Icons.view_sidebar_outlined),
-                      onPressed: () =>
-                          setState(() => _showNavigation = !_showNavigation),
+                      onPressed: () {
+                        setState(() => _showNavigation = !_showNavigation);
+                        widget.repository.catalog.displayPreferences
+                            .set('librarySidebar', _showNavigation)
+                            .catchError((Object _) {});
+                      },
                     ),
                   )
                 : DocumentTabsChrome.action(context) == null
@@ -599,6 +736,17 @@ class _LibraryPageState extends State<LibraryPage> {
                 onOpenDetails: _syncSettings,
               ),
               if (!phone) ...[
+                if (_recoverableCaptures.isNotEmpty)
+                  IconButton(
+                    tooltip: 'Recover captured media',
+                    onPressed: _busy ? null : _recoverCapture,
+                    icon: const Icon(Icons.restore),
+                  ),
+                IconButton(
+                  tooltip: 'Add media',
+                  onPressed: _busy ? null : _addMedia,
+                  icon: const Icon(Icons.add_photo_alternate_outlined),
+                ),
                 IconButton(
                   tooltip: 'Knowledge hub',
                   onPressed: _busy ? null : _knowledge,
@@ -623,7 +771,7 @@ class _LibraryPageState extends State<LibraryPage> {
                 ),
                 IconButton(
                   tooltip: 'Search PDFs',
-                  onPressed: _busy || !_notes.any((n) => !n.isMarkdown)
+                  onPressed: _busy || !_notes.any((n) => n.isPdf)
                       ? null
                       : _searchPdfs,
                   icon: const Icon(Icons.find_in_page_outlined),
@@ -650,6 +798,8 @@ class _LibraryPageState extends State<LibraryPage> {
                 PopupMenuButton<String>(
                   tooltip: 'Library actions',
                   onSelected: (value) {
+                    if (value == 'recover-media') _recoverCapture();
+                    if (value == 'media') _addMedia();
                     if (value == 'knowledge') _knowledge();
                     if (value == 'journal') _knowledge(section: 'Journal');
                     if (value == 'tasks') _knowledge(section: 'Tasks');
@@ -665,6 +815,17 @@ class _LibraryPageState extends State<LibraryPage> {
                     if (value == 'view') setState(() => _grid = !_grid);
                   },
                   itemBuilder: (_) => [
+                    if (_recoverableCaptures.isNotEmpty)
+                      PopupMenuItem(
+                        value: 'recover-media',
+                        enabled: !_busy,
+                        child: const Text('Recover captured media'),
+                      ),
+                    PopupMenuItem(
+                      value: 'media',
+                      enabled: !_busy,
+                      child: const Text('Add media'),
+                    ),
                     PopupMenuItem(
                       value: 'knowledge',
                       enabled: !_busy,
@@ -822,6 +983,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                         ('markdown', 'Text'),
                                         ('notes', 'Notebooks'),
                                         ('pdf', 'PDFs'),
+                                        ('media', 'Media'),
                                       ])
                                         ChoiceChip(
                                           label: Text(label),
@@ -1110,7 +1272,9 @@ class _LibraryPageState extends State<LibraryPage> {
         widget.repository.catalog.folderName(note.folderId) ?? 'Unfiled',
       ...note.tags.map((tag) => '#$tag'),
     ].join(' · ');
-    final type = note.isMarkdown
+    final type = note.isMedia
+        ? note.mediaFormat!.kind
+        : note.isMarkdown
         ? 'Markdown'
         : note.paper == 'pdf'
         ? 'PDF'
@@ -1142,7 +1306,9 @@ class _LibraryPageState extends State<LibraryPage> {
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Icon(
-                  note.isMarkdown
+                  note.isMedia
+                      ? mediaIcon(note.mediaFormat!)
+                      : note.isMarkdown
                       ? Icons.description_outlined
                       : Icons.picture_as_pdf_outlined,
                   size: 20,
@@ -1358,6 +1524,12 @@ class _NewNoteDialogState extends State<_NewNoteDialog> {
             },
             icon: const Icon(Icons.dashboard_customize_outlined),
             label: const Text('Choose template'),
+          ),
+          TextButton.icon(
+            onPressed: () =>
+                Navigator.pop(context, ('', 'media', null, 0xDCE4EC)),
+            icon: const Icon(Icons.add_photo_alternate_outlined),
+            label: const Text('Add media'),
           ),
           if (_template != null)
             TextButton(

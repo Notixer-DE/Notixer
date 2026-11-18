@@ -304,7 +304,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
             child: const Text('Open the same note again'),
           ),
           for (final note in notes.where(
-            (n) => !n.isMarkdown && n.id != session.note.id,
+            (n) => n.isPdf && n.id != session.note.id,
           ))
             SimpleDialogOption(
               onPressed: () => Navigator.pop(context, note),

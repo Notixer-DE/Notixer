@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 
 import 'markdown_document.dart';
 import 'notebook.dart';
+import 'media.dart';
 
 /// Portable paths are independent of titles and UI folders. Renaming/moving a
 /// note therefore cannot break its incoming links.
@@ -103,7 +104,7 @@ class MarkdownLibrary {
         title: document.title,
         created: now,
         modified: now,
-        paper: document.markdown ? 'markdown' : 'pdf',
+        paper: document.paper,
         linkPath: '$namespace/${document.path}',
       );
       result.add(await repository.save(note, document.bytes));
@@ -142,7 +143,7 @@ class MarkdownLibrary {
       final note = pending.removeLast();
       if (!visited.add(note.id)) continue;
       final source = repository;
-      final bytes = !note.isMarkdown && source is LocalNotebookRepository
+      final bytes = note.isPdf && source is LocalNotebookRepository
           ? await source.loadPdf(note.id)
           : await source.load(note.id);
       if (!note.isMarkdown) {
@@ -152,7 +153,6 @@ class MarkdownLibrary {
       final document = await decodeMarkdownAsync(bytes);
       add(note.documentPath, Uint8List.fromList(utf8.encode(document.source)));
       final referencedAssets = markdownLinks(document.source)
-          .where((link) => link.image)
           .map((link) => Uri.tryParse(link.href))
           .whereType<Uri>()
           .map(markdownAssetPath)
@@ -198,7 +198,7 @@ String _title(String source, String fallback) {
 typedef _ImportedDocument = ({
   String path,
   String title,
-  bool markdown,
+  String paper,
   Uint8List bytes,
 });
 
@@ -241,7 +241,7 @@ List<_ImportedDocument> _readBundle(Uint8List bytes) {
       result.add((
         path: entry.key,
         title: p.posix.basenameWithoutExtension(entry.key),
-        markdown: false,
+        paper: 'pdf',
         bytes: entry.value,
       ));
       continue;
@@ -251,13 +251,14 @@ List<_ImportedDocument> _readBundle(Uint8List bytes) {
     }
     final source = utf8.decode(entry.value);
     final assets = <String, Uint8List>{};
-    for (final link in markdownLinks(source).where((l) => l.image)) {
+    for (final link in markdownLinks(source)) {
       final path = resolveMarkdownPath(entry.key, link.href);
       if (path == null || !files.containsKey(path)) continue;
       final relative = p.posix.relative(path, from: p.posix.dirname(entry.key));
       if (!relative.startsWith('assets/')) {
+        if (!link.image) continue;
         throw const FormatException(
-          'Local images must be stored under assets/.',
+          'Local attachments must be stored under assets/.',
         );
       }
       assets[relative] = files[path]!;
@@ -266,8 +267,22 @@ List<_ImportedDocument> _readBundle(Uint8List bytes) {
     result.add((
       path: entry.key,
       title: _title(source, p.posix.basenameWithoutExtension(entry.key)),
-      markdown: true,
+      paper: 'markdown',
       bytes: MarkdownDocument(source, assets).encode(),
+    ));
+  }
+  for (final entry in files.entries.where(
+    (entry) => !consumed.contains(entry.key),
+  )) {
+    final format = MediaFormat.of(p.posix.extension(entry.key));
+    if (format == null) continue;
+    format.validate(entry.value);
+    consumed.add(entry.key);
+    result.add((
+      path: entry.key,
+      title: p.posix.basenameWithoutExtension(entry.key),
+      paper: 'media:${format.extension}',
+      bytes: entry.value,
     ));
   }
   if (result.isEmpty) {

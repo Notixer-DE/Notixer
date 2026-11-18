@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+import 'media_page.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
 import '../data/notebook.dart';
@@ -255,7 +257,9 @@ class _RecoveryPreviewState extends State<_RecoveryPreview> {
   late final Future<Object> _document = widget.repository
       .recoveryPdf(widget.entry)
       .then(
-        (bytes) async => widget.entry.note.isMarkdown
+        (bytes) async => widget.entry.note.isMedia
+            ? bytes
+            : widget.entry.note.isMarkdown
             ? await decodeMarkdownAsync(bytes)
             : PdfDocument.open(bytes),
       );
@@ -288,7 +292,13 @@ class _RecoveryPreviewState extends State<_RecoveryPreview> {
                 ),
               ),
               Expanded(
-                child: snapshot.data is MarkdownDocument
+                child: widget.entry.note.isMedia
+                    ? MediaPage(
+                        name: widget.entry.note.title,
+                        bytes: snapshot.data! as Uint8List,
+                        format: widget.entry.note.mediaFormat!,
+                      )
+                    : snapshot.data is MarkdownDocument
                     ? SingleChildScrollView(
                         padding: const EdgeInsets.all(24),
                         child: MarkdownBody(

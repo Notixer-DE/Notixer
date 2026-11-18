@@ -18,9 +18,7 @@ class PdfSearchPage extends StatefulWidget {
 }
 
 class _PdfSearchPageState extends State<PdfSearchPage> {
-  late List<Notebook> _notes = widget.notes
-      .where((n) => !n.isMarkdown)
-      .toList();
+  late List<Notebook> _notes = widget.notes.where((n) => n.isPdf).toList();
   final _query = TextEditingController();
   final _selected = <String>{};
   final _hits = <(Notebook, PdfSearchHit)>[];
@@ -33,7 +31,7 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
 
   Future<void> _reload() async {
     final notes = (await widget.repository.list())
-        .where((n) => !n.isMarkdown)
+        .where((n) => n.isPdf)
         .toList();
     if (!mounted) return;
     setState(() {

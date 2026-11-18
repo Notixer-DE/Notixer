@@ -367,6 +367,9 @@ class _LibraryGraphPageState extends State<LibraryGraphPage> {
                                                   Icon(
                                                     node.isTag
                                                         ? Icons.tag
+                                                        : node.note!.isMedia
+                                                        ? Icons
+                                                              .perm_media_outlined
                                                         : node.note!.isMarkdown
                                                         ? Icons
                                                               .description_outlined
