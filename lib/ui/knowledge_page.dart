@@ -396,9 +396,12 @@ class _KnowledgePageState extends State<KnowledgePage> {
                         value: '',
                         child: Text('All tags'),
                       ),
-                      for (final tag
-                          in _notes.expand((n) => n.tags).toSet().toList()
-                            ..sort())
+                      for (final tag in {
+                        ..._notes
+                            .expand((n) => n.tags)
+                            .where((tag) => tag.isNotEmpty),
+                        if (_tag.isNotEmpty) _tag,
+                      }.toList()..sort())
                         DropdownMenuItem(
                           value: tag,
                           child: SizedBox(
@@ -423,6 +426,18 @@ class _KnowledgePageState extends State<KnowledgePage> {
                             width: 110,
                             child: Text(
                               folder.name,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      if (_folder.isNotEmpty &&
+                          widget.repository.catalog.folderName(_folder) == null)
+                        DropdownMenuItem(
+                          value: _folder,
+                          child: const SizedBox(
+                            width: 110,
+                            child: Text(
+                              'Unavailable folder',
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -715,8 +730,8 @@ class _KnowledgePageState extends State<KnowledgePage> {
                       }
                       await _store.renameTag(entry.value.$1, value);
                       _notes = await widget.repository.list();
-                      if (!_notes.any((note) => note.tags.contains(_tag))) {
-                        _tag = '';
+                      if (_tag.toLowerCase() == entry.value.$1.toLowerCase()) {
+                        _tag = value;
                       }
                     });
                   },
@@ -750,16 +765,9 @@ class _KnowledgePageState extends State<KnowledgePage> {
                   setState(() {
                     _section = 'Search';
                     _query.text = view.query;
-                    _tag = _notes.any((n) => n.tags.contains(view.tag))
-                        ? view.tag
-                        : '';
+                    _tag = view.tag;
                     _kind = view.kind;
-                    _folder =
-                        widget.repository.catalog.folders.any(
-                          (f) => f.id == view.folder,
-                        )
-                        ? view.folder
-                        : '';
+                    _folder = view.folder;
                     _onlyTasks = view.openTasks;
                   });
                   _search();

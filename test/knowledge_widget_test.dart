@@ -126,6 +126,37 @@ void main() {
   });
 
   testWidgets(
+    'saved views retain filters even when their tag currently has no files',
+    (tester) async {
+      final store = KnowledgeStore(repository);
+      await tester.runAsync(store.load);
+      store.views = [
+        const KnowledgeView('Empty inbox view', tag: 'Missing tag'),
+      ];
+      await tester.runAsync(store.save);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: NoterTheme.light,
+          home: KnowledgePage(repository: repository, initialSection: 'Views'),
+        ),
+      );
+      await waitKnowledge(
+        tester,
+        () => find.text('Empty inbox view').evaluate().isNotEmpty,
+      );
+      await tester.tap(find.text('Empty inbox view'));
+      await waitKnowledge(
+        tester,
+        () => find.text('No matches.').evaluate().isNotEmpty,
+      );
+      expect(find.text('Source note'), findsNothing);
+      expect(find.text('Missing tag'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
     'journal creates a dated template entry and returns its destination',
     (tester) async {
       KnowledgeDestination? selected;
