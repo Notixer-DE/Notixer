@@ -21,6 +21,7 @@ import 'template_library.dart';
 import 'workspace_chrome.dart';
 import 'sync_button.dart';
 import 'document_tab.dart';
+import 'library_graph_page.dart';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({
@@ -306,6 +307,16 @@ class _LibraryPageState extends State<LibraryPage> {
     await _refresh();
     await _open(note);
   });
+  Future<void> _graphView() async {
+    final note = await Navigator.push<Notebook>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LibraryGraphPage(repository: widget.repository),
+      ),
+    );
+    if (note != null && mounted) await _perform(() => _open(note));
+  }
+
   Future<void> _organize(Notebook note) async {
     final updated = await showDialog<Notebook>(
       context: context,
@@ -450,6 +461,11 @@ class _LibraryPageState extends State<LibraryPage> {
               ),
               if (!phone) ...[
                 IconButton(
+                  tooltip: 'Graph view',
+                  icon: const Icon(Icons.hub_outlined),
+                  onPressed: _busy ? null : _graphView,
+                ),
+                IconButton(
                   tooltip: _grid ? 'List view' : 'Grid view',
                   onPressed: () => setState(() => _grid = !_grid),
                   icon: Icon(
@@ -490,6 +506,7 @@ class _LibraryPageState extends State<LibraryPage> {
                 PopupMenuButton<String>(
                   tooltip: 'Library actions',
                   onSelected: (value) {
+                    if (value == 'graph') _graphView();
                     if (value == 'import') _import();
                     if (value == 'pdf') _searchPdfs();
                     if (value == 'trash') _recovery();
@@ -498,6 +515,11 @@ class _LibraryPageState extends State<LibraryPage> {
                     if (value == 'view') setState(() => _grid = !_grid);
                   },
                   itemBuilder: (_) => [
+                    PopupMenuItem(
+                      value: 'graph',
+                      enabled: !_busy,
+                      child: const Text('Graph view'),
+                    ),
                     PopupMenuItem(
                       value: 'view',
                       child: Text(_grid ? 'List view' : 'Grid view'),

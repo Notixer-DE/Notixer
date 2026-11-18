@@ -7,6 +7,7 @@ import '../data/catalog.dart';
 import '../data/document_session.dart';
 import '../data/file_gateway.dart';
 import '../data/notebook.dart';
+import '../data/markdown_document.dart';
 import '../data/paper.dart';
 import '../input/stylus_eraser.dart';
 import 'editor_pane.dart';
@@ -111,6 +112,28 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         eraser: _eraserResolver,
         input: _inputInterceptor,
         pause: _pauseTab,
+        anchor: (anchor) async {
+          final page = markdownPdfPage(anchor);
+          if (page == null) {
+            _message('Invalid PDF page link: $anchor');
+            return;
+          }
+          await WidgetsBinding.instance.endOfFrame;
+          if (!mounted) return;
+          final index = _panes.indexWhere(
+            (pane) => pane.session.note.id == widget.note.id,
+          );
+          if (index < 0) return;
+          final pane = _panes[index];
+          if (_active != index) {
+            setState(() => _active = index);
+            pane.key.currentState?.activateTools();
+          }
+          final found = await pane.key.currentState?.revealLinkedPage(page - 1);
+          if (found != true && mounted) {
+            _message('PDF page $page does not exist.');
+          }
+        },
       );
     } else {
       FileGateway.beforeClose = _closeHandler;

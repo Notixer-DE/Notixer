@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../data/file_gateway.dart';
 import '../data/notebook.dart';
+import '../data/markdown_document.dart';
 import '../input/stylus_eraser.dart';
 import '../sync/sync_controller.dart';
 import 'document_tab.dart';
@@ -17,6 +18,11 @@ class _OpenDocument {
   final Notebook note;
   final Uint8List bytes;
   final String anchor;
+  int? get initialPdfPage {
+    final page = markdownPdfPage(anchor);
+    return page == null ? null : page - 1;
+  }
+
   final DocumentTabController controller;
 }
 
@@ -342,6 +348,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                                           bytes: _tabs[i].bytes,
                                           repository: widget.repository,
                                           tabController: _tabs[i].controller,
+                                          initialPage: _tabs[i].initialPdfPage,
                                           workspaceSessions: _pdfSessions,
                                           onLibrary: showLibrary,
                                         ),

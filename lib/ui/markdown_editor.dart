@@ -19,6 +19,8 @@ import 'markdown_preview.dart';
 import 'markdown_source_edit.dart';
 import 'workspace_chrome.dart';
 import 'document_tab.dart';
+import 'library_graph_page.dart';
+import 'organize_dialog.dart';
 
 class MarkdownEditorPage extends StatefulWidget {
   const MarkdownEditorPage({
@@ -320,6 +322,19 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       throw const FormatException('The note was deleted.');
     }
     note = current.single;
+    final page = note.isMarkdown ? null : markdownPdfPage(anchor);
+    if (!note.isMarkdown && anchor.isNotEmpty) {
+      if (page == null) {
+        throw const FormatException(
+          'Use #page= followed by a positive page number for PDF links.',
+        );
+      }
+      final bytes = await widget.repository.load(note.id);
+      final count = await markdownPdfPageCount(bytes);
+      if (page > count) {
+        throw FormatException('PDF page $page does not exist ($count pages).');
+      }
+    }
     if (widget.onOpenNotebook != null) {
       await widget.onOpenNotebook!(note, anchor: anchor);
       return;
@@ -334,6 +349,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
             note: note,
             bytes: bytes,
             repository: widget.repository,
+            initialPage: page == null ? null : page - 1,
           ),
         ),
       );
@@ -390,13 +406,18 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       return;
     }
     if (note.id == _session.note.id) {
-      _anchor(Uri.decodeComponent(uri.fragment));
+      _anchor(uri.fragment);
     } else {
-      await _open(note, anchor: Uri.decodeComponent(uri.fragment));
+      await _open(note, anchor: uri.fragment);
     }
   }
 
   Future<void> _anchor(String anchor) async {
+    if (_source) {
+      setState(() => _source = false);
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+    }
     final found = await _previewKey.currentState?.scrollToHeading(anchor);
     if (found != true && mounted) {
       setState(() => _message = 'Heading not found: $anchor');
@@ -455,6 +476,143 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     _insert('\n$fence\n', '\n$fence\n', 'Code');
   }
 
+  Future<void> _graphView() async {
+    final note = await Navigator.push<Notebook>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LibraryGraphPage(
+          repository: widget.repository,
+          sourceOverrides: {_session.note.id: _text.text},
+        ),
+      ),
+    );
+    if (note != null && mounted) await _open(note);
+  }
+
+  Future<void> _organize() async {
+    final note = await showDialog<Notebook>(
+      context: context,
+      builder: (_) =>
+          OrganizeDialog(note: _session.note, repository: widget.repository),
+    );
+    if (note != null && mounted) {
+      _session.organize(note);
+      if (await _saveBeforeClose() && mounted) await _reload();
+    }
+  }
+
+  Future<(String, String)?> _pdfPageLink(Notebook note) async {
+    try {
+      final bytes = await widget.repository.load(note.id);
+      final count = await markdownPdfPageCount(bytes);
+      if (!mounted) return null;
+      final form = GlobalKey<FormState>();
+      var page = '1';
+      return await showDialog<(String, String)>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Link to PDF page: ${note.title}'),
+          content: Form(
+            key: form,
+            child: TextFormField(
+              initialValue: page,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: InputDecoration(
+                labelText: 'Page number',
+                helperText: '1–$count',
+              ),
+              onChanged: (value) => page = value,
+              validator: (value) {
+                final number = int.tryParse(value ?? '');
+                return number == null || number < 1 || number > count
+                    ? 'Enter a page from 1 to $count.'
+                    : null;
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (form.currentState!.validate()) {
+                  final number = int.parse(page);
+                  Navigator.pop(context, (
+                    '${note.title} · Page $number',
+                    Uri.parse(
+                      MarkdownLibrary.linkTo(_session.note, note),
+                    ).replace(fragment: 'page=$number').toString(),
+                  ));
+                }
+              },
+              child: const Text('Insert page link'),
+            ),
+          ],
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        setState(() => _message = 'Could not load PDF pages: $error');
+      }
+      return null;
+    }
+  }
+
+  Future<(String, String)?> _headingLink(Notebook note) async {
+    try {
+      final source = note.id == _session.note.id
+          ? _text.text
+          : (await decodeMarkdownAsync(
+              await widget.repository.load(note.id),
+            )).source;
+      final headings = markdownHeadingTargets(source);
+      if (!mounted) return null;
+      return await showDialog<(String, String)>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Link to heading: ${note.title}'),
+          content: SizedBox(
+            width: 400,
+            height: 320,
+            child: headings.isEmpty
+                ? const Center(child: Text('This note has no headings yet.'))
+                : ListView.builder(
+                    itemCount: headings.length,
+                    itemBuilder: (context, index) {
+                      final heading = headings[index];
+                      final base = note.id == _session.note.id
+                          ? ''
+                          : MarkdownLibrary.linkTo(_session.note, note);
+                      final href = Uri.parse(
+                        base,
+                      ).replace(fragment: heading.slug).toString();
+                      return ListTile(
+                        title: Text(heading.title),
+                        subtitle: Text('H${heading.level} · #${heading.slug}'),
+                        onTap: () =>
+                            Navigator.pop(context, (heading.title, href)),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      );
+    } catch (error) {
+      if (mounted) setState(() => _message = 'Could not load headings: $error');
+      return null;
+    }
+  }
+
   Future<void> _linkDialog() async {
     final url = TextEditingController();
     final label = TextEditingController();
@@ -475,6 +633,16 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                   onChanged: (v) => update(() => query = v),
                 ),
                 const SizedBox(height: 8),
+                ListTile(
+                  leading: const Icon(Icons.segment),
+                  title: const Text('Heading in this note'),
+                  onTap: () async {
+                    final result = await _headingLink(_session.note);
+                    if (result != null && context.mounted) {
+                      Navigator.pop(context, result);
+                    }
+                  },
+                ),
                 for (final note in _notes.where(
                   (n) => n.title.toLowerCase().contains(query.toLowerCase()),
                 ))
@@ -484,6 +652,27 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                     subtitle: Text(
                       note.isMarkdown ? 'Text note' : 'PDF / handwriting',
                     ),
+                    trailing: note.isMarkdown
+                        ? IconButton(
+                            tooltip: 'Link to heading in ${note.title}',
+                            icon: const Icon(Icons.segment),
+                            onPressed: () async {
+                              final result = await _headingLink(note);
+                              if (result != null && context.mounted) {
+                                Navigator.pop(context, result);
+                              }
+                            },
+                          )
+                        : IconButton(
+                            tooltip: 'Link to page in ${note.title}',
+                            icon: const Icon(Icons.find_in_page_outlined),
+                            onPressed: () async {
+                              final result = await _pdfPageLink(note);
+                              if (result != null && context.mounted) {
+                                Navigator.pop(context, result);
+                              }
+                            },
+                          ),
                     onTap: () => Navigator.pop(context, (
                       note.title,
                       MarkdownLibrary.linkTo(_session.note, note),
@@ -1145,9 +1334,25 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                         ),
                       ),
                       PopupMenuButton<String>(
-                        tooltip: 'Export Markdown',
-                        onSelected: _export,
+                        tooltip: 'Note actions',
+                        onSelected: (value) {
+                          if (value == 'graph') {
+                            _graphView();
+                          } else if (value == 'organize') {
+                            _organize();
+                          } else {
+                            _export(value);
+                          }
+                        },
                         itemBuilder: (_) => const [
+                          PopupMenuItem(
+                            value: 'graph',
+                            child: Text('Graph view'),
+                          ),
+                          PopupMenuItem(
+                            value: 'organize',
+                            child: Text('Folders and tags'),
+                          ),
                           PopupMenuItem(
                             value: 'md',
                             child: Text('Export Markdown (.md)'),
@@ -1280,6 +1485,8 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                     Expanded(
                                       child: Text(
                                         _session.error ?? _message!,
+                                        maxLines: 4,
+                                        overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
                                           color: Theme.of(
                                             context,

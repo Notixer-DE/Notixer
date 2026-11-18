@@ -7,6 +7,8 @@ import 'package:noter/data/file_gateway.dart';
 import 'package:noter/data/markdown_document.dart';
 import 'package:noter/data/markdown_library.dart';
 import 'package:noter/data/notebook.dart';
+import 'package:noter/data/paper.dart';
+import 'package:noter/ui/editor_pane.dart';
 import 'package:noter/main.dart';
 import 'package:noter/ui/markdown_editor.dart';
 import 'package:noter/ui/markdown_preview.dart';
@@ -195,6 +197,163 @@ void main() {
       await tester.pumpAndSettle();
     },
   );
+
+  testWidgets(
+    'PDF page picker validates bounds and follows a one-based page link',
+    (tester) async {
+      final target = await tester.runAsync(
+        () async => repository.create(
+          'PDF pages',
+          await createPaper('blank', pages: 3),
+        ),
+      );
+      await open(tester, const Size(1440, 1000));
+      await tester.tap(find.byTooltip('Insert link'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Link to page in PDF pages'));
+      await markdownIo(
+        tester,
+        () => find.text('Page number').evaluate().isNotEmpty,
+      );
+      final number = find.descendant(
+        of: find.byType(AlertDialog).last,
+        matching: find.byType(TextFormField),
+      );
+      await tester.enterText(number, '4');
+      await tester.tap(find.text('Insert page link'));
+      await tester.pump();
+      expect(find.text('Enter a page from 1 to 3.'), findsOneWidget);
+      await tester.enterText(number, '2');
+      await tester.tap(find.text('Insert page link'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 300));
+      final text = tester
+          .widget<TextField>(find.byKey(const ValueKey('markdown-source')))
+          .controller!
+          .text;
+      expect(text, contains('${target!.documentPath}#page=2'));
+      await tester.tap(find.text('Formatted'));
+      await markdownIo(
+        tester,
+        () => find.text('PDF pages · Page 2').evaluate().isNotEmpty,
+      );
+      await tester.ensureVisible(find.text('PDF pages · Page 2'));
+      await tester.tap(find.text('PDF pages · Page 2'));
+      await markdownIo(
+        tester,
+        () => find.byType(EditorPane).evaluate().isNotEmpty,
+      );
+      for (var i = 0; i < 100; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 15)),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+        if (tester
+                .state<EditorPaneState>(find.byType(EditorPane))
+                .viewer
+                .currentPage ==
+            1) {
+          break;
+        }
+      }
+      expect(
+        tester
+            .state<EditorPaneState>(find.byType(EditorPane))
+            .viewer
+            .currentPage,
+        1,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets('Markdown note actions save tags without losing the source', (
+    tester,
+  ) async {
+    await open(tester, const Size(1440, 1000));
+    await tester.tap(find.byTooltip('Note actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Folders and tags'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Tags'),
+      'Study, study, Exam',
+    );
+    await tester.tap(find.text('Save'));
+    await markdownIo(tester, () => find.byType(AlertDialog).evaluate().isEmpty);
+    final notes = await tester.runAsync(() => repository.list());
+    expect(notes!.firstWhere((note) => note.id == a.id).tags, [
+      'Study',
+      'Exam',
+    ]);
+    final persisted = await tester.runAsync(
+      () async => MarkdownDocument.decode(await repository.load(a.id)),
+    );
+    expect(persisted!.source, source);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
+
+  for (final otherFile in [false, true]) {
+    testWidgets(
+      'heading picker inserts and follows a ${otherFile ? "cross-file" : "local"} anchor',
+      (tester) async {
+        await open(tester, const Size(1440, 1000));
+        await tester.tap(find.byTooltip('Insert link'));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          otherFile
+              ? find.byTooltip('Link to heading in Other note')
+              : find.text('Heading in this note'),
+        );
+        await markdownIo(
+          tester,
+          () => find
+              .text(otherFile ? 'Target section' : 'Study plan')
+              .evaluate()
+              .isNotEmpty,
+        );
+        await tester.tap(
+          find.descendant(
+            of: find.byType(AlertDialog).last,
+            matching: find.text(otherFile ? 'Target section' : 'Study plan'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 300));
+        final field = find.byKey(const ValueKey('markdown-source'));
+        final text = tester.widget<TextField>(field).controller!.text;
+        expect(text, contains(otherFile ? '#target-section' : '#study-plan'));
+        if (otherFile) expect(text, contains(b.documentPath));
+        await tester.tap(find.text('Formatted'));
+        await markdownIo(
+          tester,
+          () => find.byType(MarkdownPreview).evaluate().isNotEmpty,
+        );
+        final preview = find.byType(MarkdownPreview);
+        final link = find
+            .descendant(
+              of: preview,
+              matching: find.text(otherFile ? 'Target section' : 'Study plan'),
+            )
+            .last;
+        await tester.ensureVisible(link);
+        await tester.tap(link);
+        await markdownIo(
+          tester,
+          () =>
+              otherFile ? find.text('Linked from').evaluate().isNotEmpty : true,
+        );
+        expect(find.textContaining('Heading not found:'), findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      },
+    );
+  }
 
   testWidgets(
     'link chooser inserts a real relative link and opens the target with backlinks',
