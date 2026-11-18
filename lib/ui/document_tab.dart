@@ -2,6 +2,7 @@ import 'package:flutter/gestures.dart';
 import '../data/document_session.dart';
 import 'package:flutter/foundation.dart';
 import '../data/notebook.dart';
+import '../data/knowledge.dart';
 import '../input/stylus_eraser.dart';
 
 typedef OpenNotebookTab =
@@ -19,6 +20,8 @@ class DocumentTabController extends ChangeNotifier {
   StylusEraser? Function(PointerEvent)? resolveEraser;
   bool Function(PointerEvent)? interceptEvent;
   Future<void> Function(String)? revealAnchor;
+  Future<void> Function(KnowledgeTask)? completeTask;
+  Future<void> Function()? refreshMetadata;
 
   void attach(
     Object owner, {
@@ -44,6 +47,8 @@ class DocumentTabController extends ChangeNotifier {
     resolveEraser = null;
     interceptEvent = null;
     revealAnchor = null;
+    completeTask = null;
+    refreshMetadata = null;
   }
 
   void deactivate() => _pause?.call();

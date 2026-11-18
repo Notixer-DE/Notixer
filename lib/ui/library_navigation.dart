@@ -18,6 +18,10 @@ class LibraryNavigation extends StatelessWidget {
     required this.onManage,
     required this.onTrash,
     required this.onSync,
+    this.onKnowledge,
+    this.onJournal,
+    this.onTasks,
+    this.onCapture,
   });
 
   final List<Notebook> notes;
@@ -26,6 +30,7 @@ class LibraryNavigation extends StatelessWidget {
   final bool enabled;
   final ValueChanged<String?> onFolder, onTag;
   final VoidCallback onManage, onTrash, onSync;
+  final VoidCallback? onKnowledge, onJournal, onTasks, onCapture;
 
   @override
   Widget build(BuildContext context) {
@@ -60,7 +65,7 @@ class LibraryNavigation extends StatelessWidget {
               const Padding(
                 padding: EdgeInsets.fromLTRB(16, 12, 16, 16),
                 child: Text(
-                  'BIBLIOTHEK',
+                  'LIBRARY',
                   style: TextStyle(
                     letterSpacing: .8,
                     fontSize: 10,
@@ -68,6 +73,18 @@ class LibraryNavigation extends StatelessWidget {
                   ),
                 ),
               ),
+              for (final item in [
+                ('Knowledge hub', Icons.manage_search, onKnowledge),
+                ('Journal', Icons.calendar_today_outlined, onJournal),
+                ('All open tasks', Icons.checklist, onTasks),
+                ('Quick capture', Icons.note_add_outlined, onCapture),
+              ])
+                if (item.$3 != null)
+                  ListTile(
+                    leading: Icon(item.$2),
+                    title: Text(item.$1),
+                    onTap: enabled ? item.$3 : null,
+                  ),
               entry('All notes', Icons.grid_view_outlined, null, notes.length),
               entry(
                 'Unfiled',
@@ -82,7 +99,7 @@ class LibraryNavigation extends StatelessWidget {
               const SizedBox(height: 16),
               ListTile(
                 title: const Text(
-                  'ORDNER',
+                  'FOLDERS',
                   style: TextStyle(
                     fontSize: 10,
                     letterSpacing: .8,

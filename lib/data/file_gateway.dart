@@ -1,18 +1,40 @@
 import 'dart:io';
+import 'dart:async';
+import 'knowledge.dart';
+import 'notebook.dart';
+import 'package:flutter/foundation.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/services.dart';
 
 class FileGateway {
+  static Future<void> Function(Notebook, {String? anchor})? openDocument;
+  static Future<void> Function(KnowledgeTask)? completeKnowledgeTask;
+  static Future<void> Function()? refreshOpenDocuments;
+  static final sharedText = ValueNotifier<String?>(null);
   static Future<bool> Function()? beforeClose;
   static Future<bool> Function()? workspaceBeforeClose;
   static Future<bool> Function()? fallbackBeforeClose;
   static void initialize() {
     _channel.setMethodCallHandler((call) async {
+      if (call.method == 'sharedText') {
+        sharedText.value = call.arguments as String?;
+        return true;
+      }
       if (call.method == 'prepareClose') {
         return prepareClose();
       }
       throw MissingPluginException();
     });
+    if (Platform.isAndroid) {
+      unawaited(
+        _channel
+            .invokeMethod<String>('getSharedText')
+            .then((value) {
+              if (value != null) sharedText.value = value;
+            })
+            .catchError((Object _) {}),
+      );
+    }
   }
 
   static Future<bool> prepareClose() async {

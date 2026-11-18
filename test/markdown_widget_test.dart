@@ -12,6 +12,7 @@ import 'package:noter/ui/editor_pane.dart';
 import 'package:noter/main.dart';
 import 'package:noter/ui/markdown_editor.dart';
 import 'package:noter/ui/markdown_preview.dart';
+import 'package:noter/ui/wiki_link_suggestions.dart';
 import 'package:noter/ui/noter_theme.dart';
 
 import 'fixtures/long_markdown.dart';
@@ -394,6 +395,80 @@ void main() {
       await tester.pumpAndSettle();
     },
   );
+
+  testWidgets(
+    'wiki completion inserts stable file and heading links with keyboard support',
+    (tester) async {
+      await open(tester, const Size(1440, 1000));
+      await tester.tap(find.text('Markdown'));
+      await tester.pumpAndSettle();
+      final field = find.byKey(const ValueKey('markdown-source'));
+      await tester.enterText(field, '[[Other');
+      await tester.pump(const Duration(milliseconds: 200));
+      final suggestion = find.descendant(
+        of: find.byType(WikiLinkSuggestions),
+        matching: find.text('Other note'),
+      );
+      await markdownIo(tester, () => suggestion.evaluate().isNotEmpty);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(
+        tester.widget<TextField>(field).controller!.text,
+        contains(b.documentPath),
+      );
+      expect(
+        tester.widget<TextField>(field).controller!.text,
+        isNot(contains('[[')),
+      );
+      await tester.enterText(field, '[[Other note#Target');
+      await tester.pump(const Duration(milliseconds: 200));
+      final heading = find.descendant(
+        of: find.byType(WikiLinkSuggestions),
+        matching: find.text('Target section'),
+      );
+      await markdownIo(tester, () => heading.evaluate().isNotEmpty);
+      await tester.tap(heading);
+      await tester.pump();
+      expect(
+        tester.widget<TextField>(field).controller!.text,
+        contains('#target-section'),
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets('wiki suggestions stay inactive inside fenced code examples', (
+    tester,
+  ) async {
+    await open(tester, const Size(1440, 1000));
+    await tester.tap(find.text('Markdown'));
+    await tester.pumpAndSettle();
+    final field = find.byKey(const ValueKey('markdown-source'));
+    await tester.enterText(field, '```text\n[[Other');
+    await tester.pump(const Duration(milliseconds: 250));
+    for (var i = 0; i < 20; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    expect(
+      find.descendant(
+        of: find.byType(WikiLinkSuggestions),
+        matching: find.text('Other note'),
+      ),
+      findsNothing,
+    );
+    expect(
+      tester.widget<TextField>(field).controller!.text,
+      '```text\n[[Other',
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
 
   testWidgets('source undo survives switching to the formatted view', (
     tester,

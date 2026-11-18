@@ -10,9 +10,11 @@ class NoterTextSelectionOverlay extends StatefulWidget {
     super.key,
     required this.viewer,
     required this.editing,
+    this.onCreateSourceNote,
   });
   final PdfViewerController viewer;
   final PdfEditingController editing;
+  final VoidCallback? onCreateSourceNote;
   @override
   State<NoterTextSelectionOverlay> createState() =>
       _NoterTextSelectionOverlayState();
@@ -54,6 +56,7 @@ class _NoterTextSelectionOverlayState extends State<NoterTextSelectionOverlay> {
                 child: NoterTextSelectionToolbar(
                   viewer: widget.viewer,
                   editing: widget.editing,
+                  onCreateSourceNote: widget.onCreateSourceNote,
                 ),
               ),
             ],
@@ -86,10 +89,12 @@ class NoterTextSelectionToolbar extends StatelessWidget {
     super.key,
     required this.viewer,
     required this.editing,
+    this.onCreateSourceNote,
   });
 
   final PdfViewerController viewer;
   final PdfEditingController editing;
+  final VoidCallback? onCreateSourceNote;
 
   void _mark(PdfMarkupKind kind, Color color) {
     // Capture before the document mutation clears the viewer's selection.
@@ -186,6 +191,12 @@ class NoterTextSelectionToolbar extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (onCreateSourceNote != null)
+                  IconButton(
+                    tooltip: 'Create linked source note',
+                    onPressed: onCreateSourceNote,
+                    icon: const Icon(Icons.add_link, size: 20),
+                  ),
                 IconButton(
                   tooltip: 'Copy text',
                   onPressed: viewer.copySelection,

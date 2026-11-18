@@ -6,6 +6,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'data/notebook.dart';
+import 'data/library_backup.dart';
 import 'data/file_gateway.dart';
 import 'ui/document_workspace.dart';
 import 'input/stylus_eraser.dart';
@@ -49,9 +50,10 @@ class _Startup extends StatefulWidget {
   State<_Startup> createState() => _StartupState();
 }
 
-class _StartupState extends State<_Startup> {
+class _StartupState extends State<_Startup> with WidgetsBindingObserver {
   late final Future<LocalNotebookRepository> _repository;
   LocalNotebookRepository? _opened;
+  AutomaticBackupScheduler? _backups;
   Future<bool> Function()? _previousFallback;
   late final Future<bool> Function() _fallbackHandler = _flushBeforeClose;
   Future<bool> _flushBeforeClose() async {
@@ -62,6 +64,7 @@ class _StartupState extends State<_Startup> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _previousFallback = FileGateway.fallbackBeforeClose;
     _repository = _open();
   }
@@ -76,13 +79,24 @@ class _StartupState extends State<_Startup> {
         );
     if (mounted) {
       _opened = repository;
+      _backups = AutomaticBackupScheduler(
+        repository,
+        prepare: FileGateway.prepareClose,
+      )..start();
       FileGateway.fallbackBeforeClose = _fallbackHandler;
     }
     return repository;
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) _backups?.check();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _backups?.dispose();
     if (identical(FileGateway.fallbackBeforeClose, _fallbackHandler)) {
       FileGateway.fallbackBeforeClose = _previousFallback;
     }

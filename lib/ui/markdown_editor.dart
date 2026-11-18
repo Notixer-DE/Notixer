@@ -21,6 +21,9 @@ import 'workspace_chrome.dart';
 import 'document_tab.dart';
 import 'library_graph_page.dart';
 import 'organize_dialog.dart';
+import '../data/knowledge.dart';
+import 'knowledge_page.dart';
+import 'wiki_link_suggestions.dart';
 
 class MarkdownEditorPage extends StatefulWidget {
   const MarkdownEditorPage({
@@ -104,6 +107,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   late final TextEditingController _text;
   late final TextEditingController _title;
   final _focus = FocusNode();
+  final _wikiKey = GlobalKey<WikiLinkSuggestionsState>();
   var _undo = UndoHistoryController();
   var _titleUndo = UndoHistoryController();
   final _titleFocus = FocusNode();
@@ -161,6 +165,11 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     _text = TextEditingController(text: _session.document.source)
       ..addListener(_edited);
     _focus.onKeyEvent = (_, event) {
+      if (!HardwareKeyboard.instance.isControlPressed &&
+          !HardwareKeyboard.instance.isMetaPressed &&
+          (_wikiKey.currentState?.handleKey(event) ?? false)) {
+        return KeyEventResult.handled;
+      }
       final keyboard = HardwareKeyboard.instance;
       if ((keyboard.isControlPressed || keyboard.isMetaPressed) &&
           !keyboard.isAltPressed) {
@@ -209,6 +218,17 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     _previousClose = FileGateway.beforeClose;
     if (widget.tabController case final tab?) {
       tab.attach(this, save: _saveBeforeClose, anchor: _anchor);
+      tab.completeTask = _applyTask;
+      tab.refreshMetadata = () async {
+        final notes = await widget.repository.list();
+        if (!mounted) return;
+        final current = notes.where((n) => n.id == _session.note.id);
+        if (current.isNotEmpty) {
+          _session.note = current.first;
+          _changed();
+          await _reload();
+        }
+      };
     } else {
       FileGateway.beforeClose = _closeHandler;
     }
@@ -350,6 +370,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
             bytes: bytes,
             repository: widget.repository,
             initialPage: page == null ? null : page - 1,
+            initialQuery: markdownPdfQuote(anchor),
           ),
         ),
       );
@@ -413,6 +434,39 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   }
 
   Future<void> _anchor(String anchor) async {
+    if (anchor == 'edit:end') {
+      setState(() => _source = true);
+      _text.selection = TextSelection.collapsed(offset: _text.text.length);
+      await WidgetsBinding.instance.endOfFrame;
+      if (mounted) {
+        if (_scroll.hasClients) _scroll.jumpTo(0);
+        _focus.requestFocus();
+      }
+      return;
+    }
+    final line = int.tryParse(
+      anchor.startsWith('line=') ? anchor.substring(5) : '',
+    );
+    if (line != null && line > 0) {
+      setState(() => _source = true);
+      var offset = 0;
+      for (var i = 1; i < line; i++) {
+        final next = _text.text.indexOf('\n', offset);
+        if (next < 0) break;
+        offset = next + 1;
+      }
+      final end = _text.text.indexOf('\n', offset);
+      _text.selection = TextSelection(
+        baseOffset: offset,
+        extentOffset: end < 0 ? _text.text.length : end,
+      );
+      await WidgetsBinding.instance.endOfFrame;
+      if (mounted) {
+        if (_scroll.hasClients) _scroll.jumpTo(0);
+        _focus.requestFocus();
+      }
+      return;
+    }
     if (_source) {
       setState(() => _source = false);
       await WidgetsBinding.instance.endOfFrame;
@@ -476,6 +530,123 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     _insert('\n$fence\n', '\n$fence\n', 'Code');
   }
 
+  Future<void> _applyTask(KnowledgeTask task) async {
+    if (task.note.id != _session.note.id ||
+        markdownRevision(_text.text) != task.revision ||
+        !markdownOpenTasks(_text.text).any((t) => t.offset == task.offset)) {
+      throw const FormatException('The task changed. Reload the list first.');
+    }
+    _text.text = _text.text.replaceRange(task.offset, task.offset + 1, 'x');
+    if (!await _session.save()) {
+      throw const FormatException('Could not save the task.');
+    }
+  }
+
+  Future<void> _knowledge(String section) async {
+    if (!await _saveBeforeClose() || !mounted) return;
+    final destination = await Navigator.push<KnowledgeDestination>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => KnowledgePage(
+          repository: widget.repository,
+          initialSection: section,
+          onCompleteTask: (task) async {
+            if (task.note.id == _session.note.id) {
+              await _applyTask(task);
+            } else if (FileGateway.completeKnowledgeTask != null) {
+              await FileGateway.completeKnowledgeTask!(task);
+            } else {
+              await KnowledgeStore(widget.repository).completeTask(task);
+            }
+          },
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await FileGateway.refreshOpenDocuments?.call();
+    final notes = await widget.repository.list();
+    final current = notes.where((n) => n.id == _session.note.id);
+    if (current.isNotEmpty) _session.note = current.first;
+    await _reload();
+    if (destination != null && mounted) {
+      await _open(destination.note, anchor: destination.anchor);
+    }
+  }
+
+  Future<void> _outline() async {
+    final headings = markdownHeadingTargets(_text.text);
+    final slug = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Outline'),
+        content: SizedBox(
+          width: 400,
+          height: 360,
+          child: headings.isEmpty
+              ? const Center(child: Text('No headings yet.'))
+              : ListView(
+                  children: [
+                    for (final heading in headings)
+                      ListTile(
+                        contentPadding: EdgeInsets.only(
+                          left: (heading.level - 1) * 12.0,
+                        ),
+                        title: Text(heading.title),
+                        subtitle: Text('#${heading.slug}'),
+                        onTap: () => Navigator.pop(context, heading.slug),
+                      ),
+                  ],
+                ),
+        ),
+      ),
+    );
+    if (slug != null && mounted) await _anchor(slug);
+  }
+
+  Future<void> _insertTemplate({bool saveCurrent = false}) async {
+    final store = KnowledgeStore(widget.repository);
+    await store.load();
+    if (!mounted) return;
+    if (saveCurrent) {
+      store.templates.add(
+        MarkdownTemplate(
+          LocalNotebookRepository.newId(),
+          _session.note.title,
+          _text.text,
+        ),
+      );
+      await store.save();
+      if (mounted) {
+        setState(
+          () => _message =
+              'Markdown template saved. Manage it in Knowledge hub → Templates.',
+        );
+      }
+      return;
+    }
+    final template = await showDialog<MarkdownTemplate>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Insert Markdown template'),
+        children: [
+          for (final t in store.templates)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, t),
+              child: Text(t.name),
+            ),
+          if (store.templates.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Create templates in Knowledge hub → Templates.'),
+            ),
+        ],
+      ),
+    );
+    if (template != null && mounted) {
+      _insertLiteral(template.render(DateTime.now(), _session.note.title));
+    }
+  }
+
   Future<void> _graphView() async {
     final note = await Navigator.push<Notebook>(
       context,
@@ -483,6 +654,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
         builder: (_) => LibraryGraphPage(
           repository: widget.repository,
           sourceOverrides: {_session.note.id: _text.text},
+          focusNoteId: _session.note.id,
         ),
       ),
     );
@@ -1048,7 +1220,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
               const Padding(
                 padding: EdgeInsets.all(16),
                 child: Text(
-                  'ORDNER',
+                  'FOLDERS',
                   style: TextStyle(fontSize: 11, letterSpacing: 1.5),
                 ),
               ),
@@ -1158,6 +1330,16 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                 ),
                               ),
                               const SizedBox(height: 20),
+                              Offstage(
+                                offstage: !_source,
+                                child: WikiLinkSuggestions(
+                                  key: _wikiKey,
+                                  controller: _text,
+                                  note: _session.note,
+                                  notes: _notes,
+                                  repository: widget.repository,
+                                ),
+                              ),
                               Offstage(
                                 offstage: !_source,
                                 child: SizedBox(
@@ -1336,7 +1518,19 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                       PopupMenuButton<String>(
                         tooltip: 'Note actions',
                         onSelected: (value) {
-                          if (value == 'graph') {
+                          if (value == 'knowledge') {
+                            _knowledge('Search');
+                          } else if (value == 'journal') {
+                            _knowledge('Journal');
+                          } else if (value == 'tasks') {
+                            _knowledge('Tasks');
+                          } else if (value == 'outline') {
+                            _outline();
+                          } else if (value == 'template') {
+                            _insertTemplate();
+                          } else if (value == 'save-template') {
+                            _insertTemplate(saveCurrent: true);
+                          } else if (value == 'graph') {
                             _graphView();
                           } else if (value == 'organize') {
                             _organize();
@@ -1345,6 +1539,30 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                           }
                         },
                         itemBuilder: (_) => const [
+                          PopupMenuItem(
+                            value: 'knowledge',
+                            child: Text('Knowledge hub'),
+                          ),
+                          PopupMenuItem(
+                            value: 'journal',
+                            child: Text('Journal'),
+                          ),
+                          PopupMenuItem(
+                            value: 'tasks',
+                            child: Text('All open tasks'),
+                          ),
+                          PopupMenuItem(
+                            value: 'outline',
+                            child: Text('Outline'),
+                          ),
+                          PopupMenuItem(
+                            value: 'template',
+                            child: Text('Insert Markdown template'),
+                          ),
+                          PopupMenuItem(
+                            value: 'save-template',
+                            child: Text('Save as Markdown template'),
+                          ),
                           PopupMenuItem(
                             value: 'graph',
                             child: Text('Graph view'),
