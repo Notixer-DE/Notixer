@@ -974,6 +974,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
 
   Future<void> _image() => _attachMedia(imagesOnly: true);
   Future<void> _attachMedia({bool imagesOnly = false}) => _run(() async {
+    if (!await _session.save() || !mounted) return;
     final media = await acquireMedia(
       context,
       imagesOnly: imagesOnly,

@@ -175,7 +175,11 @@ void main() {
       final blobs = <String, Uint8List>{};
       final commits = <Map<String, dynamic>>[];
       final requestedCursors = <int>[];
-      var uploadRequests = 0;
+      var uploadRequests = 0, downloadRequests = 0;
+      var activeUploads = 0,
+          activeDownloads = 0,
+          peakUploads = 0,
+          peakDownloads = 0;
       var corrupt = false;
       final client = MockClient((request) async {
         expect(request.headers['authorization'], 'Bearer ${'a' * 64}');
@@ -204,10 +208,19 @@ void main() {
           final id = request.url.pathSegments.last;
           if (request.method == 'PUT') {
             uploadRequests++;
+            activeUploads++;
+            if (activeUploads > peakUploads) peakUploads = activeUploads;
+            await Future<void>.delayed(const Duration(milliseconds: 80));
+            activeUploads--;
             expect(sha256.convert(request.bodyBytes).toString(), id);
             blobs.putIfAbsent(id, () => request.bodyBytes);
             return http.Response('', 204);
           }
+          downloadRequests++;
+          activeDownloads++;
+          if (activeDownloads > peakDownloads) peakDownloads = activeDownloads;
+          await Future<void>.delayed(const Duration(milliseconds: 80));
+          activeDownloads--;
           final bytes = Uint8List.fromList(blobs[id]!);
           if (corrupt) bytes[0] ^= 1;
           return http.Response.bytes(bytes, 200);
@@ -245,8 +258,11 @@ void main() {
         await a.verifyKey();
         await a.accountId();
         final marker = utf8.encode('Secret title and PDF');
-        final bytes = Uint8List(syncBlockBytes + 1024)
+        final bytes = Uint8List(syncBlockBytes * 4 + 1024)
           ..setRange(0, marker.length, marker);
+        for (var i = 1; i <= 4; i++) {
+          bytes[i * syncBlockBytes] = i;
+        }
         final r = SyncRevision(
           noteId: 'secret-id',
           digest: sha256.convert(bytes).toString(),
@@ -255,16 +271,19 @@ void main() {
         await a.upload(r, bytes);
         await a.upload(r, bytes);
         expect(commits.length, 1);
-        expect(blobs.length, 2);
+        expect(blobs.length, 5);
         expect(
           uploadRequests,
-          2,
+          5,
           reason: 'Retry must not transfer completed blocks',
         );
         expect(commits.single.toString(), isNot(contains(r.digest)));
         final b = remote('b');
         expect((await b.list()).single.revision, r.revision);
         expect(await b.download(r), bytes);
+        expect(peakUploads, inInclusiveRange(2, 4));
+        expect(peakDownloads, inInclusiveRange(2, 4));
+        expect(downloadRequests, 5);
         final reopened = remote('b');
         await reopened.list();
         expect(requestedCursors.last, 1);
@@ -274,6 +293,7 @@ void main() {
           bytes,
           reason: 'Validated cached blocks do not need the server again',
         );
+        expect(downloadRequests, 5);
         await for (final file in Directory(
           '${root.path}/b/downloaded',
         ).list()) {

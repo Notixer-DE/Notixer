@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-/// Device-local view state, deliberately separate from notebook archives and
-/// sync state. A damaged/missing preference file must never prevent PDF access.
+/// Portable view state, stored separately from notebook archives and synced
+/// as individual preference records. A damaged/missing preference file must never prevent PDF access.
 class ReadingPositions {
   ReadingPositions(this.file);
   final File file;
@@ -26,6 +26,11 @@ class ReadingPositions {
     return result;
   }
 
+  Map<String, dynamic> toJson() => {
+    'version': 1,
+    'pages': Map<String, int>.of(_pages),
+    'markdown': Map<String, double>.of(_markdown),
+  };
   Future<void> reload() async {
     await flush();
     _pages.clear();

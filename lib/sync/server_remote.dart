@@ -207,7 +207,7 @@ class ServerRemote implements RevisionRemote {
       final lookup = crypto.identify('chunk:${sha256.convert(plain)}');
       final file = File('${cache.path}/chunks/$lookup');
       Uint8List? encrypted;
-      if (await file.exists()) {
+      if (await file.exists() && await file.length() <= syncBlockBytes + 28) {
         try {
           final cached = await file.readAsBytes();
           final restored = await crypto.decrypt(cached, 'chunk');
@@ -287,12 +287,17 @@ class ServerRemote implements RevisionRemote {
     }
     final output = BytesBuilder(copy: false);
     final ids = (envelope['blobs'] as List).cast<String>();
+    final chunkWrites = <String, Future<void>>{};
     Future<Uint8List> block(String id) async {
       final file = File('${cache.path}/downloaded/$id');
       Uint8List? encrypted;
-      if (await file.exists()) {
+      var reused = false;
+      if (await file.exists() && await file.length() <= syncBlockBytes + 28) {
         final cached = await file.readAsBytes();
-        if (sha256.convert(cached).toString() == id) encrypted = cached;
+        if (sha256.convert(cached).toString() == id) {
+          encrypted = cached;
+          reused = true;
+        }
       }
       if (encrypted == null) {
         encrypted = await _request(
@@ -305,9 +310,12 @@ class ServerRemote implements RevisionRemote {
         }
       }
       final plain = await crypto.decrypt(encrypted, 'chunk');
-      await _write(file, encrypted);
+      if (!reused) await _write(file, encrypted);
       final lookup = crypto.identify('chunk:${sha256.convert(plain)}');
-      await _write(File('${cache.path}/chunks/$lookup'), encrypted);
+      await chunkWrites.putIfAbsent(lookup, () async {
+        final chunkFile = File('${cache.path}/chunks/$lookup');
+        if (!await chunkFile.exists()) await _write(chunkFile, encrypted!);
+      });
       return plain;
     }
 

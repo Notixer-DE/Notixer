@@ -94,15 +94,20 @@ class SyncSessionRemote implements RevisionRemote {
   @override
   Future<String> accountId() => _account ??= remote.accountId();
   @override
-  Future<List<SyncRevision>> list() async =>
-      List.of(await (_revisions ??= remote.list()));
+  Future<List<SyncRevision>> list() async => List.of(
+    await (_revisions ??= remote.list().then(
+      (items) => List<SyncRevision>.of(items),
+    )),
+  );
   @override
   Future<Uint8List> download(SyncRevision revision) =>
       remote.download(revision);
   @override
   Future<void> upload(SyncRevision revision, Uint8List bytes) async {
     await remote.upload(revision, bytes);
-    final revisions = await (_revisions ??= remote.list());
+    final revisions = await (_revisions ??= remote.list().then(
+      (items) => List<SyncRevision>.of(items),
+    ));
     if (!revisions.any((r) => r.revision == revision.revision)) {
       revisions.add(revision);
     }

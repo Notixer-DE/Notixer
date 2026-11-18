@@ -91,6 +91,8 @@ class LibraryExtrasSync {
 
   Future<SyncReport> _run({required bool onlyIfChanged}) async {
     onProgress?.call('Checking templates and preferences …');
+    await repository.catalog.load();
+    await repository.catalog.readingPositions.load();
     await repository.flush();
     await repository.catalog.readingPositions.flush();
     final staging = LocalNotebookRepository(
@@ -239,7 +241,13 @@ class LibraryExtrasSync {
     ]) {
       final bytes = before[name];
       if (bytes == null) continue;
-      final json = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+      final json = switch (name) {
+        '.drawing-preferences.json' =>
+          repository.catalog.drawingPreferences.toJson(),
+        '.reading-positions.json' =>
+          repository.catalog.readingPositions.toJson(),
+        _ => repository.catalog.displayPreferences.toJson(),
+      };
       if (json['version'] != 1) {
         throw const FormatException('Unsupported preference version.');
       }
@@ -285,6 +293,17 @@ class LibraryExtrasSync {
     for (final note in old.values.where(
       (note) => !expected.contains(note.id),
     )) {
+      final metadata = jsonDecode(note.tags.single) as Map;
+      final kind = metadata['kind'] as String;
+      // Unset optional values are not deletions. In-app resets explicitly write
+      // their defaults; corrupt/missing device files must not erase other devices.
+      if (kind.startsWith('.') ||
+          kind == 'preset' ||
+          ((kind == 'markdown' || kind == 'knowledge' || kind == 'view') &&
+              before['.knowledge.json'] == null) ||
+          (kind == 'folder' && before['.library.json'] == null)) {
+        continue;
+      }
       await staging.delete(note.id);
     }
     final report = await NotebookSync(
@@ -363,12 +382,16 @@ class LibraryExtrasSync {
     final livePdf = <String>{};
     final folderNames = <String>{};
     bool hasKnowledge = before['.knowledge.json'] != null;
-    for (final record in records.where((r) => r.kind == 'folder')) {
+    for (final record in records.where(
+      (r) => r.kind == 'folder' && r.note.id == _id(r.kind, r.key),
+    )) {
       final name =
           jsonDecode((await decodeMarkdownAsync(record.bytes)).source)
               as String;
       folderNames.add(name.toLowerCase());
-      await repository.catalog.ensureFolder(name);
+      final folder = await repository.catalog.ensureFolder(name);
+      if (folder.name != name)
+        await repository.catalog.renameFolder(folder.id, name);
     }
     for (final record in records) {
       final conflict = record.note.id != _id(record.kind, record.key);

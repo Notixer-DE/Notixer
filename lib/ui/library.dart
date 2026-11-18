@@ -376,6 +376,10 @@ class _LibraryPageState extends State<LibraryPage> {
       builder: (_) => _NewNoteDialog(templates: widget.repository.templates),
     );
     if (choice == null) return;
+    if (choice.$2 == 'media') {
+      await _addMedia();
+      return;
+    }
     await _perform(() async {
       final template = choice.$3 == null
           ? null
@@ -1520,6 +1524,12 @@ class _NewNoteDialogState extends State<_NewNoteDialog> {
             },
             icon: const Icon(Icons.dashboard_customize_outlined),
             label: const Text('Choose template'),
+          ),
+          TextButton.icon(
+            onPressed: () =>
+                Navigator.pop(context, ('', 'media', null, 0xDCE4EC)),
+            icon: const Icon(Icons.add_photo_alternate_outlined),
+            label: const Text('Add media'),
           ),
           if (_template != null)
             TextButton(

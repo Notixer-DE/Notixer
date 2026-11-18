@@ -267,4 +267,54 @@ void main() {
       expect(remote.downloads, 0);
     },
   );
+  test(
+    'corrupt or missing optional preferences never delete synced choices or folders',
+    () async {
+      await a.catalog.ensureFolder('Keep this folder');
+      await a.catalog.displayPreferences.set('readingZoom', 1.5);
+      await a.catalog.drawingPreferences.setWholeStrokeEraser(true);
+      await a.catalog.readingPositions.saveMarkdown('note', 180);
+      await sync(a);
+      await sync(b);
+      await File(
+        '${b.directory.path}/.display-preferences.json',
+      ).writeAsString('{broken');
+      await File(
+        '${b.directory.path}/.drawing-preferences.json',
+      ).writeAsString('{broken');
+      await File(
+        '${b.directory.path}/.reading-positions.json',
+      ).writeAsString('{broken');
+      b = LocalNotebookRepository(b.directory);
+      await sync(b);
+      await sync(a);
+      expect(b.catalog.folders.single.name, 'Keep this folder');
+      expect(b.catalog.displayPreferences.zoom('readingZoom'), 1.5);
+      expect(b.catalog.drawingPreferences.wholeStrokeEraser, true);
+      expect(b.catalog.readingPositions.markdownOffset('note'), 180);
+      expect(
+        await File(
+          '${b.directory.path}/.display-preferences.json.invalid',
+        ).exists(),
+        true,
+      );
+      expect(a.catalog.displayPreferences.zoom('readingZoom'), 1.5);
+    },
+  );
+  test(
+    'folder casing converges and does not generate repeated preference revisions',
+    () async {
+      await a.catalog.ensureFolder('Studies');
+      await b.catalog.ensureFolder('studies');
+      await sync(a);
+      await sync(b);
+      await sync(a);
+      await sync(b);
+      await sync(a);
+      expect(a.catalog.folders.single.name, b.catalog.folders.single.name);
+      final report = await sync(b);
+      expect(report.uploaded, 0);
+      expect(report.conflicts, 0);
+    },
+  );
 }

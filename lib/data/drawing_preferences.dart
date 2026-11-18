@@ -43,7 +43,7 @@ class DrawingToolChoice {
   int get hashCode => Object.hash(tool, color, width, opacity);
 }
 
-/// Device-local drawing policy, separate from notebook/sync contents.
+/// Portable drawing preferences, separate from notebook document contents.
 class DrawingPreferences extends ChangeNotifier {
   DrawingPreferences(this.file);
   final File file;
@@ -69,6 +69,19 @@ class DrawingPreferences extends ChangeNotifier {
   bool get straightStrokes => _values['straightStrokes'] == true;
   bool pressureSensitive(String tool) =>
       (_values['pressureSensitive'] as Map?)?[tool] != false;
+  Map<String, dynamic> toJson() => {
+    'version': 1,
+    'values': {
+      for (final key in ['lastTool', 'wholeStrokeEraser', 'straightStrokes'])
+        if (_values.containsKey(key)) key: _values[key],
+      if (_values['pressureSensitive'] is Map)
+        'pressureSensitive': {
+          for (final tool in ['ink', 'highlight'])
+            if ((_values['pressureSensitive'] as Map).containsKey(tool))
+              tool: (_values['pressureSensitive'] as Map)[tool],
+        },
+    },
+  };
   Future<void> reload() async {
     await flush();
     _loading = null;

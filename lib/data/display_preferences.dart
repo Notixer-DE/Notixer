@@ -8,7 +8,28 @@ class DisplayPreferences {
   Map<String, dynamic> _values = {};
   Future<void>? _loading;
   Future<void> _queue = Future.value();
-  Future<void> load() => _loading ??= _read();
+  Future<void> load() => _loading ??= _readSafely();
+  Future<void> _readSafely() async {
+    try {
+      await _read();
+    } on FormatException {
+      await _recover();
+    } on TypeError {
+      await _recover();
+    } on IOException {
+      _values = {};
+    }
+  }
+
+  Future<void> _recover() async {
+    _values = {};
+    try {
+      if (await file.exists()) await file.rename('${file.path}.invalid');
+    } on IOException {
+      /* Optional view state must not block the library. */
+    }
+  }
+
   Future<void> _read() async {
     if (!await file.exists()) return;
     final json = jsonDecode(await file.readAsString()) as Map;
@@ -18,6 +39,18 @@ class DisplayPreferences {
     _values = Map<String, dynamic>.from(json['values'] as Map);
   }
 
+  Map<String, dynamic> toJson() => {
+    'version': 1,
+    'values': {
+      for (final entry in _values.entries)
+        if (entry.value is bool ||
+            entry.value is num &&
+                (entry.value as num).isFinite &&
+                (entry.value as num) >= .7 &&
+                (entry.value as num) <= 2.5)
+          entry.key: entry.value,
+    },
+  };
   Future<void> reload() async {
     await _queue;
     _loading = null;

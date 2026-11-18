@@ -518,8 +518,7 @@ class LocalNotebookRepository implements NotebookRepository {
       final updated = note.copy(
         modified: _clock(),
         folderName: catalog.folderName(note.folderId),
-        clearFolder:
-            note.folderId == null || catalog.folderName(note.folderId) == null,
+        clearFolder: note.folderId == null,
       );
       await _saveNotebook(_file(note.id).path, updated, snapshot, ink: ink);
       _cacheInk(note.id, (ink, '', ink.sequence));
@@ -534,23 +533,21 @@ class LocalNotebookRepository implements NotebookRepository {
 
   /// Ink-only checkpoints read the unchanged PDF on the storage isolate:
   /// no large PDF copy/transfer on the UI thread.
-  Future<Notebook> checkpointInk(Notebook note, InkDocument ink) => _serialize(
-    () async {
-      await catalog.load();
-      final updated = note.copy(
-        modified: _clock(),
-        folderName: catalog.folderName(note.folderId),
-        clearFolder:
-            note.folderId == null || catalog.folderName(note.folderId) == null,
-      );
-      await _saveInkOnly(_file(note.id).path, updated, ink);
-      _cacheInk(note.id, (ink, '', ink.sequence));
-      final journal = _inkJournal(note.id);
-      if (await journal.exists()) await journal.delete();
-      _failedInkJournals.remove(note.id);
-      return updated;
-    },
-  );
+  Future<Notebook> checkpointInk(Notebook note, InkDocument ink) =>
+      _serialize(() async {
+        await catalog.load();
+        final updated = note.copy(
+          modified: _clock(),
+          folderName: catalog.folderName(note.folderId),
+          clearFolder: note.folderId == null,
+        );
+        await _saveInkOnly(_file(note.id).path, updated, ink);
+        _cacheInk(note.id, (ink, '', ink.sequence));
+        final journal = _inkJournal(note.id);
+        if (await journal.exists()) await journal.delete();
+        _failedInkJournals.remove(note.id);
+        return updated;
+      });
 
   @override
   Future<Notebook> create(
@@ -1040,8 +1037,7 @@ Future<Uint8List> _exportNotebook(String path, Map<String, String> folders) =>
       return LocalNotebookRepository.encode(
         note.copy(
           folderName: folders[note.folderId],
-          clearFolder:
-              note.folderId == null || !folders.containsKey(note.folderId),
+          clearFolder: note.folderId == null,
         ),
         pdf,
         ink: ink,
@@ -1065,8 +1061,7 @@ Future<({Uint8List raw, Uint8List archive})?> _snapshotNotebook(
     archive: LocalNotebookRepository.encode(
       note.copy(
         folderName: folders[note.folderId],
-        clearFolder:
-            note.folderId == null || !folders.containsKey(note.folderId),
+        clearFolder: note.folderId == null,
       ),
       pdf,
       ink: ink,
