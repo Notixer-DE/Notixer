@@ -1,5 +1,5 @@
 use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
 use axum::{
@@ -21,7 +21,9 @@ const VUE_JS: &str = include_str!("assets/vue.global.prod.js");
 
 pub fn hash_password(password: &str) -> Result<String, String> {
     let argon2 = Argon2::default();
-    let salt = SaltString::generate(&mut OsRng);
+    let mut salt_bytes = [0u8; 16];
+    rand::rng().fill_bytes(&mut salt_bytes);
+    let salt = SaltString::encode_b64(&salt_bytes).map_err(|e| e.to_string())?;
     argon2
         .hash_password(password.as_bytes(), &salt)
         .map(|h| h.to_string())
