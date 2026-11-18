@@ -1,6 +1,6 @@
 # Notixer
 
-An English-language, offline-first note-taking app with handwriting, PDF annotations, Markdown, study covers and optional end-to-end encrypted sync to a self-hosted server.
+Notixer is an offline-first note-taking and knowledge management app for Android, Linux and Windows. Bring handwritten notebooks, PDF annotations, Markdown notes, tasks and study tools together in one workspace—without requiring an account or an internet connection. For use across devices, Notixer also offers optional end-to-end encrypted sync through a self-hosted server.
 
 **Platforms:** Android 8 or later (API 26), Debian 13 (amd64), and Windows (x64).
 
