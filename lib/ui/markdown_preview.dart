@@ -88,11 +88,13 @@ class MarkdownPreview extends StatefulWidget {
   const MarkdownPreview({
     super.key,
     required this.document,
+    this.zoom = 1,
     required this.scrollController,
     required this.onToggle,
     required this.onFollow,
   });
   final MarkdownDocument document;
+  final double zoom;
   final ScrollController scrollController;
   final void Function(int offset, bool checked) onToggle;
   final void Function(String href) onFollow;
@@ -125,11 +127,12 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
       oldWidget.document.assets,
       widget.document.assets,
     );
-    if (assetsChanged) _widgets.clear();
+    final zoomChanged = oldWidget.zoom != widget.zoom;
+    if (assetsChanged || zoomChanged) _widgets.clear();
     if (oldWidget.document.source != widget.document.source) {
       _navigation++;
       _load();
-    } else if (assetsChanged) {
+    } else if (assetsChanged || zoomChanged) {
       _makeDelegate();
     }
   }
@@ -187,6 +190,7 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
             _MarkdownBlock(
               key: ValueKey(block.key),
               node: block.node,
+              zoom: widget.zoom,
               offsets: block.offsets,
               headingKeys: [for (final slug in block.headings) _anchors[slug]!],
               assets: widget.document.assets,
@@ -262,6 +266,7 @@ class _MarkdownBlock extends StatefulWidget {
   const _MarkdownBlock({
     super.key,
     required this.node,
+    required this.zoom,
     required this.offsets,
     required this.headingKeys,
     required this.assets,
@@ -269,6 +274,7 @@ class _MarkdownBlock extends StatefulWidget {
     required this.onFollow,
   });
   final md.Node node;
+  final double zoom;
   final List<int> offsets;
   final List<GlobalKey> headingKeys;
   final Map<String, Uint8List> assets;
@@ -304,7 +310,7 @@ class _MarkdownBlockState extends State<_MarkdownBlock>
   void _build() {
     _release();
     var checkbox = 0, heading = 0;
-    final style = noterMarkdownStyle(context);
+    final style = noterMarkdownStyle(context, zoom: widget.zoom);
     final builder = MarkdownBuilder(
       delegate: this,
       selectable: true,

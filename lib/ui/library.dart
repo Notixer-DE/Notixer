@@ -61,6 +61,7 @@ class _LibraryPageState extends State<LibraryPage> {
   String? _folderFilter, _tagFilter;
   String _kind = 'all';
   bool _grid = false;
+  bool _showNavigation = true;
   final _scaffold = GlobalKey<ScaffoldState>();
   final _searchFocus = FocusNode();
   String? _error;
@@ -327,19 +328,66 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
+  bool _handlingShare = false;
   void _sharedCapture() {
-    if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+    if (!mounted ||
+        _handlingShare ||
+        ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
     final text = FileGateway.sharedText.value;
     if (text == null) return;
-    FileGateway.sharedText.value = null;
-    _knowledge(section: 'Inbox', sharedText: text);
+    _handlingShare = true;
+    _presentSharedText(text);
+  }
+
+  Future<void> _presentSharedText(String text) async {
+    var opened = false;
+    try {
+      await _knowledge(
+        section: 'Inbox',
+        sharedText: text,
+        onOpening: () {
+          opened = true;
+          if (FileGateway.sharedText.value == text) {
+            FileGateway.sharedText.value = null;
+          }
+        },
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open capture: $error')),
+        );
+      }
+    } finally {
+      _handlingShare = false;
+      if (mounted && !opened && FileGateway.sharedText.value != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Shared text is pending. Save your open notes, then retry.',
+            ),
+            action: SnackBarAction(
+              label: 'Retry capture',
+              onPressed: _sharedCapture,
+            ),
+          ),
+        );
+      } else if (mounted && opened && FileGateway.sharedText.value != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _sharedCapture());
+      }
+    }
   }
 
   Future<void> _knowledge({
     String section = 'Search',
     String? sharedText,
+    VoidCallback? onOpening,
   }) async {
     if (!await FileGateway.prepareClose() || !mounted) return;
+    if (onOpening != null && ModalRoute.of(context)?.isCurrent != true) return;
+    onOpening?.call();
     final destination = await Navigator.push<KnowledgeDestination>(
       context,
       MaterialPageRoute(
@@ -510,7 +558,18 @@ class _LibraryPageState extends State<LibraryPage> {
           drawer: wide ? null : Drawer(child: SafeArea(child: _navigation())),
           appBar: AppBar(
             leadingWidth: DocumentTabsChrome.leadingWidth(context),
-            leading: DocumentTabsChrome.action(context) == null
+            leading: wide
+                ? DocumentNavigation(
+                    child: IconButton(
+                      tooltip: _showNavigation
+                          ? 'Hide sidebar'
+                          : 'Show sidebar',
+                      icon: const Icon(Icons.view_sidebar_outlined),
+                      onPressed: () =>
+                          setState(() => _showNavigation = !_showNavigation),
+                    ),
+                  )
+                : DocumentTabsChrome.action(context) == null
                 ? null
                 : DocumentNavigation(
                     child: wide
@@ -668,7 +727,8 @@ class _LibraryPageState extends State<LibraryPage> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (wide) SizedBox(width: 220, child: _navigation()),
+                if (wide && _showNavigation)
+                  SizedBox(width: 220, child: _navigation()),
                 Expanded(
                   child: Align(
                     alignment: Alignment.topCenter,

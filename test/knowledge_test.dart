@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noter/data/knowledge.dart';
 import 'package:noter/data/library_backup.dart';
@@ -25,6 +26,217 @@ void main() {
     await repository.flush();
     await directory.delete(recursive: true);
   });
+
+  test(
+    'task-only scans exclude PDFs with both empty and nonempty queries',
+    () async {
+      await store.capture('Todo', '- [ ] Review');
+      await repository.create('Reference', await createPaper('blank'));
+      final result = await store.scan(const KnowledgeView('', openTasks: true));
+      expect(result.hits.length, 1);
+      expect(result.hits.every((hit) => hit.note.isMarkdown), isTrue);
+      expect(
+        (await store.scan(
+          const KnowledgeView('', openTasks: true, query: 'Review'),
+        )).hits.length,
+        1,
+      );
+      expect(
+        (await store.scan(
+          const KnowledgeView('', openTasks: true, kind: 'pdf'),
+        )).hits,
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'unchanged automatic backups remain deduplicated after scheduler restart',
+    () async {
+      await store.capture('Keep', 'Content');
+      final first = AutomaticBackupScheduler(
+        repository,
+        prepare: () async => true,
+      );
+      await first.check();
+      first.dispose();
+      final second = AutomaticBackupScheduler(
+        repository,
+        prepare: () async => true,
+      );
+      await second.check();
+      second.dispose();
+      expect((await LibraryBackup(repository).list()).length, 1);
+    },
+  );
+
+  test(
+    'automatic backup status recovers without duplicating an unchanged snapshot',
+    () async {
+      await store.capture('Keep', 'Content');
+      final first = AutomaticBackupScheduler(
+        repository,
+        prepare: () async => true,
+      );
+      await first.check();
+      first.dispose();
+      final failed = AutomaticBackupScheduler(
+        repository,
+        prepare: () async => false,
+      );
+      await failed.check();
+      failed.dispose();
+      final statusFile = File(
+        '${LibraryBackup(repository).directory.path}/status.json',
+      );
+      expect(jsonDecode(await statusFile.readAsString())['error'], isNotNull);
+      final recovered = AutomaticBackupScheduler(
+        repository,
+        prepare: () async => true,
+      );
+      await recovered.check();
+      recovered.dispose();
+      expect((await LibraryBackup(repository).list()).length, 1);
+      expect(jsonDecode(await statusFile.readAsString())['error'], isNull);
+    },
+  );
+
+  test(
+    'restored views with missing folders never broaden to all files',
+    () async {
+      await store.capture('Original', 'Content');
+      final empty = await repository.catalog.ensureFolder('Empty folder');
+      store.views = [
+        const KnowledgeView('Missing folder', folder: 'removed-folder'),
+        KnowledgeView('Empty folder', folder: empty.id),
+      ];
+      await store.save();
+      final bytes = await LibraryBackup(repository).snapshot();
+      final targetDirectory = await Directory.systemTemp.createTemp(
+        'noter-view-restore-',
+      );
+      try {
+        final target = LocalNotebookRepository(targetDirectory);
+        await LibraryBackup(target).restore(bytes);
+        final settings = KnowledgeStore(target);
+        await settings.load();
+        for (final view in settings.views) {
+          expect(view.folder, isNotEmpty);
+          expect((await settings.scan(view)).hits, isEmpty);
+        }
+        final restoredEmpty = settings.views.singleWhere(
+          (view) => view.name == 'Empty folder',
+        );
+        expect(target.catalog.folderName(restoredEmpty.folder), 'Empty folder');
+      } finally {
+        await targetDirectory.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'snapshot ordering does not depend on timestamp filename precision',
+    () async {
+      final backup = LibraryBackup(repository);
+      await backup.directory.create(recursive: true);
+      final older = File(
+        '${backup.directory.path}/library-2026-11-18T10-00-00.123Z.zip',
+      );
+      final newer = File(
+        '${backup.directory.path}/library-2026-11-18T10-00-00.123001Z.zip',
+      );
+      await older.writeAsBytes([]);
+      await newer.writeAsBytes([]);
+      await older.setLastModified(DateTime.utc(2026, 11, 18, 10, 0, 0, 123));
+      await newer.setLastModified(DateTime.utc(2026, 11, 18, 10, 0, 1, 123));
+      expect((await backup.list()).first.path, newer.path);
+    },
+  );
+
+  test(
+    'restoring a backup twice does not duplicate remapped saved views',
+    () async {
+      final folder = await repository.catalog.ensureFolder('Study');
+      final note = await store.capture('Original', 'Content');
+      await repository.save(
+        note.copy(folderId: folder.id),
+        await repository.load(note.id),
+      );
+      store.views = [KnowledgeView('Study view', folder: folder.id)];
+      await store.save();
+      final bytes = await LibraryBackup(repository).snapshot();
+      final targetDirectory = await Directory.systemTemp.createTemp(
+        'noter-repeat-restore-',
+      );
+      try {
+        final target = LocalNotebookRepository(targetDirectory);
+        final existing = KnowledgeStore(target);
+        await existing.load();
+        existing.views = [
+          const KnowledgeView('Study view', query: 'unrelated'),
+        ];
+        await existing.save();
+        await LibraryBackup(target).restore(bytes);
+        await LibraryBackup(target).restore(bytes);
+        final settings = KnowledgeStore(target);
+        await settings.load();
+        expect(settings.views.length, 2);
+        final restored = settings.views.singleWhere(
+          (view) => view.name == 'Study view (restored)',
+        );
+        expect(target.catalog.folderName(restored.folder), 'Study');
+        expect((await target.list()).length, 2);
+      } finally {
+        await targetDirectory.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'invalid backup preferences are rejected before restoring any note',
+    () async {
+      await store.capture('Original', 'Content');
+      await store.save();
+      final bytes = await LibraryBackup(repository).snapshot();
+      final archive = ZipDecoder().decodeBytes(bytes);
+      final files = <String, Uint8List>{
+        for (final file in archive.files)
+          file.name: Uint8List.fromList(file.content),
+      };
+      final settings =
+          jsonDecode(utf8.decode(files['settings/.knowledge.json']!))
+              as Map<String, dynamic>;
+      settings['automaticBackups'] = 'invalid';
+      files['settings/.knowledge.json'] = Uint8List.fromList(
+        utf8.encode(jsonEncode(settings)),
+      );
+      final manifest =
+          jsonDecode(utf8.decode(files['backup.json']!))
+              as Map<String, dynamic>;
+      manifest['files'] = {
+        for (final entry in files.entries.where(
+          (entry) => entry.key != 'backup.json',
+        ))
+          entry.key: sha256.convert(entry.value).toString(),
+      };
+      files['backup.json'] = Uint8List.fromList(
+        utf8.encode(jsonEncode(manifest)),
+      );
+      final changed = Archive();
+      for (final entry in files.entries) {
+        changed.addFile(
+          ArchiveFile(entry.key, entry.value.length, entry.value),
+        );
+      }
+      await expectLater(
+        LibraryBackup(
+          repository,
+        ).restore(Uint8List.fromList(ZipEncoder().encode(changed))),
+        throwsFormatException,
+      );
+      expect((await repository.list()).length, 1);
+    },
+  );
 
   test(
     'journal creation is date-stable, serialized and never replaces existing source',

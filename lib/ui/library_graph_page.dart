@@ -24,23 +24,25 @@ class _LibraryGraphPageState extends State<LibraryGraphPage> {
     sourceOverrides: widget.sourceOverrides,
   );
   final _transform = TransformationController();
-  bool _showTags = true;
+  final _search = TextEditingController();
+  bool _showTags = true, _showSearch = false, _fitPending = true;
   late bool _local = widget.focusNoteId != null;
   late String? _focusId = widget.focusNoteId == null
       ? null
       : 'note:${widget.focusNoteId}';
-  String _query = '';
+  String _query = '', _layoutKey = '';
   String? _tag;
-  bool _fitPending = true;
-  String _layoutKey = '';
+  Size? _viewport;
   Map<String, Offset> _positions = {};
   @override
   void dispose() {
     _transform.dispose();
+    _search.dispose();
     super.dispose();
   }
 
   void _fit(Size viewport, double extent) {
+    if (viewport.isEmpty || extent <= 0) return;
     final scale = math.min(
       1.25,
       math.min(viewport.width / extent, viewport.height / extent) * .92,
@@ -55,369 +57,435 @@ class _LibraryGraphPageState extends State<LibraryGraphPage> {
       ..scaleByDouble(scale, scale, 1, 1);
   }
 
+  Future<void> _chooseFocus() async {
+    final graph = await _graph;
+    if (!mounted) return;
+    final notes = graph.nodes.where((node) => !node.isTag).toList();
+    final chosen = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Choose graph focus'),
+        content: SizedBox(
+          width: 400,
+          height: MediaQuery.sizeOf(context).height * .5,
+          child: ListView.builder(
+            itemCount: notes.length,
+            itemBuilder: (context, index) => ListTile(
+              title: Text(notes[index].label),
+              selected: notes[index].id == _focusId,
+              onTap: () => Navigator.pop(context, notes[index].id),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+    if (chosen != null && mounted) {
+      setState(() {
+        _focusId = chosen;
+        _local = true;
+        _tag = null;
+        _fitPending = true;
+      });
+    }
+  }
+
+  Future<void> _options(String value) async {
+    try {
+      if (value == 'focus' ||
+          (value == 'local' && !_local && _focusId == null)) {
+        await _chooseFocus();
+        return;
+      }
+      if (value == 'warnings') {
+        final graph = await _graph;
+        if (!mounted) return;
+        await showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Graph indexing'),
+            content: SizedBox(
+              width: 400,
+              height: 260,
+              child: graph.warnings.isEmpty
+                  ? const Center(child: Text('All files indexed.'))
+                  : ListView(
+                      children: [
+                        for (final warning in graph.warnings)
+                          ListTile(title: Text(warning)),
+                      ],
+                    ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        if (value == 'tags') {
+          _showTags = !_showTags;
+          _tag = null;
+        }
+        if (value == 'local') {
+          _local = !_local;
+          _tag = null;
+        }
+        if (value == 'reload') {
+          _graph = LibraryGraph.load(
+            widget.repository,
+            sourceOverrides: widget.sourceOverrides,
+          );
+        }
+        _fitPending = true;
+      });
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not update graph: $error')),
+        );
+      }
+    }
+  }
+
+  void _toggleSearch() {
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _showSearch = !_showSearch;
+      if (!_showSearch) {
+        _search.clear();
+        _query = '';
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('Graph view'),
+      title: const Text(
+        'Graph view',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
       actions: [
         IconButton(
-          tooltip: 'Reload graph',
-          icon: const Icon(Icons.refresh),
-          onPressed: () => setState(() {
-            _graph = LibraryGraph.load(
-              widget.repository,
-              sourceOverrides: widget.sourceOverrides,
-            );
-            _fitPending = true;
-          }),
+          tooltip: _showSearch ? 'Close graph search' : 'Search graph',
+          onPressed: _toggleSearch,
+          icon: Icon(_showSearch ? Icons.search_off : Icons.search),
+        ),
+        PopupMenuButton<String>(
+          tooltip: 'Graph options',
+          onSelected: _options,
+          itemBuilder: (_) => [
+            CheckedPopupMenuItem(
+              value: 'tags',
+              checked: _showTags,
+              child: const Text('Show tags'),
+            ),
+            CheckedPopupMenuItem(
+              value: 'local',
+              checked: _local,
+              child: const Text('Local graph'),
+            ),
+            const PopupMenuItem(
+              value: 'focus',
+              child: Text('Choose focus file'),
+            ),
+            const PopupMenuItem(value: 'reload', child: Text('Reload graph')),
+            const PopupMenuItem(
+              value: 'warnings',
+              child: Text('Indexing status'),
+            ),
+          ],
         ),
       ],
     ),
     body: SafeArea(
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: TextField(
-              decoration: const InputDecoration(
-                labelText: 'Find a file or tag',
-                prefixIcon: Icon(Icons.search),
+      child: FutureBuilder<LibraryGraph>(
+        future: _graph,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(
+              child: Text(
+                'Could not load graph: ${snapshot.error}',
+                maxLines: 4,
               ),
-              onChanged: (value) => setState(() {
-                _query = value.trim().toLowerCase();
-              }),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Wrap(
-              spacing: 12,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                FilterChip(
-                  label: const Text('Tags'),
-                  selected: _showTags,
-                  onSelected: (value) => setState(() {
-                    _showTags = value;
-                    _tag = null;
-                    _fitPending = true;
-                  }),
-                ),
-                if (_tag != null)
-                  InputChip(
-                    label: Text('#${_tag!.substring(4)}'),
-                    onDeleted: () => setState(() {
-                      _tag = null;
-                      _fitPending = true;
-                    }),
-                  ),
-                const Text(
-                  'Tap a file to open it · Tap a tag to focus · Pinch to zoom',
-                  style: TextStyle(fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: FutureBuilder<LibraryGraph>(
-              future: _graph,
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Text('Could not load graph: ${snapshot.error}'),
-                  );
+            );
+          }
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final graph = snapshot.data!;
+          if (graph.nodes.isEmpty) {
+            return const Center(
+              child: Text('Create notes and link them to see their graph.'),
+            );
+          }
+          final localIds = <String>{
+            ?_focusId,
+            for (final edge in graph.edges)
+              if (edge.from == _focusId) edge.to,
+            for (final edge in graph.edges)
+              if (edge.to == _focusId) edge.from,
+          };
+          final tagged = <String>{
+            ?_tag,
+            for (final edge in graph.edges)
+              if (edge.to == _tag) edge.from,
+          };
+          final nodes = graph.nodes
+              .where(
+                (node) =>
+                    (!_local || localIds.contains(node.id)) &&
+                    (_showTags || !node.isTag) &&
+                    (_tag == null || tagged.contains(node.id)),
+              )
+              .toList();
+          final labelSize = MediaQuery.textScalerOf(context).scale(12);
+          final nodeWidth = math.max(130.0, labelSize * 6 + 40),
+              nodeHeight = math.max(64.0, labelSize * 3 + 16);
+          final nodeScale = math.max(nodeWidth / 130, nodeHeight / 64);
+          final extent =
+              math.max(400.0, math.sqrt(nodes.length) * 150) * nodeScale;
+          final key =
+              '${identityHashCode(graph)}:$nodeScale:${nodes.map((node) => node.id).join('|')}';
+          if (_layoutKey != key) {
+            _positions = _layout(nodes, graph.edges, extent, nodeScale);
+            _layoutKey = key;
+            _fitPending = true;
+          }
+          final ids = nodes.map((node) => node.id).toSet();
+          final edges = graph.edges
+              .where((edge) => ids.contains(edge.from) && ids.contains(edge.to))
+              .toList();
+          final focus = graph.nodes
+              .where((node) => node.id == _focusId)
+              .firstOrNull;
+          return Semantics(
+            key: const ValueKey('graph-counts'),
+            label:
+                '${nodes.where((node) => !node.isTag).length} files · ${edges.length} connections',
+            explicitChildNodes: true,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final viewport = Size(
+                  constraints.maxWidth,
+                  constraints.maxHeight,
+                );
+                if (_viewport != viewport) {
+                  _viewport = viewport;
+                  _fitPending = true;
                 }
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
+                if (_fitPending) {
+                  _fitPending = false;
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) _fit(viewport, extent);
+                  });
                 }
-                final graph = snapshot.data!;
-                if (graph.nodes.isEmpty) {
-                  return const Center(
-                    child: Text(
-                      'Your library is empty. Create notes and link them to see connections.',
-                    ),
-                  );
-                }
-                final localIds = <String>{
-                  ?_focusId,
-                  for (final edge in graph.edges)
-                    if (edge.from == _focusId) edge.to,
-                  for (final edge in graph.edges)
-                    if (edge.to == _focusId) edge.from,
-                };
-                final neighbors = <String>{
-                  ?_tag,
-                  for (final edge in graph.edges)
-                    if (edge.to == _tag) edge.from,
-                };
-                final nodes = graph.nodes
-                    .where(
-                      (node) =>
-                          (!_local || localIds.contains(node.id)) &&
-                          (_showTags || !node.isTag) &&
-                          (_tag == null || neighbors.contains(node.id)),
-                    )
-                    .toList();
-                final extent = math.max(400.0, math.sqrt(nodes.length) * 150);
-                final layoutKey =
-                    '${identityHashCode(graph)}:${nodes.map((node) => node.id).join('|')}';
-                if (_layoutKey != layoutKey) {
-                  _positions = _layout(nodes, graph.edges, extent);
-                  _layoutKey = layoutKey;
-                }
-                final positions = _positions;
-                final visibleIds = nodes.map((node) => node.id).toSet();
-                final edges = graph.edges
-                    .where(
-                      (edge) =>
-                          visibleIds.contains(edge.from) &&
-                          visibleIds.contains(edge.to),
-                    )
-                    .toList();
-                return Column(
+                return Stack(
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Wrap(
-                        spacing: 12,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          FilterChip(
-                            label: const Text('Local graph'),
-                            selected: _local,
-                            onSelected: (value) => setState(() {
-                              _local = value;
-                              _focusId ??= graph.nodes
-                                  .where((node) => !node.isTag)
-                                  .firstOrNull
-                                  ?.id;
-                              _fitPending = true;
-                            }),
-                          ),
-                          if (_local)
-                            DropdownButton<String>(
-                              value:
-                                  graph.nodes.any((node) => node.id == _focusId)
-                                  ? _focusId
-                                  : null,
-                              hint: const Text('Choose file'),
-                              items: [
-                                for (final node in graph.nodes.where(
-                                  (node) => !node.isTag,
-                                ))
-                                  DropdownMenuItem(
-                                    value: node.id,
-                                    child: SizedBox(
-                                      width: 160,
-                                      child: Text(
-                                        node.label,
-                                        overflow: TextOverflow.ellipsis,
+                    Positioned.fill(
+                      child: ColoredBox(
+                        color: NoterTheme.workspace,
+                        child: InteractiveViewer(
+                          transformationController: _transform,
+                          constrained: false,
+                          minScale: .01,
+                          maxScale: 5,
+                          boundaryMargin: EdgeInsets.all(extent),
+                          child: SizedBox(
+                            width: extent,
+                            height: extent,
+                            child: Stack(
+                              children: [
+                                Positioned.fill(
+                                  child: CustomPaint(
+                                    painter: _EdgesPainter(_positions, edges),
+                                  ),
+                                ),
+                                for (final node in nodes)
+                                  Positioned(
+                                    left:
+                                        _positions[node.id]!.dx - nodeWidth / 2,
+                                    top:
+                                        _positions[node.id]!.dy -
+                                        nodeHeight / 2,
+                                    width: nodeWidth,
+                                    height: nodeHeight,
+                                    child: Opacity(
+                                      opacity:
+                                          _query.isEmpty ||
+                                              node.label.toLowerCase().contains(
+                                                _query,
+                                              )
+                                          ? 1
+                                          : .25,
+                                      child: Tooltip(
+                                        message: node.label,
+                                        child: Material(
+                                          color: node.isTag
+                                              ? const Color(0xFFFFE8C2)
+                                              : Colors.white,
+                                          elevation: 1,
+                                          borderRadius: BorderRadius.circular(
+                                            node.isTag ? 28 : 8,
+                                          ),
+                                          child: InkWell(
+                                            key: ValueKey(
+                                              'graph-node-${node.id}',
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              node.isTag ? 28 : 8,
+                                            ),
+                                            onTap: () {
+                                              if (node.isTag) {
+                                                setState(() {
+                                                  _tag = node.id;
+                                                  _fitPending = true;
+                                                });
+                                              } else {
+                                                Navigator.pop(
+                                                  context,
+                                                  node.note,
+                                                );
+                                              }
+                                            },
+                                            child: Padding(
+                                              padding: const EdgeInsets.all(8),
+                                              child: Row(
+                                                children: [
+                                                  Icon(
+                                                    node.isTag
+                                                        ? Icons.tag
+                                                        : node.note!.isMarkdown
+                                                        ? Icons
+                                                              .description_outlined
+                                                        : Icons
+                                                              .picture_as_pdf_outlined,
+                                                    size: 18,
+                                                    color:
+                                                        NoterTheme.accentStrong,
+                                                  ),
+                                                  const SizedBox(width: 6),
+                                                  Expanded(
+                                                    child: Text(
+                                                      node.label,
+                                                      maxLines: 2,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                        fontSize: 12,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
                               ],
-                              onChanged: (value) => setState(() {
-                                _focusId = value;
-                                _tag = null;
-                                _fitPending = true;
-                              }),
                             ),
-                        ],
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Text(
-                        '${nodes.where((n) => !n.isTag).length} files · ${edges.length} connections',
-                        key: const ValueKey('graph-counts'),
-                      ),
-                    ),
-                    if (graph.warnings.isNotEmpty)
-                      TextButton.icon(
-                        icon: const Icon(Icons.warning_amber_outlined),
-                        label: Text(
-                          '${graph.warnings.length} files could not be indexed',
-                        ),
-                        onPressed: () => showDialog<void>(
-                          context: context,
-                          builder: (context) => AlertDialog(
-                            title: const Text('Graph indexing warnings'),
-                            content: SizedBox(
-                              width: 400,
-                              height: 280,
-                              child: ListView(
-                                children: [
-                                  for (final warning in graph.warnings)
-                                    ListTile(title: Text(warning)),
-                                ],
-                              ),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: const Text('Close'),
-                              ),
-                            ],
                           ),
                         ),
                       ),
-                    Expanded(
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          final viewport = Size(
-                            constraints.maxWidth,
-                            constraints.maxHeight,
-                          );
-                          if (_fitPending) {
-                            _fitPending = false;
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              if (mounted) _fit(viewport, extent);
-                            });
-                          }
-                          return Stack(
-                            children: [
-                              Positioned.fill(
-                                child: ColoredBox(
-                                  color: NoterTheme.workspace,
-                                  child: InteractiveViewer(
-                                    transformationController: _transform,
-                                    constrained: false,
-                                    minScale: .01,
-                                    maxScale: 5,
-                                    boundaryMargin: EdgeInsets.all(extent),
-                                    child: SizedBox(
-                                      width: extent,
-                                      height: extent,
-                                      child: Stack(
-                                        children: [
-                                          Positioned.fill(
-                                            child: CustomPaint(
-                                              painter: _EdgesPainter(
-                                                positions,
-                                                edges,
-                                              ),
-                                            ),
-                                          ),
-                                          for (final node in nodes)
-                                            Positioned(
-                                              left: positions[node.id]!.dx - 65,
-                                              top: positions[node.id]!.dy - 32,
-                                              width: 130,
-                                              height: 64,
-                                              child: Opacity(
-                                                opacity:
-                                                    _query.isEmpty ||
-                                                        node.label
-                                                            .toLowerCase()
-                                                            .contains(_query)
-                                                    ? 1
-                                                    : .25,
-                                                child: Tooltip(
-                                                  message: node.label,
-                                                  child: Material(
-                                                    color: node.isTag
-                                                        ? const Color(
-                                                            0xFFFFE8C2,
-                                                          )
-                                                        : Colors.white,
-                                                    elevation: 1,
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          node.isTag ? 28 : 8,
-                                                        ),
-                                                    child: InkWell(
-                                                      key: ValueKey(
-                                                        'graph-node-${node.id}',
-                                                      ),
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            node.isTag ? 28 : 8,
-                                                          ),
-                                                      onTap: () {
-                                                        if (node.isTag) {
-                                                          setState(() {
-                                                            _tag = node.id;
-                                                            _fitPending = true;
-                                                          });
-                                                        } else {
-                                                          Navigator.pop(
-                                                            context,
-                                                            node.note,
-                                                          );
-                                                        }
-                                                      },
-                                                      child: Padding(
-                                                        padding:
-                                                            const EdgeInsets.all(
-                                                              8,
-                                                            ),
-                                                        child: Row(
-                                                          children: [
-                                                            Icon(
-                                                              node.isTag
-                                                                  ? Icons.tag
-                                                                  : node
-                                                                        .note!
-                                                                        .isMarkdown
-                                                                  ? Icons
-                                                                        .description_outlined
-                                                                  : Icons
-                                                                        .picture_as_pdf_outlined,
-                                                              size: 18,
-                                                              color: NoterTheme
-                                                                  .accentStrong,
-                                                            ),
-                                                            const SizedBox(
-                                                              width: 6,
-                                                            ),
-                                                            Expanded(
-                                                              child: Text(
-                                                                node.label,
-                                                                maxLines: 2,
-                                                                overflow:
-                                                                    TextOverflow
-                                                                        .ellipsis,
-                                                                style:
-                                                                    const TextStyle(
-                                                                      fontSize:
-                                                                          12,
-                                                                    ),
-                                                              ),
-                                                            ),
-                                                          ],
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
+                    ),
+                    if (_showSearch ||
+                        (MediaQuery.viewInsetsOf(context).bottom == 0 &&
+                            (_tag != null || _local)))
+                      Positioned(
+                        top: 8,
+                        left: 8,
+                        right: 8,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (_showSearch)
+                              Material(
+                                elevation: 2,
+                                borderRadius: BorderRadius.circular(8),
+                                child: TextField(
+                                  controller: _search,
+                                  autofocus: true,
+                                  textInputAction: TextInputAction.search,
+                                  onSubmitted: (_) =>
+                                      FocusScope.of(context).unfocus(),
+                                  onChanged: (value) => setState(
+                                    () => _query = value.trim().toLowerCase(),
+                                  ),
+                                  decoration: const InputDecoration(
+                                    labelText: 'Find a file or tag',
+                                    prefixIcon: Icon(Icons.search),
                                   ),
                                 ),
                               ),
-                              Positioned(
-                                right: 12,
-                                bottom: 12,
-                                child: IconButton.filledTonal(
-                                  tooltip: 'Fit graph',
-                                  onPressed: () => _fit(viewport, extent),
-                                  icon: const Icon(Icons.fit_screen),
-                                ),
+                            if (MediaQuery.viewInsetsOf(context).bottom == 0)
+                              Wrap(
+                                spacing: 8,
+                                children: [
+                                  if (_tag != null)
+                                    InputChip(
+                                      label: Text(
+                                        '#${_tag!.substring(4)}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      onDeleted: () => setState(() {
+                                        _tag = null;
+                                        _fitPending = true;
+                                      }),
+                                    ),
+                                  if (_local && focus != null)
+                                    InputChip(
+                                      label: ConstrainedBox(
+                                        constraints: const BoxConstraints(
+                                          maxWidth: 200,
+                                        ),
+                                        child: Text(
+                                          focus.label,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      onPressed: _chooseFocus,
+                                      onDeleted: () => setState(() {
+                                        _local = false;
+                                        _fitPending = true;
+                                      }),
+                                    ),
+                                ],
                               ),
-                            ],
-                          );
-                        },
+                          ],
+                        ),
+                      ),
+                    Positioned(
+                      right: 12,
+                      bottom: 12,
+                      child: IconButton.filledTonal(
+                        tooltip: 'Fit graph',
+                        onPressed: () => _fit(viewport, extent),
+                        icon: const Icon(Icons.fit_screen),
                       ),
                     ),
                   ],
                 );
               },
             ),
-          ),
-        ],
+          );
+        },
       ),
     ),
   );
@@ -429,6 +497,7 @@ Map<String, Offset> _layout(
   List<LibraryGraphNode> nodes,
   Set<LibraryGraphEdge> edges,
   double extent,
+  double nodeScale,
 ) {
   final positions = <String, Offset>{};
   final count = nodes.length;
@@ -437,8 +506,14 @@ Map<String, Offset> _layout(
     final columns = math.sqrt(count).ceil();
     for (var i = 0; i < count; i++) {
       positions[nodes[i].id] = Offset(
-        90 + (i % columns) * (extent - 180) / math.max(1, columns - 1),
-        90 + (i ~/ columns) * (extent - 180) / math.max(1, columns - 1),
+        90 * nodeScale +
+            (i % columns) *
+                (extent - 180 * nodeScale) /
+                math.max(1, columns - 1),
+        90 * nodeScale +
+            (i ~/ columns) *
+                (extent - 180 * nodeScale) /
+                math.max(1, columns - 1),
       );
     }
     return positions;
@@ -458,7 +533,12 @@ Map<String, Offset> _layout(
         final delta = positions[a]! - positions[b]!;
         final distance = math.max(1.0, delta.distance);
         final push =
-            delta / distance * math.min(20, 9000 / (distance * distance));
+            delta /
+            distance *
+            math.min(
+              20 * nodeScale,
+              9000 * nodeScale * nodeScale / (distance * distance),
+            );
         forces[a] = forces[a]! + push;
         forces[b] = forces[b]! - push;
       }
@@ -470,15 +550,15 @@ Map<String, Offset> _layout(
       }
       final delta = positions[edge.to]! - positions[edge.from]!;
       final distance = math.max(1.0, delta.distance);
-      final pull = delta / distance * (distance - 170) * .025;
+      final pull = delta / distance * (distance - 170 * nodeScale) * .025;
       forces[edge.from] = forces[edge.from]! + pull;
       forces[edge.to] = forces[edge.to]! - pull;
     }
     for (final node in nodes) {
       final next = positions[node.id]! + forces[node.id]!;
       positions[node.id] = Offset(
-        next.dx.clamp(80, extent - 80),
-        next.dy.clamp(48, extent - 48),
+        next.dx.clamp(80 * nodeScale, extent - 80 * nodeScale),
+        next.dy.clamp(48 * nodeScale, extent - 48 * nodeScale),
       );
     }
   }

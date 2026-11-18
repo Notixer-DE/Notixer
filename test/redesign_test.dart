@@ -286,6 +286,15 @@ void main() {
             findsNothing,
             reason: 'Compact rows are the default',
           );
+          if (find.byTooltip('Hide sidebar').evaluate().isNotEmpty) {
+            expect(find.byType(WorkspaceSidebar), findsOneWidget);
+            await tester.tap(find.byTooltip('Hide sidebar'));
+            await tester.pumpAndSettle();
+            expect(find.byType(WorkspaceSidebar), findsNothing);
+            await tester.tap(find.byTooltip('Show sidebar'));
+            await tester.pumpAndSettle();
+            expect(find.byType(WorkspaceSidebar), findsOneWidget);
+          }
           final row = find.byKey(ValueKey('library-row-${markdownNote!.id}'));
           await tester.ensureVisible(row);
           await tester.pumpAndSettle();
@@ -356,8 +365,8 @@ void main() {
             await tester.pump();
           }
           final paragraph = tester.widget<SelectableText>(paragraphFinder);
-          expect(paragraph.strutStyle!.fontSize, 16);
-          expect(paragraph.strutStyle!.height, 1.65);
+          expect(paragraph.strutStyle!.fontSize, 14);
+          expect(paragraph.strutStyle!.height, 1.55);
           expect(
             noterMarkdownStyle(
               tester.element(find.byType(MarkdownPreview)),

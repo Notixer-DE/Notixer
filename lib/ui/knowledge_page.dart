@@ -28,6 +28,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
   late String _section = widget.initialSection;
   final _query = TextEditingController();
   String _tag = '', _folder = '', _kind = 'all';
+  bool? _filtersExpanded;
   bool _onlyTasks = false,
       _busy = false,
       _searching = false,
@@ -351,210 +352,310 @@ class _KnowledgePageState extends State<KnowledgePage> {
 
   Widget _results() {
     final scan = _scan;
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(12),
+    final filtersVisible =
+        _filtersExpanded ?? MediaQuery.sizeOf(context).width >= 900;
+    final activeFilters = [
+      _kind != 'all',
+      _tag.isNotEmpty,
+      _folder.isNotEmpty,
+      _onlyTasks && _section != 'Tasks',
+    ].where((value) => value).length;
+    return CustomScrollView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      slivers: [
+        SliverToBoxAdapter(
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(
-                controller: _query,
-                onSubmitted: (_) => _search(),
-                decoration: InputDecoration(
-                  labelText: _section == 'Tasks'
-                      ? 'Find an open task or file'
-                      : 'Search Markdown and PDFs',
-                  suffixIcon: IconButton(
-                    tooltip: 'Search',
-                    onPressed: _busy ? null : _search,
-                    icon: const Icon(Icons.search),
-                  ),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: _query,
+                      onSubmitted: (_) => _search(),
+                      decoration: InputDecoration(
+                        labelText: _section == 'Tasks'
+                            ? 'Find an open task or file'
+                            : 'Search Markdown and PDFs',
+                        suffixIcon: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: filtersVisible
+                                  ? 'Hide search filters'
+                                  : 'Show search filters',
+                              isSelected: filtersVisible,
+                              onPressed: _busy
+                                  ? null
+                                  : () => setState(
+                                      () => _filtersExpanded = !filtersVisible,
+                                    ),
+                              icon: Badge(
+                                isLabelVisible: activeFilters > 0,
+                                label: Text('$activeFilters'),
+                                child: const Icon(Icons.filter_alt_outlined),
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Search',
+                              onPressed: _busy ? null : _search,
+                              icon: const Icon(Icons.search),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (filtersVisible) const SizedBox(height: 8),
+                    if (filtersVisible)
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          DropdownButton<String>(
+                            value: _kind,
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'all',
+                                child: Text('All files'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'markdown',
+                                child: Text('Markdown'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'pdf',
+                                child: Text('PDFs'),
+                              ),
+                            ],
+                            onChanged: _busy
+                                ? null
+                                : (v) => setState(() => _kind = v!),
+                          ),
+                          DropdownButton<String>(
+                            value: _tag,
+                            items: [
+                              const DropdownMenuItem(
+                                value: '',
+                                child: Text('All tags'),
+                              ),
+                              for (final tag in {
+                                ..._notes
+                                    .expand((n) => n.tags)
+                                    .where((tag) => tag.isNotEmpty),
+                                if (_tag.isNotEmpty) _tag,
+                              }.toList()..sort())
+                                DropdownMenuItem(
+                                  value: tag,
+                                  child: SizedBox(
+                                    width: 100,
+                                    child: Text(
+                                      tag,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                            onChanged: _busy
+                                ? null
+                                : (v) => setState(() => _tag = v!),
+                          ),
+                          DropdownButton<String>(
+                            value: _folder,
+                            items: [
+                              const DropdownMenuItem(
+                                value: '',
+                                child: Text('All folders'),
+                              ),
+                              for (final folder
+                                  in widget.repository.catalog.folders)
+                                DropdownMenuItem(
+                                  value: folder.id,
+                                  child: SizedBox(
+                                    width: 110,
+                                    child: Text(
+                                      folder.name,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                              if (_folder.isNotEmpty &&
+                                  widget.repository.catalog.folderName(
+                                        _folder,
+                                      ) ==
+                                      null)
+                                DropdownMenuItem(
+                                  value: _folder,
+                                  child: const SizedBox(
+                                    width: 110,
+                                    child: Text(
+                                      'Unavailable folder',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                            onChanged: _busy
+                                ? null
+                                : (v) => setState(() => _folder = v!),
+                          ),
+                          if (_section == 'Search')
+                            FilterChip(
+                              label: const Text('Open tasks only'),
+                              selected: _onlyTasks,
+                              onSelected: _busy
+                                  ? null
+                                  : (v) => setState(() => _onlyTasks = v),
+                            ),
+
+                          OutlinedButton(
+                            onPressed: _busy ? null : _saveView,
+                            child: const Text('Save view'),
+                          ),
+                        ],
+                      ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  DropdownButton<String>(
-                    value: _kind,
-                    items: const [
-                      DropdownMenuItem(value: 'all', child: Text('All files')),
-                      DropdownMenuItem(
-                        value: 'markdown',
-                        child: Text('Markdown'),
-                      ),
-                      DropdownMenuItem(value: 'pdf', child: Text('PDFs')),
-                    ],
-                    onChanged: _busy ? null : (v) => setState(() => _kind = v!),
-                  ),
-                  DropdownButton<String>(
-                    value: _tag,
-                    items: [
-                      const DropdownMenuItem(
-                        value: '',
-                        child: Text('All tags'),
-                      ),
-                      for (final tag in {
-                        ..._notes
-                            .expand((n) => n.tags)
-                            .where((tag) => tag.isNotEmpty),
-                        if (_tag.isNotEmpty) _tag,
-                      }.toList()..sort())
-                        DropdownMenuItem(
-                          value: tag,
-                          child: SizedBox(
-                            width: 100,
-                            child: Text(tag, overflow: TextOverflow.ellipsis),
-                          ),
+              if (_searching) Text('Scanning $_completed / $_total files…'),
+              if (scan != null && scan.warnings.isNotEmpty)
+                TextButton(
+                  onPressed: () => showDialog<void>(
+                    context: context,
+                    builder: (_) => AlertDialog(
+                      title: const Text('Search warnings'),
+                      content: SizedBox(
+                        width: 400,
+                        height: 260,
+                        child: ListView(
+                          children: [
+                            for (final warning in scan.warnings)
+                              ListTile(title: Text(warning)),
+                          ],
                         ),
-                    ],
-                    onChanged: _busy ? null : (v) => setState(() => _tag = v!),
-                  ),
-                  DropdownButton<String>(
-                    value: _folder,
-                    items: [
-                      const DropdownMenuItem(
-                        value: '',
-                        child: Text('All folders'),
                       ),
-                      for (final folder in widget.repository.catalog.folders)
-                        DropdownMenuItem(
-                          value: folder.id,
-                          child: SizedBox(
-                            width: 110,
-                            child: Text(
-                              folder.name,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ),
-                      if (_folder.isNotEmpty &&
-                          widget.repository.catalog.folderName(_folder) == null)
-                        DropdownMenuItem(
-                          value: _folder,
-                          child: const SizedBox(
-                            width: 110,
-                            child: Text(
-                              'Unavailable folder',
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ),
-                    ],
-                    onChanged: _busy
-                        ? null
-                        : (v) => setState(() => _folder = v!),
-                  ),
-                  if (_section == 'Search')
-                    FilterChip(
-                      label: const Text('Open tasks only'),
-                      selected: _onlyTasks,
-                      onSelected: _busy
-                          ? null
-                          : (v) => setState(() => _onlyTasks = v),
                     ),
-                  FilledButton(
-                    onPressed: _busy ? null : _search,
-                    child: const Text('Search'),
                   ),
-                  OutlinedButton(
-                    onPressed: _busy ? null : _saveView,
-                    child: const Text('Save view'),
-                  ),
-                ],
-              ),
+                  child: Text('${scan.warnings.length} indexing warnings'),
+                ),
             ],
           ),
         ),
-        if (_searching) Text('Scanning $_completed / $_total files…'),
-        if (scan != null && scan.warnings.isNotEmpty)
-          TextButton(
-            onPressed: () => showDialog<void>(
-              context: context,
-              builder: (_) => AlertDialog(
-                title: const Text('Search warnings'),
-                content: SizedBox(
-                  width: 400,
-                  height: 260,
-                  child: ListView(
-                    children: [
-                      for (final warning in scan.warnings)
-                        ListTile(title: Text(warning)),
-                    ],
-                  ),
-                ),
+        if (scan == null || scan.hits.isEmpty)
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Text(
+                scan == null
+                    ? (_section == 'Tasks'
+                          ? 'Search to collect open checkboxes from every Markdown file.'
+                          : 'Enter text, or leave it empty to list all matching files.')
+                    : 'No matches.',
               ),
             ),
-            child: Text('${scan.warnings.length} indexing warnings'),
-          ),
-        Expanded(
-          child: scan == null
-              ? Center(
-                  child: Text(
-                    _section == 'Tasks'
-                        ? 'Search to collect open checkboxes from every Markdown file.'
-                        : 'Enter text, or leave it empty to list all matching files.',
-                  ),
-                )
-              : scan.hits.isEmpty
-              ? const Center(child: Text('No matches.'))
-              : ListView.builder(
-                  itemCount: scan.hits.length,
-                  itemBuilder: (context, index) {
-                    final hit = scan.hits[index];
-                    final task =
-                        scan.tasksByLocation['${hit.note.id}:${hit.anchor}'];
-                    return ListTile(
-                      leading: _view.openTasks && task != null
-                          ? Checkbox(
-                              value: false,
-                              onChanged: _busy ? null : (_) => _complete(task),
-                            )
-                          : Icon(
-                              hit.note.isMarkdown
-                                  ? Icons.description_outlined
-                                  : Icons.picture_as_pdf_outlined,
-                            ),
-                      title: Text(
-                        hit.snippet.trim().isEmpty
-                            ? '(Empty task)'
-                            : hit.snippet,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
+          )
+        else
+          SliverList.builder(
+            itemCount: scan.hits.length,
+            itemBuilder: (context, index) {
+              final hit = scan.hits[index];
+              final task = scan.tasksByLocation['${hit.note.id}:${hit.anchor}'];
+              return ListTile(
+                leading: _view.openTasks && task != null
+                    ? Checkbox(
+                        value: false,
+                        onChanged: _busy ? null : (_) => _complete(task),
+                      )
+                    : Icon(
+                        hit.note.isMarkdown
+                            ? Icons.description_outlined
+                            : Icons.picture_as_pdf_outlined,
                       ),
-                      subtitle: Text(
-                        '${hit.note.title}${hit.anchor.startsWith('line=')
-                            ? ' · Line ${hit.anchor.substring(5)}'
-                            : hit.anchor.startsWith('page=')
-                            ? ' · Page ${hit.anchor.substring(5)}'
-                            : ''}',
-                      ),
-                      onTap: _busy ? null : () => _open(hit.note, hit.anchor),
-                    );
-                  },
+                title: Text(
+                  hit.snippet.trim().isEmpty ? '(Empty task)' : hit.snippet,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
                 ),
-        ),
+                subtitle: Text(
+                  '${hit.note.title}${hit.anchor.startsWith('line=')
+                      ? ' · Line ${hit.anchor.substring(5)}'
+                      : hit.anchor.startsWith('page=')
+                      ? ' · Page ${hit.anchor.substring(5)}'
+                      : ''}',
+                ),
+                onTap: _busy ? null : () => _open(hit.note, hit.anchor),
+              );
+            },
+          ),
       ],
     );
   }
 
+  Future<void> _openJournalDay(DateTime date) => _work(() async {
+    final note = await _store.journal(date);
+    if (mounted) _open(note, 'edit:end');
+  });
+  Future<void> _journalSettings() async {
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Journal template'),
+        content: SizedBox(
+          width: 400,
+          height: MediaQuery.sizeOf(context).height * .45,
+          child: ListView(
+            children: [
+              ListTile(
+                title: const Text('Blank entry'),
+                trailing: _store.journalTemplate == null
+                    ? const Icon(Icons.check)
+                    : null,
+                onTap: () => Navigator.pop(context, ''),
+              ),
+              for (final template in _store.templates)
+                ListTile(
+                  title: Text(template.name),
+                  trailing: _store.journalTemplate == template.id
+                      ? const Icon(Icons.check)
+                      : null,
+                  onTap: () => Navigator.pop(context, template.id),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() => _section = 'Templates');
+            },
+            child: const Text('Manage templates'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+    if (selected != null && mounted) {
+      await _work(() async {
+        _store.journalTemplate = selected.isEmpty ? null : selected;
+        await _store.save();
+      });
+    }
+  }
+
   Widget _journal() {
-    final entries = _notes.where((n) => journalEntryDate(n) != null).toList()
-      ..sort((a, b) => journalEntryDate(b)!.compareTo(journalEntryDate(a)!));
+    final entries =
+        _notes.where((note) => journalEntryDate(note) != null).toList()..sort(
+          (a, b) => journalEntryDate(b)!.compareTo(journalEntryDate(a)!),
+        );
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Text('Daily journal', style: Theme.of(context).textTheme.headlineSmall),
-        const Text(
-          'One Markdown note per day. Existing entries are never replaced by a template.',
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
+        Row(
           children: [
             IconButton(
               tooltip: 'Previous day',
@@ -569,19 +670,23 @@ class _KnowledgePageState extends State<KnowledgePage> {
                     ),
               icon: const Icon(Icons.chevron_left),
             ),
-            OutlinedButton(
-              onPressed: _busy
-                  ? null
-                  : () async {
-                      final date = await showDatePicker(
-                        context: context,
-                        initialDate: _date,
-                        firstDate: DateTime(1900),
-                        lastDate: DateTime(2200),
-                      );
-                      if (date != null && mounted) setState(() => _date = date);
-                    },
-              child: Text(journalDate(_date)),
+            Expanded(
+              child: TextButton(
+                onPressed: _busy
+                    ? null
+                    : () async {
+                        final date = await showDatePicker(
+                          context: context,
+                          initialDate: _date,
+                          firstDate: DateTime(1900),
+                          lastDate: DateTime(2200),
+                        );
+                        if (date != null && mounted) {
+                          setState(() => _date = date);
+                        }
+                      },
+                child: Text(journalDate(_date)),
+              ),
             ),
             IconButton(
               tooltip: 'Next day',
@@ -596,47 +701,35 @@ class _KnowledgePageState extends State<KnowledgePage> {
                     ),
               icon: const Icon(Icons.chevron_right),
             ),
-            TextButton(
-              onPressed: () => setState(() => _date = DateTime.now()),
-              child: const Text('Today'),
-            ),
+          ],
+        ),
+        Wrap(
+          spacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
             FilledButton(
-              onPressed: _busy
-                  ? null
-                  : () => _work(() async {
-                      final note = await _store.journal(_date);
-                      if (mounted) _open(note, 'edit:end');
-                    }),
+              onPressed: _busy ? null : () => _openJournalDay(_date),
               child: const Text('Open day'),
             ),
+            TextButton(
+              onPressed: _busy ? null : () => _openJournalDay(DateTime.now()),
+              child: const Text('Today'),
+            ),
+            IconButton(
+              tooltip: 'Journal template',
+              onPressed: _busy ? null : _journalSettings,
+              icon: const Icon(Icons.tune),
+            ),
           ],
         ),
-        DropdownButtonFormField<String>(
-          initialValue:
-              _store.templates.any((t) => t.id == _store.journalTemplate)
-              ? _store.journalTemplate
-              : '',
-          decoration: const InputDecoration(
-            labelText: 'Default journal template',
-          ),
-          items: [
-            const DropdownMenuItem(value: '', child: Text('Blank entry')),
-            for (final template in _store.templates)
-              DropdownMenuItem(value: template.id, child: Text(template.name)),
-          ],
-          onChanged: _busy
-              ? null
-              : (value) => _work(() async {
-                  _store.journalTemplate = value == '' ? null : value;
-                  await _store.save();
-                }),
-        ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 16),
         for (final note in entries)
           ListTile(
             leading: const Icon(Icons.calendar_today_outlined),
             title: Text(note.title),
-            subtitle: Text(note.tags.join(' · ')),
+            subtitle: note.title == journalEntryDate(note)
+                ? null
+                : Text(journalEntryDate(note)!),
             onTap: () => _open(note, 'edit:end'),
           ),
         if (entries.isEmpty)
@@ -653,9 +746,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
     children: [
       ListTile(
         title: const Text('Reusable Markdown templates'),
-        subtitle: const Text(
-          'Use templates in daily journals or insert them into any Markdown note.',
-        ),
+
         trailing: IconButton(
           tooltip: 'Create Markdown template',
           onPressed: _busy ? null : () => _template(),
@@ -742,12 +833,13 @@ class _KnowledgePageState extends State<KnowledgePage> {
 
   Widget _views() => ListView(
     children: [
-      const ListTile(
-        title: Text('Saved search views'),
-        subtitle: Text(
-          'Save combinations of text, type, folder, tag and open-task filters from Search.',
+      if (_store.views.isEmpty)
+        const ListTile(
+          title: Text('Saved search views'),
+          subtitle: Text(
+            'Save combinations of text, type, folder, tag and open-task filters from Search.',
+          ),
         ),
-      ),
       for (final view in _store.views)
         ListTile(
           title: Text(view.name),
@@ -793,8 +885,29 @@ class _KnowledgePageState extends State<KnowledgePage> {
           padding: const EdgeInsets.only(bottom: 12),
           child: Text(_backupStatus!),
         ),
-      const Text(
-        'Local snapshots keep the latest seven complete backups. Export copies to a separate device or storage provider for protection against device loss. Restore adds copies and preserves your existing notes.',
+      Align(
+        alignment: Alignment.centerRight,
+        child: IconButton(
+          tooltip: 'About backups',
+          icon: const Icon(Icons.info_outline),
+          onPressed: () => showDialog<void>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Library backups'),
+              content: const SingleChildScrollView(
+                child: Text(
+                  'Keep the latest seven local snapshots. Export copies to separate storage to protect against device loss. Restore adds copies and preserves existing notes. Library snapshots support up to 512 MB.',
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Close'),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
       SwitchListTile(
         title: const Text('Automatic backups'),

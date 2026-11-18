@@ -87,61 +87,99 @@ void main() {
     },
   );
 
-  for (final width in [390.0, 1200.0]) {
-    testWidgets('graph fits width $width, filters tags and opens a file', (
-      tester,
-    ) async {
-      tester.view.physicalSize = Size(width, 900);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      Notebook? selected;
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: NoterTheme.light,
-          home: Builder(
-            builder: (context) => Scaffold(
-              body: TextButton(
-                child: const Text('Open graph'),
-                onPressed: () async {
-                  selected = await Navigator.push<Notebook>(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => LibraryGraphPage(repository: repository),
-                    ),
-                  );
-                },
+  for (final (width, textScale) in [
+    (390.0, 1.0),
+    (1200.0, 1.0),
+    (390.0, 2.0),
+  ]) {
+    testWidgets(
+      'graph fits width $width at text scale $textScale, filters tags and opens a file',
+      (tester) async {
+        tester.view.physicalSize = Size(width, 900);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        Notebook? selected;
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: NoterTheme.light,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(textScale)),
+              child: child!,
+            ),
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: TextButton(
+                  child: const Text('Open graph'),
+                  onPressed: () async {
+                    selected = await Navigator.push<Notebook>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            LibraryGraphPage(repository: repository),
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
           ),
-        ),
-      );
-      await tester.tap(find.text('Open graph'));
-      for (var i = 0; i < 150; i++) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 15)),
         );
-        await tester.pump(const Duration(milliseconds: 50));
-        if (find.byKey(const ValueKey('graph-counts')).evaluate().isNotEmpty) {
-          break;
+        await tester.tap(find.text('Open graph'));
+        for (var i = 0; i < 150; i++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 15)),
+          );
+          await tester.pump(const Duration(milliseconds: 50));
+          if (find
+              .byKey(const ValueKey('graph-counts'))
+              .evaluate()
+              .isNotEmpty) {
+            break;
+          }
         }
-      }
-      await tester.pumpAndSettle();
-      expect(find.text('3 files · 5 connections'), findsOneWidget);
-      await tester.tap(find.text('Tags'));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('graph-node-tag:study')), findsNothing);
-      expect(find.text('3 files · 2 connections'), findsOneWidget);
-      await tester.tap(find.text('Tags'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('graph-node-tag:study')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(ValueKey('graph-node-note:${pdf.id}')), findsNothing);
-      await tester.tap(find.byKey(ValueKey('graph-node-note:${b.id}')));
-      await tester.pumpAndSettle();
-      expect(selected?.id, b.id);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    });
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<Semantics>(find.byKey(const ValueKey('graph-counts')))
+              .properties
+              .label,
+          '3 files · 5 connections',
+        );
+        await tester.tap(find.byTooltip('Graph options'));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.widgetWithText(CheckedPopupMenuItem<String>, 'Show tags'),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('graph-node-tag:study')),
+          findsNothing,
+        );
+        expect(
+          tester
+              .widget<Semantics>(find.byKey(const ValueKey('graph-counts')))
+              .properties
+              .label,
+          '3 files · 2 connections',
+        );
+        await tester.tap(find.byTooltip('Graph options'));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.widgetWithText(CheckedPopupMenuItem<String>, 'Show tags'),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('graph-node-tag:study')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(ValueKey('graph-node-note:${pdf.id}')), findsNothing);
+        await tester.tap(find.byKey(ValueKey('graph-node-note:${b.id}')));
+        await tester.pumpAndSettle();
+        expect(selected?.id, b.id);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
   }
 }

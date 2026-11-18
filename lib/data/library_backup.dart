@@ -11,6 +11,7 @@ import 'notebook.dart';
 import 'knowledge.dart';
 import 'templates.dart';
 import 'ink.dart';
+import 'catalog.dart';
 
 /// Complete, checksummed snapshots, separate from bounded per-note history.
 /// Restore creates a namespaced collection of copies, never overwrites notes.
@@ -95,8 +96,14 @@ class LibraryBackup {
         .where((file) => file is File && file.path.endsWith('.zip'))
         .cast<File>()
         .toList();
-    files.sort((a, b) => b.path.compareTo(a.path));
-    return files;
+    final dated = [
+      for (final file in files) (file, (await file.stat()).modified),
+    ];
+    dated.sort((a, b) {
+      final order = b.$2.compareTo(a.$2);
+      return order == 0 ? b.$1.path.compareTo(a.$1.path) : order;
+    });
+    return dated.map((entry) => entry.$1).toList();
   }
 
   Future<List<Notebook>> restore(Uint8List bytes) async {
@@ -155,21 +162,7 @@ class LibraryBackup {
     final knowledge = files['settings/.knowledge.json'];
     if (knowledge != null) {
       settings = jsonDecode(utf8.decode(knowledge)) as Map<String, dynamic>;
-      if (settings['version'] != 1 ||
-          settings['templates'] is! List ||
-          settings['views'] is! List) {
-        throw const FormatException('Invalid backup settings.');
-      }
-      for (final row in settings['templates']) {
-        if (row['id'] is! String ||
-            row['name'] is! String ||
-            row['source'] is! String) {
-          throw const FormatException('Invalid Markdown template.');
-        }
-      }
-      for (final row in settings['views']) {
-        KnowledgeView.fromJson(Map<String, dynamic>.from(row));
-      }
+      validateKnowledgeSettings(settings);
     }
     final pdfTemplates = <(String, Uint8List, InkDocument?)>[];
     for (final entry in files.entries.where(
@@ -196,12 +189,42 @@ class LibraryBackup {
         ink == null ? null : InkDocument.decode(ink.content),
       ));
     }
+    final backupFolders = <NoteFolder>[];
+    final catalogBytes = files['settings/.library.json'];
+    if (catalogBytes != null) {
+      final catalog =
+          jsonDecode(utf8.decode(catalogBytes)) as Map<String, dynamic>;
+      if (catalog['version'] != 1 ||
+          catalog['folders'] is! List ||
+          catalog['presets'] is! List) {
+        throw const FormatException('Invalid backup catalog.');
+      }
+      for (final row in catalog['folders']) {
+        if (row is! Map ||
+            row['id'] is! String ||
+            row['name'] is! String ||
+            (row['name'] as String).trim().isEmpty) {
+          throw const FormatException('Invalid backup folder.');
+        }
+        backupFolders.add(
+          NoteFolder(row['id'] as String, row['name'] as String),
+        );
+      }
+      for (final row in catalog['presets']) {
+        PenPreset.fromJson(Map<String, dynamic>.from(row));
+      }
+    }
     final wasEmpty = (await repository.list()).isEmpty;
     final store = KnowledgeStore(repository);
     await store.load();
     final namespace = 'restored-${LocalNotebookRepository.newId()}';
     final result = <Notebook>[];
     final folderIds = <String, String>{};
+    for (final folder in backupFolders) {
+      folderIds[folder.id] = (await repository.catalog.ensureFolder(
+        folder.name,
+      )).id;
+    }
     for (final (note, payload, ink) in decoded) {
       final folder = note.folderName == null
           ? null
@@ -246,23 +269,43 @@ class LibraryBackup {
       }
       for (final row in settings['views']) {
         final view = KnowledgeView.fromJson(Map<String, dynamic>.from(row));
-        if (!store.views.any(
+        final folder = view.folder.isEmpty
+            ? ''
+            : folderIds[view.folder] ??
+                  'missing:${sha256.convert(utf8.encode(view.folder))}';
+        final restoredName = RegExp(
+          '^${RegExp.escape(view.name)} '
+          r'\(restored(?: [0-9]+)?\)$',
+        );
+        final duplicate = store.views.any(
           (existing) =>
-              jsonEncode(existing.toJson()) == jsonEncode(view.toJson()),
-        )) {
-          store.views.add(
-            KnowledgeView(
-              store.views.any((v) => v.name == view.name)
-                  ? '${view.name} (restored)'
-                  : view.name,
-              query: view.query,
-              tag: view.tag,
-              folder: folderIds[view.folder] ?? '',
-              kind: view.kind,
-              openTasks: view.openTasks,
-            ),
-          );
+              (existing.name == view.name ||
+                  restoredName.hasMatch(existing.name)) &&
+              existing.query == view.query &&
+              existing.tag.toLowerCase() == view.tag.toLowerCase() &&
+              existing.folder == folder &&
+              existing.kind == view.kind &&
+              existing.openTasks == view.openTasks,
+        );
+        if (duplicate) continue;
+        var name = view.name;
+        for (
+          var suffix = 1;
+          store.views.any((existing) => existing.name == name);
+          suffix++
+        ) {
+          name = '${view.name} (restored${suffix == 1 ? '' : ' $suffix'})';
         }
+        store.views.add(
+          KnowledgeView(
+            name,
+            query: view.query,
+            tag: view.tag,
+            folder: folder,
+            kind: view.kind,
+            openTasks: view.openTasks,
+          ),
+        );
       }
       if (wasEmpty) {
         store.journalTemplate = templateIds[settings['journalTemplate']];
@@ -300,6 +343,11 @@ class AutomaticBackupScheduler {
       final store = KnowledgeStore(repository);
       await store.load();
       if (!store.automaticBackups || _disposed) return;
+      if (!await prepare() || _disposed) {
+        throw const FormatException(
+          'Could not save open documents for backup.',
+        );
+      }
       final notes = await repository.list();
       if (repository.readErrors.isNotEmpty) {
         throw const FormatException(
@@ -326,31 +374,38 @@ class AutomaticBackupScheduler {
             ),
           )
           .toString();
-      if (_fingerprint == fingerprint || _disposed) return;
-      if (!await prepare() || _disposed) {
-        throw const FormatException(
-          'Could not save open documents for backup.',
-        );
+      final status = await _readStatus(backup.directory);
+      final savedFile = status['file'];
+      final savedExists =
+          savedFile is String &&
+          p.basename(savedFile) == savedFile &&
+          await File(p.join(backup.directory.path, savedFile)).exists();
+      if ((_fingerprint == fingerprint ||
+              status['fingerprint'] == fingerprint) &&
+          savedExists) {
+        if (status.containsKey('error')) {
+          status.remove('error');
+          status.remove('attempted');
+          await _writeStatus(backup.directory, status);
+        }
+        return;
       }
+      if (_disposed) return;
       final file = await backup.create();
       _fingerprint = fingerprint;
-      await File(p.join(backup.directory.path, 'status.json')).writeAsString(
-        jsonEncode({
-          'lastSuccess': DateTime.now().toUtc().toIso8601String(),
-          'file': p.basename(file.path),
-        }),
-        flush: true,
-      );
+      await _writeStatus(backup.directory, {
+        'fingerprint': fingerprint,
+        'lastSuccess': DateTime.now().toUtc().toIso8601String(),
+        'file': p.basename(file.path),
+      });
     } catch (error) {
       try {
         await backup.directory.create(recursive: true);
-        await File(p.join(backup.directory.path, 'status.json')).writeAsString(
-          jsonEncode({
-            'error': '$error',
-            'attempted': DateTime.now().toUtc().toIso8601String(),
-          }),
-          flush: true,
-        );
+        await _writeStatus(backup.directory, {
+          ...await _readStatus(backup.directory),
+          'error': '$error',
+          'attempted': DateTime.now().toUtc().toIso8601String(),
+        });
       } catch (_) {
         /* Storage failures must not crash or prevent note editing. */
       }
@@ -388,3 +443,25 @@ Future<Uint8List> _encodeSnapshot(Map<String, Uint8List> files) =>
       archive.addFile(ArchiveFile('backup.json', manifest.length, manifest));
       return Uint8List.fromList(ZipEncoder().encode(archive));
     });
+
+Future<Map<String, dynamic>> _readStatus(Directory directory) async {
+  try {
+    return jsonDecode(
+          await File(p.join(directory.path, 'status.json')).readAsString(),
+        )
+        as Map<String, dynamic>;
+  } on Object {
+    return {};
+  }
+}
+
+Future<void> _writeStatus(
+  Directory directory,
+  Map<String, dynamic> value,
+) async {
+  await directory.create(recursive: true);
+  final file = File(p.join(directory.path, 'status.json'));
+  final temporary = File('${file.path}.tmp');
+  await temporary.writeAsString(jsonEncode(value), flush: true);
+  await temporary.rename(file.path);
+}

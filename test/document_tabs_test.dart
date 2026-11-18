@@ -129,10 +129,7 @@ void main() {
           tester.getSize(header).height,
           NoterTheme.headerHeight(tester.element(header)),
         );
-        expect(
-          tester.getTopLeft(header).dy,
-          tester.getBottomLeft(tabsBar).dy + 2,
-        );
+        expect(tester.getTopLeft(header).dy, tester.getBottomLeft(tabsBar).dy);
         await tester.tap(find.byTooltip('Hide document tabs'));
         await tester.pump();
         expect(find.byKey(ValueKey('document-tab-${a.id}')), findsNothing);

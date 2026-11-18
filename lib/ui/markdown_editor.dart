@@ -1,3 +1,4 @@
+import 'markdown_zoom_surface.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' show AppExitResponse;
@@ -118,7 +119,17 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   String _query = '';
   bool _showNotes = false, _source = false, _busy = false, _canPop = false;
   bool _showChrome = true;
+  bool _showSidebar = true;
   double _sourceZoom = 1;
+  double _readingZoom = 1;
+  double get _activeZoom => _source ? _sourceZoom : _readingZoom;
+  void _setZoom(double value) => setState(() {
+    if (_source) {
+      _sourceZoom = value.clamp(.7, 2.5);
+    } else {
+      _readingZoom = value.clamp(.7, 2.5);
+    }
+  });
   bool _leaving = false;
   bool _loadingNotes = true;
   int _loadGeneration = 0;
@@ -1025,25 +1036,25 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 6),
       children: [
-        if (_source) ...[
+        ...[
           tool(
             'Zoom out (Ctrl+-)',
             Icons.text_decrease,
-            () =>
-                setState(() => _sourceZoom = (_sourceZoom - .1).clamp(.7, 2.5)),
+            () => _setZoom(_activeZoom - .1),
           ),
           Tooltip(
-            message: 'Reset editor zoom (Ctrl+0)',
+            message: _source
+                ? 'Reset editor zoom (Ctrl+0)'
+                : 'Reset reading zoom (Ctrl+0)',
             child: TextButton(
-              onPressed: () => setState(() => _sourceZoom = 1),
-              child: Text('${(_sourceZoom * 100).round()}%'),
+              onPressed: () => _setZoom(1),
+              child: Text('${(_activeZoom * 100).round()}%'),
             ),
           ),
           tool(
             'Zoom in (Ctrl++)',
             Icons.text_increase,
-            () =>
-                setState(() => _sourceZoom = (_sourceZoom + .1).clamp(.7, 2.5)),
+            () => _setZoom(_activeZoom + .1),
           ),
           const ToolbarSeparator(),
         ],
@@ -1249,501 +1260,526 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       );
 
   @override
-  Widget build(BuildContext context) => CallbackShortcuts(
-    bindings: {
-      const SingleActivator(LogicalKeyboardKey.keyS, control: true): () =>
-          _session.save(),
-      const SingleActivator(LogicalKeyboardKey.keyS, meta: true): () =>
-          _session.save(),
-    },
-    child: PopScope(
-      canPop: widget.tabController != null || _canPop,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && widget.tabController == null) _leave();
+  Widget build(BuildContext context) => MarkdownZoomSurface(
+    enabled: !_source,
+    zoom: _readingZoom,
+    onChanged: _setZoom,
+    child: CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyS, control: true): () =>
+            _session.save(),
+        const SingleActivator(LogicalKeyboardKey.keyS, meta: true): () =>
+            _session.save(),
       },
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final desktop = constraints.maxWidth >= 1000;
-          final phone = constraints.maxWidth < 600;
-          final inset = phone ? 18.0 : 36.0;
-          final paper = Padding(
-            padding: EdgeInsets.fromLTRB(phone ? 0 : 36, 0, phone ? 0 : 36, 0),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 760),
-                child: ColoredBox(
-                  color: Colors.white,
-                  child: CustomScrollView(
-                    controller: _scroll,
-                    slivers: [
-                      SliverPadding(
-                        padding: EdgeInsets.fromLTRB(
-                          inset,
-                          phone ? 24 : 68,
-                          inset,
-                          0,
-                        ),
-                        sliver: SliverToBoxAdapter(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              const Align(
-                                alignment: Alignment.centerLeft,
-                                child: DocumentTypeBadge('MD'),
-                              ),
-                              const SizedBox(height: 16),
-                              TextField(
-                                key: const ValueKey('markdown-title'),
-                                controller: _title,
-                                undoController: _titleUndo,
-                                focusNode: _titleFocus,
-                                readOnly: _busy || _leaving,
-                                maxLength: 120,
-                                minLines: 1,
-                                maxLines: null,
-                                inputFormatters: [
-                                  FilteringTextInputFormatter
-                                      .singleLineFormatter,
-                                ],
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .headlineMedium
-                                    ?.copyWith(
-                                      fontSize: 30,
-                                      height: 1.3,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                decoration: const InputDecoration(
-                                  hintText: 'Title',
-                                  border: InputBorder.none,
-                                  enabledBorder: InputBorder.none,
-                                  focusedBorder: InputBorder.none,
-                                  filled: false,
-                                  isDense: true,
-                                  contentPadding: EdgeInsets.zero,
-                                  counterText: '',
+      child: PopScope(
+        canPop: widget.tabController != null || _canPop,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop && widget.tabController == null) _leave();
+        },
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final desktop = constraints.maxWidth >= 1000;
+            final phone = constraints.maxWidth < 600;
+            final inset = phone ? 18.0 : 36.0;
+            final paper = Padding(
+              padding: EdgeInsets.fromLTRB(
+                phone ? 0 : 36,
+                0,
+                phone ? 0 : 36,
+                0,
+              ),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 760),
+                  child: ColoredBox(
+                    color: Colors.white,
+                    child: CustomScrollView(
+                      controller: _scroll,
+                      slivers: [
+                        SliverPadding(
+                          padding: EdgeInsets.fromLTRB(
+                            inset,
+                            phone ? 24 : 68,
+                            inset,
+                            0,
+                          ),
+                          sliver: SliverToBoxAdapter(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                const Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: DocumentTypeBadge('MD'),
                                 ),
-                                onChanged: (value) => _session.rename(
-                                  value.trim().isEmpty
-                                      ? 'Text note'
-                                      : value.trim(),
-                                ),
-                              ),
-                              const SizedBox(height: 20),
-                              Offstage(
-                                offstage: !_source,
-                                child: WikiLinkSuggestions(
-                                  key: _wikiKey,
-                                  controller: _text,
-                                  note: _session.note,
-                                  notes: _notes,
-                                  repository: widget.repository,
-                                ),
-                              ),
-                              Offstage(
-                                offstage: !_source,
-                                child: SizedBox(
-                                  height: (constraints.maxHeight - 240).clamp(
-                                    300.0,
-                                    900.0,
+                                const SizedBox(height: 16),
+                                TextField(
+                                  key: const ValueKey('markdown-title'),
+                                  controller: _title,
+                                  undoController: _titleUndo,
+                                  focusNode: _titleFocus,
+                                  readOnly: _busy || _leaving,
+                                  maxLength: 120,
+                                  minLines: 1,
+                                  maxLines: null,
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter
+                                        .singleLineFormatter,
+                                  ],
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineMedium
+                                      ?.copyWith(
+                                        fontSize: 30,
+                                        height: 1.3,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                  decoration: const InputDecoration(
+                                    hintText: 'Title',
+                                    border: InputBorder.none,
+                                    enabledBorder: InputBorder.none,
+                                    focusedBorder: InputBorder.none,
+                                    filled: false,
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.zero,
+                                    counterText: '',
                                   ),
-                                  child: TextField(
-                                    key: const ValueKey('markdown-source'),
+                                  onChanged: (value) => _session.rename(
+                                    value.trim().isEmpty
+                                        ? 'Text note'
+                                        : value.trim(),
+                                  ),
+                                ),
+                                const SizedBox(height: 20),
+                                Offstage(
+                                  offstage: !_source,
+                                  child: WikiLinkSuggestions(
+                                    key: _wikiKey,
                                     controller: _text,
-                                    undoController: _undo,
-                                    readOnly: _busy || _leaving,
-                                    focusNode: _focus,
-                                    maxLines: null,
-                                    expands: true,
-                                    keyboardType: TextInputType.multiline,
-                                    decoration: const InputDecoration(
-                                      hintText: 'Write your note …',
-                                      border: InputBorder.none,
-                                      enabledBorder: InputBorder.none,
-                                      focusedBorder: InputBorder.none,
-                                      filled: false,
-                                      contentPadding: EdgeInsets.zero,
+                                    note: _session.note,
+                                    notes: _notes,
+                                    repository: widget.repository,
+                                  ),
+                                ),
+                                Offstage(
+                                  offstage: !_source,
+                                  child: SizedBox(
+                                    height: (constraints.maxHeight - 240).clamp(
+                                      300.0,
+                                      900.0,
                                     ),
-                                    style: TextStyle(
-                                      fontFamily: 'monospace',
-                                      height: 1.7,
-                                      fontSize: 14 * _sourceZoom,
-                                      color: NoterTheme.ink,
+                                    child: TextField(
+                                      key: const ValueKey('markdown-source'),
+                                      controller: _text,
+                                      undoController: _undo,
+                                      readOnly: _busy || _leaving,
+                                      focusNode: _focus,
+                                      maxLines: null,
+                                      expands: true,
+                                      keyboardType: TextInputType.multiline,
+                                      decoration: const InputDecoration(
+                                        hintText: 'Write your note …',
+                                        border: InputBorder.none,
+                                        enabledBorder: InputBorder.none,
+                                        focusedBorder: InputBorder.none,
+                                        filled: false,
+                                        contentPadding: EdgeInsets.zero,
+                                      ),
+                                      style: TextStyle(
+                                        fontFamily: 'monospace',
+                                        height: 1.7,
+                                        fontSize: 14 * _sourceZoom,
+                                        color: NoterTheme.ink,
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                              if (!_source)
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: TextButton.icon(
-                                    onPressed: () {
-                                      setState(() => _source = true);
-                                      _focus.requestFocus();
-                                    },
-                                    icon: const Icon(
-                                      Icons.edit_outlined,
-                                      size: 17,
+                                if (!_source)
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton.icon(
+                                      onPressed: () {
+                                        setState(() => _source = true);
+                                        _focus.requestFocus();
+                                      },
+                                      icon: const Icon(
+                                        Icons.edit_outlined,
+                                        size: 17,
+                                      ),
+                                      label: const Text('Edit text'),
                                     ),
-                                    label: const Text('Edit text'),
                                   ),
-                                ),
-                              if (!_source && _text.text.isEmpty)
-                                const Padding(
-                                  padding: EdgeInsets.all(24),
-                                  child: Text(
-                                    'Your thoughts start here. Tap “Edit text”.',
+                                if (!_source && _text.text.isEmpty)
+                                  const Padding(
+                                    padding: EdgeInsets.all(24),
+                                    child: Text(
+                                      'Your thoughts start here. Tap “Edit text”.',
+                                    ),
                                   ),
-                                ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                      if (!_source) ...[
-                        SliverPadding(
-                          padding: EdgeInsets.symmetric(horizontal: inset),
-                          sliver: MarkdownPreview(
-                            key: _previewKey,
-                            document: _session.document,
-                            scrollController: _scroll,
-                            onFollow: _follow,
-                            onToggle: (offset, checked) {
-                              if (_busy || _leaving) return;
-                              _text.text = _text.text.replaceRange(
-                                offset,
-                                offset + 1,
-                                checked ? 'x' : ' ',
-                              );
-                            },
+                        if (!_source) ...[
+                          SliverPadding(
+                            padding: EdgeInsets.symmetric(horizontal: inset),
+                            sliver: MarkdownPreview(
+                              key: _previewKey,
+                              zoom: _readingZoom,
+                              document: _session.document,
+                              scrollController: _scroll,
+                              onFollow: _follow,
+                              onToggle: (offset, checked) {
+                                if (_busy || _leaving) return;
+                                _text.text = _text.text.replaceRange(
+                                  offset,
+                                  offset + 1,
+                                  checked ? 'x' : ' ',
+                                );
+                              },
+                            ),
                           ),
-                        ),
-                        SliverPadding(
-                          padding: EdgeInsets.fromLTRB(inset, 0, inset, 48),
-                          sliver: SliverToBoxAdapter(child: _backlinkFooter()),
-                        ),
+                          SliverPadding(
+                            padding: EdgeInsets.fromLTRB(inset, 0, inset, 48),
+                            sliver: SliverToBoxAdapter(
+                              child: _backlinkFooter(),
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          );
-          return Scaffold(
-            backgroundColor: phone ? Colors.white : NoterTheme.workspace,
-            floatingActionButton: _showChrome
-                ? null
-                : FloatingActionButton.small(
-                    tooltip: 'Show toolbars',
-                    onPressed: () => setState(() => _showChrome = true),
-                    child: const Icon(Icons.fullscreen_exit),
-                  ),
-            appBar: !_showChrome
-                ? null
-                : AppBar(
-                    toolbarHeight: NoterTheme.headerHeight(context),
-                    leadingWidth: DocumentTabsChrome.leadingWidth(context),
-                    leading: DocumentNavigation(
-                      child: IconButton(
-                        tooltip: 'Back to library',
-                        icon: const Icon(Icons.arrow_back),
-                        onPressed: _leave,
-                      ),
+            );
+            return Scaffold(
+              backgroundColor: phone ? Colors.white : NoterTheme.workspace,
+              floatingActionButton: _showChrome
+                  ? null
+                  : FloatingActionButton.small(
+                      tooltip: 'Show toolbars',
+                      onPressed: () => setState(() => _showChrome = true),
+                      child: const Icon(Icons.fullscreen_exit),
                     ),
-                    title: Text(
-                      _session.note.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    actions: [
-                      IconButton(
-                        tooltip: 'Hide toolbars',
-                        onPressed: () => setState(() => _showChrome = false),
-                        icon: const Icon(Icons.fullscreen),
-                      ),
-                      IconButton(
-                        tooltip: _showNotes
-                            ? 'Hide note list'
-                            : 'Show note list',
-                        icon: const Icon(Icons.view_sidebar_outlined),
-                        onPressed: () {
-                          if (desktop) {
-                            setState(() => _showNotes = !_showNotes);
-                          } else {
-                            showModalBottomSheet<void>(
-                              context: context,
-                              isScrollControlled: true,
-                              showDragHandle: true,
-                              builder: (context) => StatefulBuilder(
-                                builder: (context, update) => SizedBox(
-                                  height:
-                                      MediaQuery.sizeOf(context).height * .7,
-                                  child: Column(
-                                    children: [
-                                      SizedBox(
-                                        height: 200,
-                                        child: _rail(
-                                          refresh: () => update(() {}),
-                                          closeOnCreate: true,
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: _list(
-                                          refresh: () => update(() {}),
-                                          closeOnTap: true,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                          }
-                        },
-                      ),
-                      IconButton(
-                        tooltip: 'Save',
-                        onPressed: _busy || _leaving || _session.saving
-                            ? null
-                            : () => _session.save(),
-                        icon: Icon(
-                          _session.error != null
-                              ? Icons.error_outline
-                              : _session.saving
-                              ? Icons.sync
-                              : _session.dirty
-                              ? Icons.save_outlined
-                              : Icons.check_circle_outline,
+              appBar: !_showChrome
+                  ? null
+                  : AppBar(
+                      toolbarHeight: NoterTheme.headerHeight(context),
+                      leadingWidth: DocumentTabsChrome.leadingWidth(context),
+                      leading: DocumentNavigation(
+                        child: IconButton(
+                          tooltip: 'Back to library',
+                          icon: const Icon(Icons.arrow_back),
+                          onPressed: _leave,
                         ),
                       ),
-                      PopupMenuButton<String>(
-                        tooltip: 'Note actions',
-                        onSelected: (value) {
-                          if (value == 'knowledge') {
-                            _knowledge('Search');
-                          } else if (value == 'journal') {
-                            _knowledge('Journal');
-                          } else if (value == 'tasks') {
-                            _knowledge('Tasks');
-                          } else if (value == 'outline') {
-                            _outline();
-                          } else if (value == 'template') {
-                            _insertTemplate();
-                          } else if (value == 'save-template') {
-                            _insertTemplate(saveCurrent: true);
-                          } else if (value == 'graph') {
-                            _graphView();
-                          } else if (value == 'organize') {
-                            _organize();
-                          } else {
-                            _export(value);
-                          }
-                        },
-                        itemBuilder: (_) => const [
-                          PopupMenuItem(
-                            value: 'knowledge',
-                            child: Text('Knowledge hub'),
-                          ),
-                          PopupMenuItem(
-                            value: 'journal',
-                            child: Text('Journal'),
-                          ),
-                          PopupMenuItem(
-                            value: 'tasks',
-                            child: Text('All open tasks'),
-                          ),
-                          PopupMenuItem(
-                            value: 'outline',
-                            child: Text('Outline'),
-                          ),
-                          PopupMenuItem(
-                            value: 'template',
-                            child: Text('Insert Markdown template'),
-                          ),
-                          PopupMenuItem(
-                            value: 'save-template',
-                            child: Text('Save as Markdown template'),
-                          ),
-                          PopupMenuItem(
-                            value: 'graph',
-                            child: Text('Graph view'),
-                          ),
-                          PopupMenuItem(
-                            value: 'organize',
-                            child: Text('Folders and tags'),
-                          ),
-                          PopupMenuItem(
-                            value: 'md',
-                            child: Text('Export Markdown (.md)'),
-                          ),
-                          PopupMenuItem(
-                            value: 'bundle',
-                            child: Text('With linked notes and images (.zip)'),
-                          ),
-                          PopupMenuItem(
-                            value: 'rescue',
-                            child: Text('Export Notixer backup'),
-                          ),
-                        ],
+                      title: Text(
+                        _session.note.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ],
-                  ),
-            body: Stack(
-              children: [
-                SafeArea(
-                  child: Row(
-                    children: [
-                      if (desktop && _showChrome)
-                        SizedBox(width: 196, child: _rail()),
-                      if (desktop && _showChrome && _showNotes)
-                        SizedBox(width: 244, child: _list()),
-                      Expanded(
-                        child: Column(
-                          children: [
-                            if (_busy || _loadingNotes)
-                              const LinearProgressIndicator(),
-                            if (_showChrome)
-                              WorkspaceToolbar(
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      if (!phone) ...[
+                      actions: [
+                        if (desktop)
+                          IconButton(
+                            tooltip: _showSidebar
+                                ? 'Hide sidebar'
+                                : 'Show sidebar',
+                            icon: const Icon(Icons.view_sidebar_outlined),
+                            onPressed: () =>
+                                setState(() => _showSidebar = !_showSidebar),
+                          ),
+                        IconButton(
+                          tooltip: 'Hide toolbars',
+                          onPressed: () => setState(() => _showChrome = false),
+                          icon: const Icon(Icons.fullscreen),
+                        ),
+                        IconButton(
+                          tooltip: _showNotes
+                              ? 'Hide note list'
+                              : 'Show note list',
+                          icon: const Icon(Icons.view_sidebar_outlined),
+                          onPressed: () {
+                            if (desktop) {
+                              setState(() => _showNotes = !_showNotes);
+                            } else {
+                              showModalBottomSheet<void>(
+                                context: context,
+                                isScrollControlled: true,
+                                showDragHandle: true,
+                                builder: (context) => StatefulBuilder(
+                                  builder: (context, update) => SizedBox(
+                                    height:
+                                        MediaQuery.sizeOf(context).height * .7,
+                                    child: Column(
+                                      children: [
+                                        SizedBox(
+                                          height: 200,
+                                          child: _rail(
+                                            refresh: () => update(() {}),
+                                            closeOnCreate: true,
+                                          ),
+                                        ),
                                         Expanded(
-                                          flex: 2,
-                                          child: _toolbarContents(),
+                                          child: _list(
+                                            refresh: () => update(() {}),
+                                            closeOnTap: true,
+                                          ),
                                         ),
-                                        const ToolbarSeparator(),
                                       ],
-                                      Expanded(
-                                        child: SingleChildScrollView(
-                                          scrollDirection: Axis.horizontal,
-                                          child: SegmentedButton<bool>(
-                                            showSelectedIcon: false,
-                                            style: ButtonStyle(
-                                              visualDensity:
-                                                  VisualDensity.compact,
-                                              minimumSize:
-                                                  WidgetStatePropertyAll(
-                                                    Size(
-                                                      0,
-                                                      NoterTheme.desktopControls(
-                                                            context,
-                                                          )
-                                                          ? 32
-                                                          : 44,
-                                                    ),
-                                                  ),
-                                              iconSize:
-                                                  const WidgetStatePropertyAll(
-                                                    16,
-                                                  ),
-                                            ),
-                                            segments: const [
-                                              ButtonSegment(
-                                                value: false,
-                                                label: Text('Formatted'),
-                                                icon: Icon(
-                                                  Icons.article_outlined,
-                                                ),
-                                              ),
-                                              ButtonSegment(
-                                                value: true,
-                                                label: Text('Markdown'),
-                                                icon: Icon(Icons.code),
-                                              ),
-                                            ],
-                                            selected: {_source},
-                                            onSelectionChanged: (value) {
-                                              setState(
-                                                () => _source = value.single,
-                                              );
-                                              if (!_source) {
-                                                _focus.unfocus();
-                                                _session.save();
-                                                _reload();
-                                              }
-                                            },
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Tooltip(
-                                        message: _session.status,
-                                        child: Semantics(
-                                          label: _session.status,
-                                          liveRegion: true,
-                                          child: Icon(
-                                            _session.error != null
-                                                ? Icons.error_outline
-                                                : _session.saving
-                                                ? Icons.sync
-                                                : _session.dirty
-                                                ? Icons.edit_outlined
-                                                : Icons.check_circle_outline,
-                                            size: 18,
-                                            color: _session.error != null
-                                                ? Theme.of(
-                                                    context,
-                                                  ).colorScheme.error
-                                                : NoterTheme.accent,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
+                                    ),
                                   ),
                                 ),
+                              );
+                            }
+                          },
+                        ),
+                        IconButton(
+                          tooltip: 'Save',
+                          onPressed: _busy || _leaving || _session.saving
+                              ? null
+                              : () => _session.save(),
+                          icon: Icon(
+                            _session.error != null
+                                ? Icons.error_outline
+                                : _session.saving
+                                ? Icons.sync
+                                : _session.dirty
+                                ? Icons.save_outlined
+                                : Icons.check_circle_outline,
+                          ),
+                        ),
+                        PopupMenuButton<String>(
+                          tooltip: 'Note actions',
+                          onSelected: (value) {
+                            if (value == 'knowledge') {
+                              _knowledge('Search');
+                            } else if (value == 'journal') {
+                              _knowledge('Journal');
+                            } else if (value == 'tasks') {
+                              _knowledge('Tasks');
+                            } else if (value == 'outline') {
+                              _outline();
+                            } else if (value == 'template') {
+                              _insertTemplate();
+                            } else if (value == 'save-template') {
+                              _insertTemplate(saveCurrent: true);
+                            } else if (value == 'graph') {
+                              _graphView();
+                            } else if (value == 'organize') {
+                              _organize();
+                            } else {
+                              _export(value);
+                            }
+                          },
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(
+                              value: 'knowledge',
+                              child: Text('Knowledge hub'),
+                            ),
+                            PopupMenuItem(
+                              value: 'journal',
+                              child: Text('Journal'),
+                            ),
+                            PopupMenuItem(
+                              value: 'tasks',
+                              child: Text('All open tasks'),
+                            ),
+                            PopupMenuItem(
+                              value: 'outline',
+                              child: Text('Outline'),
+                            ),
+                            PopupMenuItem(
+                              value: 'template',
+                              child: Text('Insert Markdown template'),
+                            ),
+                            PopupMenuItem(
+                              value: 'save-template',
+                              child: Text('Save as Markdown template'),
+                            ),
+                            PopupMenuItem(
+                              value: 'graph',
+                              child: Text('Graph view'),
+                            ),
+                            PopupMenuItem(
+                              value: 'organize',
+                              child: Text('Folders and tags'),
+                            ),
+                            PopupMenuItem(
+                              value: 'md',
+                              child: Text('Export Markdown (.md)'),
+                            ),
+                            PopupMenuItem(
+                              value: 'bundle',
+                              child: Text(
+                                'With linked notes and images (.zip)',
                               ),
-                            if (_session.error != null || _message != null)
-                              Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        _session.error ?? _message!,
-                                        maxLines: 4,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.error,
-                                        ),
-                                      ),
-                                    ),
-                                    if (_session.error != null)
-                                      TextButton(
-                                        onPressed: () => _session.save(),
-                                        child: const Text('Retry'),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            Expanded(child: paper),
-                            if (phone && _showChrome) _toolbar(),
+                            ),
+                            PopupMenuItem(
+                              value: 'rescue',
+                              child: Text('Export Notixer backup'),
+                            ),
                           ],
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (!_showChrome && DocumentTabsChrome.action(context) != null)
-                  Positioned(
-                    left: 8,
-                    top: 8,
-                    child: SafeArea(
-                      child: IconButton.filledTonal(
-                        tooltip: 'Show document tabs',
-                        onPressed: DocumentTabsChrome.action(context),
-                        icon: const Icon(Icons.tab),
-                      ),
+                      ],
+                    ),
+              body: Stack(
+                children: [
+                  SafeArea(
+                    child: Row(
+                      children: [
+                        if (desktop && _showChrome && _showSidebar)
+                          SizedBox(width: 196, child: _rail()),
+                        if (desktop && _showChrome && _showNotes)
+                          SizedBox(width: 244, child: _list()),
+                        Expanded(
+                          child: Column(
+                            children: [
+                              if (_busy || _loadingNotes)
+                                const LinearProgressIndicator(),
+                              if (_showChrome)
+                                WorkspaceToolbar(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        if (!phone) ...[
+                                          Expanded(
+                                            flex: 2,
+                                            child: _toolbarContents(),
+                                          ),
+                                          const ToolbarSeparator(),
+                                        ],
+                                        Expanded(
+                                          child: SingleChildScrollView(
+                                            scrollDirection: Axis.horizontal,
+                                            child: SegmentedButton<bool>(
+                                              showSelectedIcon: false,
+                                              style: ButtonStyle(
+                                                visualDensity:
+                                                    VisualDensity.compact,
+                                                minimumSize:
+                                                    WidgetStatePropertyAll(
+                                                      Size(
+                                                        0,
+                                                        NoterTheme.desktopControls(
+                                                              context,
+                                                            )
+                                                            ? 32
+                                                            : 44,
+                                                      ),
+                                                    ),
+                                                iconSize:
+                                                    const WidgetStatePropertyAll(
+                                                      16,
+                                                    ),
+                                              ),
+                                              segments: const [
+                                                ButtonSegment(
+                                                  value: false,
+                                                  label: Text('Formatted'),
+                                                  icon: Icon(
+                                                    Icons.article_outlined,
+                                                  ),
+                                                ),
+                                                ButtonSegment(
+                                                  value: true,
+                                                  label: Text('Markdown'),
+                                                  icon: Icon(Icons.code),
+                                                ),
+                                              ],
+                                              selected: {_source},
+                                              onSelectionChanged: (value) {
+                                                setState(
+                                                  () => _source = value.single,
+                                                );
+                                                if (!_source) {
+                                                  _focus.unfocus();
+                                                  _session.save();
+                                                  _reload();
+                                                }
+                                              },
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Tooltip(
+                                          message: _session.status,
+                                          child: Semantics(
+                                            label: _session.status,
+                                            liveRegion: true,
+                                            child: Icon(
+                                              _session.error != null
+                                                  ? Icons.error_outline
+                                                  : _session.saving
+                                                  ? Icons.sync
+                                                  : _session.dirty
+                                                  ? Icons.edit_outlined
+                                                  : Icons.check_circle_outline,
+                                              size: 18,
+                                              color: _session.error != null
+                                                  ? Theme.of(
+                                                      context,
+                                                    ).colorScheme.error
+                                                  : NoterTheme.accent,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              if (_session.error != null || _message != null)
+                                Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          _session.error ?? _message!,
+                                          maxLines: 4,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.error,
+                                          ),
+                                        ),
+                                      ),
+                                      if (_session.error != null)
+                                        TextButton(
+                                          onPressed: () => _session.save(),
+                                          child: const Text('Retry'),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              Expanded(child: paper),
+                              if (phone && _showChrome) _toolbar(),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-              ],
-            ),
-          );
-        },
+                  if (!_showChrome &&
+                      DocumentTabsChrome.action(context) != null)
+                    Positioned(
+                      left: 8,
+                      top: 8,
+                      child: SafeArea(
+                        child: IconButton.filledTonal(
+                          tooltip: 'Show document tabs',
+                          onPressed: DocumentTabsChrome.action(context),
+                          icon: const Icon(Icons.tab),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     ),
   );
