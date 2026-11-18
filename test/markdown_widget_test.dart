@@ -80,6 +80,34 @@ void main() {
     );
   }
 
+  testWidgets(
+    'formatted Markdown zoom rebuilds blocks without reparsing source',
+    (tester) async {
+      await open(tester, const Size(1440, 1000));
+      final preview = find.byType(MarkdownPreview);
+      final state = tester.state<MarkdownPreviewState>(preview);
+      final parses = state.debugParses;
+      await tester.tap(find.byTooltip('Zoom in (Ctrl++)'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<MarkdownPreview>(preview).zoom, closeTo(1.1, .001));
+      expect(state.debugParses, parses);
+      await tester.tap(find.text('Markdown'));
+      await tester.pumpAndSettle();
+      expect(find.text('100%'), findsOneWidget);
+      await tester.tap(find.text('Formatted'));
+      await markdownIo(
+        tester,
+        () => find.byType(MarkdownPreview).evaluate().isNotEmpty,
+      );
+      expect(tester.widget<MarkdownPreview>(preview).zoom, closeTo(1.1, .001));
+      await tester.tap(find.byTooltip('Reset reading zoom (Ctrl+0)'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<MarkdownPreview>(preview).zoom, 1);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   testWidgets('Tab indents selected source lines and code blocks render', (
     tester,
   ) async {

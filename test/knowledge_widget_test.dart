@@ -153,8 +153,10 @@ void main() {
     );
     await waitKnowledge(
       tester,
-      () => find.text('All tags').evaluate().isNotEmpty,
+      () => find.byTooltip('Show search filters').evaluate().isNotEmpty,
     );
+    await tester.tap(find.byTooltip('Show search filters'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('All tags'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Inbox').last);
@@ -201,6 +203,8 @@ void main() {
         () => find.text('No matches.').evaluate().isNotEmpty,
       );
       expect(find.text('Source note'), findsNothing);
+      await tester.tap(find.byTooltip('Show search filters'));
+      await tester.pumpAndSettle();
       expect(find.text('Missing tag'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());

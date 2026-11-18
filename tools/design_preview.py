@@ -20,7 +20,7 @@ with log.open("w") as output:
 if result.returncode:
     print(log.read_text())
     sys.exit(result.returncode)
-for device in ("desktop", "phone", "tablet"):
+for device in os.environ.get("NOTER_DESIGN_DEVICES", "desktop,phone,tablet").split(","):
     env = dict(os.environ, NOTER_DESIGN_DEVICE=device,
                XDG_DATA_HOME=str(root / "build/design-preview-data"))
     result = subprocess.run([

@@ -312,10 +312,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                 ),
               ),
             ),
-          SizedBox(
-            height: 2,
-            child: _busy ? const LinearProgressIndicator(minHeight: 2) : null,
-          ),
+          if (_busy) const LinearProgressIndicator(minHeight: 2),
           Expanded(
             child: Stack(
               fit: StackFit.expand,

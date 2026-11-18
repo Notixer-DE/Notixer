@@ -26,3 +26,13 @@ The six original focused reproductions failed on the baseline before their fixes
 - This is not a claim that every physical-device input or operating-system condition has been tested. Hardware stylus behavior and device-specific Android share providers remain device-dependent.
 
 No notebook format, existing note contents, application identity or signing key is changed by this audit.
+
+
+## Responsive UI follow-up
+
+- Removed the empty two-pixel workspace loading slot that exposed a black strip above desktop content. The loading indicator now exists only during loading.
+- The graph canvas fills the available area. Search and graph options are revealed from the app bar; active local/tag filters remain removable. Node geometry accounts for accessibility text scaling.
+- Search filters collapse by default on narrow screens. Controls and results share one scroll view, fixing overflow with the landscape phone keyboard.
+- Journal day actions are compact; template selection uses a focused dialog. Backup help is available on demand, and redundant introductory text was removed from populated views.
+- Markdown uses a compact 14px reading base while respecting system text scaling. Source and formatted views retain independent zoom levels, with toolbar controls and Ctrl/Cmd plus/minus/reset. Formatted Markdown supports touch pinch zoom without taking over ordinary one-finger scrolling. Zoom rebuilds visible blocks without reparsing the document.
+- Added landscape keyboard, large-text graph, reading zoom, touch gesture, scrolling and parse-cache regressions. Actual Flutter widgets were rendered at desktop and phone portrait/landscape sizes, including 200% system text.

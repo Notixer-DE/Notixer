@@ -9,8 +9,8 @@ import 'package:flutter/rendering.dart';
 import 'package:noter/data/markdown_document.dart';
 import 'package:noter/data/markdown_library.dart';
 import 'package:noter/data/notebook.dart';
-import 'package:noter/main.dart';
 import 'package:noter/ui/editor.dart';
+import 'package:noter/ui/document_workspace.dart';
 import 'package:noter/ui/knowledge_page.dart';
 import 'package:noter/data/knowledge.dart';
 import 'package:noter/ui/library_graph_page.dart';
@@ -44,11 +44,16 @@ Future<void> _capture(String name) async {
   image.dispose();
 }
 
+double _textScale = 1;
 Widget _app(Widget home) => MaterialApp(
   theme: NoterTheme.light,
   debugShowCheckedModeBanner: false,
-  builder: (context, child) =>
-      Theme(data: NoterTheme.forWindow(context), child: child!),
+  builder: (context, child) => MediaQuery(
+    data: MediaQuery.of(
+      context,
+    ).copyWith(textScaler: TextScaler.linear(_textScale)),
+    child: Theme(data: NoterTheme.forWindow(context), child: child!),
+  ),
   home: home,
 );
 
@@ -66,12 +71,16 @@ Element _find(bool Function(Widget) matches) {
 Future<void> main() async {
   final device = Platform.environment['NOTER_DESIGN_DEVICE'] ?? 'desktop';
   PreviewBinding.size = switch (device) {
-    'phone' => const Size(390, 844),
+    'phone' || 'phone-large-text' => const Size(390, 844),
+    'phone-landscape' => const Size(844, 390),
+    'small-desktop' => const Size(1024, 768),
     'tablet' => const Size(1024, 1000),
     _ => const Size(1440, 960),
   };
+  _textScale = device == 'phone-large-text' ? 2 : 1;
   PreviewBinding();
-  debugDefaultTargetPlatformOverride = device == 'desktop'
+  debugDefaultTargetPlatformOverride =
+      device == 'desktop' || device == 'small-desktop'
       ? TargetPlatform.linux
       : TargetPlatform.android;
   registerBundledEditorAssets();
@@ -170,8 +179,36 @@ Future<void> main() async {
     await MarkdownLibrary(repository).create('Reading list', checklist: true);
     await repository.create('Worksheet · week 03', bytes);
 
-    await _show(NoterApp(repository: repository));
+    await _show(_app(DocumentWorkspace(repository: repository)));
     await _capture('library-$device');
+    final workspace =
+        (_find((widget) => widget is DocumentWorkspace) as StatefulElement)
+                .state
+            as DocumentWorkspaceState;
+    await workspace.openNotebook(pdfNote);
+    await _pause();
+    await _pause();
+    await _pause();
+    await _capture('workspace-pdf-$device');
+    await workspace.openNotebook(markdownNote);
+    await _pause();
+    await _capture('workspace-markdown-$device');
+    await workspace.openNotebook(pdfNote);
+    await _pause();
+    await _pause();
+    await _capture('workspace-pdf-return-$device');
+    await workspace.openNotebook(markdownNote);
+    await _pause();
+    final hideTabs =
+        _find(
+              (widget) =>
+                  widget is IconButton &&
+                  widget.tooltip == 'Hide document tabs',
+            ).widget
+            as IconButton;
+    hideTabs.onPressed!();
+    await _pause();
+    await _capture('workspace-hidden-tabs-$device');
     await _show(_app(LibraryGraphPage(repository: repository)));
     await _capture('graph-$device');
     await KnowledgeStore(repository).journal(DateTime(2026, 11, 18));

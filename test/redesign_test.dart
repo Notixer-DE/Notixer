@@ -356,8 +356,8 @@ void main() {
             await tester.pump();
           }
           final paragraph = tester.widget<SelectableText>(paragraphFinder);
-          expect(paragraph.strutStyle!.fontSize, 16);
-          expect(paragraph.strutStyle!.height, 1.65);
+          expect(paragraph.strutStyle!.fontSize, 14);
+          expect(paragraph.strutStyle!.height, 1.55);
           expect(
             noterMarkdownStyle(
               tester.element(find.byType(MarkdownPreview)),
