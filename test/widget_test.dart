@@ -184,7 +184,10 @@ void main() {
         if (scenario.name != 'desktop') {
           await tester.tap(find.byTooltip('Library actions'));
           await tester.pumpAndSettle();
-          await tester.tap(find.text('Grid view'));
+          final gridView = find.text('Grid view');
+          await tester.ensureVisible(gridView);
+          await tester.pumpAndSettle();
+          await tester.tap(gridView);
         } else {
           await tester.tap(find.byTooltip('Grid view'));
         }
