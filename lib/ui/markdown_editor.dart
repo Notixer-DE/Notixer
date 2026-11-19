@@ -41,6 +41,7 @@ class MarkdownEditorPage extends StatefulWidget {
     this.tabController,
     this.onLibrary,
     this.onOpenNotebook,
+    this.onQuickTodosChanged,
   });
   final Notebook note;
   final Uint8List bytes;
@@ -49,6 +50,7 @@ class MarkdownEditorPage extends StatefulWidget {
   final DocumentTabController? tabController;
   final Future<void> Function()? onLibrary;
   final OpenNotebookTab? onOpenNotebook;
+  final Future<void> Function()? onQuickTodosChanged;
 
   @override
   State<MarkdownEditorPage> createState() => _MarkdownLoaderState();
@@ -81,6 +83,7 @@ class _MarkdownLoaderState extends State<MarkdownEditorPage> {
         tabController: widget.tabController,
         onLibrary: widget.onLibrary,
         onOpenNotebook: widget.onOpenNotebook,
+        onQuickTodosChanged: widget.onQuickTodosChanged,
       );
     },
   );
@@ -95,6 +98,7 @@ class _LoadedMarkdownEditor extends StatefulWidget {
     this.tabController,
     this.onLibrary,
     this.onOpenNotebook,
+    this.onQuickTodosChanged,
   });
   final Notebook note;
   final MarkdownDocument document;
@@ -103,6 +107,7 @@ class _LoadedMarkdownEditor extends StatefulWidget {
   final DocumentTabController? tabController;
   final Future<void> Function()? onLibrary;
   final OpenNotebookTab? onOpenNotebook;
+  final Future<void> Function()? onQuickTodosChanged;
   @override
   State<_LoadedMarkdownEditor> createState() => _MarkdownEditorPageState();
 }
@@ -679,6 +684,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
           repository: widget.repository,
           initialSection: section,
           shortcuts: widget.tabController?.shortcuts,
+          onQuickTodosChanged: widget.onQuickTodosChanged,
           onTaskPlanned: (note) async {
             if (mounted && note.id == _session.note.id) {
               _session.note = note;

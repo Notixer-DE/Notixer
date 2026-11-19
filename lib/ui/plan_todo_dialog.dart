@@ -3,7 +3,12 @@ import 'package:flutter/material.dart';
 import '../data/catalog.dart';
 import '../data/knowledge.dart';
 
-typedef TodoPlan = ({String? projectId, String? newProject, DateTime? due});
+typedef TodoPlan = ({
+  String? projectId,
+  String? newProject,
+  DateTime? due,
+  String? text,
+});
 
 class PlanTodoDialog extends StatefulWidget {
   const PlanTodoDialog({super.key, required this.task, required this.folders});
@@ -22,9 +27,8 @@ class _PlanTodoDialogState extends State<PlanTodoDialog> {
       ? widget.task.note.folderId!
       : '';
   String _projectName = '';
-  late DateTime? _due = DateTime.tryParse(
-    quickTodoDueDate(widget.task.note) ?? '',
-  );
+  late String _text = widget.task.text;
+  late DateTime? _due = DateTime.tryParse(widget.task.due ?? '');
 
   Future<void> _chooseDate() async {
     final date = await showDatePicker(
@@ -47,7 +51,18 @@ class _PlanTodoDialogState extends State<PlanTodoDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(widget.task.text, maxLines: 3, overflow: TextOverflow.ellipsis),
+          if (widget.task.quickTodo != null)
+            TextFormField(
+              initialValue: _text,
+              decoration: const InputDecoration(labelText: 'To-do'),
+              onChanged: (value) => setState(() => _text = value),
+            )
+          else
+            Text(
+              widget.task.text,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
             isExpanded: true,
@@ -108,7 +123,9 @@ class _PlanTodoDialogState extends State<PlanTodoDialog> {
         child: const Text('Cancel'),
       ),
       FilledButton(
-        onPressed: _project == _newProject && _projectName.trim().isEmpty
+        onPressed:
+            (_project == _newProject && _projectName.trim().isEmpty) ||
+                (widget.task.quickTodo != null && _text.trim().isEmpty)
             ? null
             : () => Navigator.pop<TodoPlan>(context, (
                 projectId: _project.isEmpty || _project == _newProject
@@ -116,6 +133,7 @@ class _PlanTodoDialogState extends State<PlanTodoDialog> {
                     : _project,
                 newProject: _project == _newProject ? _projectName : null,
                 due: _due,
+                text: widget.task.quickTodo == null ? null : _text,
               )),
         child: const Text('Save'),
       ),

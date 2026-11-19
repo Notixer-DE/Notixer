@@ -12,6 +12,7 @@ import 'package:noter/data/notebook.dart';
 import 'package:noter/data/paper.dart';
 import 'package:noter/data/todo_list.dart';
 import 'package:noter/sync/notebook_sync.dart';
+import 'package:noter/sync/library_extras_sync.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'sync_scenarios.dart' show MemoryRemote;
 
@@ -86,66 +87,123 @@ void main() {
   );
 
   test(
-    'quick to-do plans survive sync and backup without changing the checklist',
+    'quick to-dos merge independently and survive library backups',
     () async {
-      final todo = await store.addQuickTodo('Prepare the slides');
       const view = KnowledgeView('', openTasks: true);
-      final original = (await store.scan(view)).tasks.single;
-      expect(original.canPlan, isTrue);
-      expect(quickTodoDueDate(original.note), isNull);
-      final due = DateTime(2026, 11, 30);
-      final planned = await store.planQuickTodo(
+      final first = await store.addQuickTodo('Prepare the slides');
+      final other = await store.addQuickTodo('Book a room');
+      expect(await repository.list(), isEmpty);
+      expect(
+        (await store.quickTodos.read()).keys,
+        unorderedEquals([first.id, other.id]),
+      );
+      final original = (await store.scan(
+        view,
+      )).tasks.singleWhere((task) => task.quickTodo?.id == first.id);
+      final remote = MemoryRemote();
+      final second = LocalNotebookRepository(
+        Directory('${directory.path}/second'),
+      );
+      final secondStore = KnowledgeStore(second);
+      final syncFirst = LibraryExtrasSync(repository, remote);
+      final syncSecond = LibraryExtrasSync(second, remote);
+      await syncFirst.run();
+      await syncSecond.run();
+      await store.planQuickTodo(
         original,
         projectId: null,
         newProject: 'Conference',
-        due: due,
-      );
-      expect(planned.folderName, 'Conference');
-      expect(quickTodoDueDate(planned), '2026-11-30');
-      expect((await store.scan(view)).tasks.single.canPlan, isTrue);
-      expect(
-        MarkdownDocument.decode(await repository.load(todo.id)).source,
-        '- [ ] Prepare the slides\n',
+        text: 'Review the slides',
+        due: DateTime(2026, 11, 30),
       );
       await expectLater(
         store.planQuickTodo(original, projectId: null, due: null),
         throwsFormatException,
       );
+      final otherTask = (await secondStore.scan(
+        view,
+      )).tasks.singleWhere((task) => task.quickTodo?.id == other.id);
+      await secondStore.completeTask(otherTask);
+      final third = await secondStore.addQuickTodo('Send invitations');
+      await syncFirst.run();
+      await syncSecond.run();
+      await syncFirst.run();
+      expect(await repository.list(), isEmpty);
+      expect(await second.list(), isEmpty);
 
-      final remote = MemoryRemote();
-      final second = LocalNotebookRepository(
-        Directory('${directory.path}/second'),
-      );
-      await NotebookSync(repository, remote).run();
-      await NotebookSync(second, remote).run();
-      final synced = (await second.list()).single;
-      expect(quickTodoDueDate(synced), '2026-11-30');
-      expect(second.catalog.folderName(synced.folderId), 'Conference');
       final backup = await LibraryBackup(repository).snapshot();
-      final restoredRepo = LocalNotebookRepository(
+      final restored = LocalNotebookRepository(
         Directory('${directory.path}/restored'),
       );
-      final restored = (await LibraryBackup(
-        restoredRepo,
-      ).restore(backup)).single;
-      expect(quickTodoDueDate(restored), '2026-11-30');
-      expect(restoredRepo.catalog.folderName(restored.folderId), 'Conference');
+      expect(await LibraryBackup(restored).restore(backup), isEmpty);
+      for (final repo in [repository, second, restored]) {
+        final inbox = await KnowledgeStore(repo).quickTodos.read();
+        expect(inbox.keys, unorderedEquals([first.id, other.id, third.id]));
+        expect(inbox[first.id]!.text, 'Review the slides');
+        expect(inbox[first.id]!.due, '2026-11-30');
+        expect(repo.catalog.folderName(inbox[first.id]!.project), 'Conference');
+        expect(inbox[other.id]!.done, isTrue);
+        expect(
+          (await KnowledgeStore(repo).scan(view)).tasks.map((t) => t.text),
+          unorderedEquals(['Review the slides', 'Send invitations']),
+        );
+      }
+    },
+  );
 
-      final secondStore = KnowledgeStore(second);
-      final syncedTask = (await secondStore.scan(view)).tasks.single;
-      final movedBack = await secondStore.planQuickTodo(
-        syncedTask,
-        projectId: null,
-        due: null,
+  test(
+    'migration keeps legacy planning and completion and preserves customized notes',
+    () async {
+      final folder = await repository.catalog.ensureFolder('Conference');
+      final now = DateTime.now();
+      Future<Notebook> legacy(String title, String source, List<String> tags) =>
+          repository.save(
+            Notebook(
+              id: LocalNotebookRepository.newId(),
+              title: title,
+              paper: 'markdown',
+              created: now,
+              modified: now,
+              folderId: folder.id,
+              tags: tags,
+            ),
+            MarkdownDocument(source).encode(),
+          );
+      final planned = await legacy('Slides', '- [ ] Slides\n', [
+        'Quick to-do',
+        'Due: 2026-11-30',
+      ]);
+      final done = await legacy('Room', '- [x] Room\n', [unsortedTodos]);
+      final custom = await legacy('Custom', '- [ ] Custom\n\nExtra text\n', [
+        unsortedTodos,
+      ]);
+      expect(
+        await store.migrateQuickTodos(
+          await repository.list(),
+          isOpen: (id) => id == planned.id,
+        ),
+        isTrue,
       );
-      expect(movedBack.folderId, isNull);
-      expect(movedBack.tags, contains(unsortedTodos));
-      expect(quickTodoDueDate(movedBack), isNull);
-      await NotebookSync(second, remote).run();
-      await NotebookSync(repository, remote).run();
-      final returned = (await repository.list()).single;
-      expect(returned.folderId, isNull);
-      expect(quickTodoDueDate(returned), isNull);
+      expect(
+        await store.migrateQuickTodos(
+          await repository.list(),
+          isOpen: (_) => false,
+        ),
+        isTrue,
+      );
+      expect(
+        await store.migrateQuickTodos(
+          await repository.list(),
+          isOpen: (_) => false,
+        ),
+        isFalse,
+      );
+      expect((await repository.list()).map((n) => n.id), [custom.id]);
+      final tasks = await store.quickTodos.read();
+      expect(tasks.length, 2);
+      expect(tasks['legacy-${planned.id}']!.project, folder.id);
+      expect(tasks['legacy-${planned.id}']!.due, '2026-11-30');
+      expect(tasks['legacy-${done.id}']!.done, isTrue);
     },
   );
 

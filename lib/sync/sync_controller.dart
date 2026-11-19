@@ -243,7 +243,7 @@ class SyncController extends ChangeNotifier {
       },
     ).run(onlyIfChanged: true);
     lastSyncedAt = DateTime.now();
-    status = 'Templates and preferences synced: $report';
+    status = 'Quick to-dos, templates and preferences synced: $report';
   });
 
   Future<void> disconnect() => _action(() async {

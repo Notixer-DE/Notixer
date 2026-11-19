@@ -1,13 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
-import 'catalog.dart';
 import 'markdown_document.dart';
 import 'markdown_library.dart';
 import 'notebook.dart';
 import 'pdf_search.dart';
+import 'quick_todos.dart';
 import 'todo_list.dart';
 
 typedef KnowledgeDestination = ({Notebook note, String anchor});
@@ -136,11 +137,15 @@ class KnowledgeTask {
     this.text,
     this.revision, {
     this.canPlan = false,
+    this.quickTodo,
   });
   final Notebook note;
   final int offset, line;
   final String text, revision;
   final bool canPlan;
+  final QuickTodo? quickTodo;
+  String get anchor => quickTodo == null ? 'line=$line' : 'task';
+  String? get due => quickTodo?.due ?? quickTodoDueDate(note);
 }
 
 String markdownRevision(String source) =>
@@ -179,7 +184,7 @@ class KnowledgeHit {
 class KnowledgeScan {
   KnowledgeScan(this.hits, this.tasks, this.warnings)
     : tasksByLocation = {
-        for (final task in tasks) '${task.note.id}:line=${task.line}': task,
+        for (final task in tasks) '${task.note.id}:${task.anchor}': task,
       };
   final List<KnowledgeHit> hits;
   final List<KnowledgeTask> tasks;
@@ -390,29 +395,123 @@ class KnowledgeStore {
     );
   }
 
-  Future<Notebook> addQuickTodo(String text) async {
-    final task = text.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
-    if (task.isEmpty) throw const FormatException('Enter a to-do.');
-    final now = DateTime.now();
-    return repository.save(
-      Notebook(
-        id: LocalNotebookRepository.newId(),
-        title: task,
-        paper: 'markdown',
-        created: now,
-        modified: now,
-        tags: const [unsortedTodos],
-      ),
-      MarkdownDocument('- [ ] $task\n').encode(),
-    );
+  QuickTodoStore get quickTodos => QuickTodoStore(repository.directory);
+
+  String _quickTodoText(String value) {
+    final text = value.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
+    if (text.isEmpty) throw const FormatException('Enter a to-do.');
+    return text;
   }
 
-  Future<Notebook> planQuickTodo(
+  Future<QuickTodo> addQuickTodo(String text) async {
+    final task = _quickTodoText(text);
+    final now = DateTime.now();
+    final todo = QuickTodo(
+      id: LocalNotebookRepository.newId(),
+      text: task,
+      created: now,
+      modified: now,
+    );
+    await quickTodos.change((tasks) => tasks[todo.id] = todo);
+    return todo;
+  }
+
+  /// Copy the previous one-checkbox format before retiring its file to Trash.
+  /// Notes with extra content, attachments or custom tags remain documents.
+  Future<bool> migrateQuickTodos(
+    List<Notebook> notes, {
+    required bool Function(String id) isOpen,
+  }) async {
+    final migrated = <({QuickTodo task, String id, Uint8List raw})>[];
+    for (final note in notes.where(_isQuickTodo)) {
+      if (isOpen(note.id)) continue;
+      final snapshot = await repository.snapshotForSync(note.id);
+      if (snapshot == null) continue;
+      final (current, bytes) = await LocalNotebookRepository.decodeValidated(
+        snapshot.archive,
+      );
+      if (!_isQuickTodo(current) ||
+          current.linkPath != null ||
+          current.tags.any(
+            (tag) => !_isTodoTag(tag) && !_dueTag.hasMatch(tag),
+          )) {
+        continue;
+      }
+      final document = await decodeMarkdownAsync(bytes);
+      final match = RegExp(
+        r'^- \[([ xX])\] ([^\r\n]+)\r?\n?$',
+      ).firstMatch(document.source);
+      if (match == null ||
+          document.assets.isNotEmpty ||
+          match[2]!.trim().isEmpty ||
+          current.title != match[2]!.trim() ||
+          isOpen(current.id)) {
+        continue;
+      }
+      migrated.add((
+        id: current.id,
+        raw: snapshot.raw,
+        task: QuickTodo(
+          id: 'legacy-${current.id}',
+          text: match[2]!.trim(),
+          created: current.created,
+          modified: current.modified,
+          done: match[1] != ' ',
+          project: current.folderId,
+          due: quickTodoDueDate(current),
+        ),
+      ));
+    }
+    if (migrated.isEmpty) return false;
+    await quickTodos.change((tasks) {
+      for (final entry in migrated) {
+        final previous = tasks[entry.task.id];
+        if (previous == null || entry.task.supersedes(previous)) {
+          tasks[entry.task.id] = entry.task;
+        }
+      }
+    });
+    for (final entry in migrated) {
+      if (isOpen(entry.id)) continue;
+      try {
+        await repository.applySync(entry.id, entry.raw, null);
+      } catch (_) {
+        // Another refresh can finish retiring the same archive.
+        if (await repository.snapshotForSync(entry.id) != null) rethrow;
+      }
+    }
+    return true;
+  }
+
+  Future<Notebook?> planQuickTodo(
     KnowledgeTask task, {
     required String? projectId,
     String? newProject,
+    String? text,
     required DateTime? due,
   }) async {
+    if (due != null && (due.year < 1 || due.year > 9999)) {
+      throw const FormatException('Choose a valid due date.');
+    }
+    await repository.catalog.load();
+    final project = newProject != null
+        ? await repository.catalog.ensureFolder(newProject)
+        : repository.catalog.folders
+              .where((f) => f.id == projectId)
+              .firstOrNull;
+    if (projectId != null && project == null) {
+      throw const FormatException('The project was removed.');
+    }
+    final date = due == null ? null : journalDate(due);
+    if (task.quickTodo != null) {
+      await _changeQuickTodo(
+        task.quickTodo!,
+        project: project?.id,
+        due: date,
+        text: text == null ? null : _quickTodoText(text),
+      );
+      return null;
+    }
     final snapshot = await repository.snapshotForSync(task.note.id);
     if (snapshot == null) throw const FormatException('The to-do was removed.');
     final (current, bytes) = await LocalNotebookRepository.decodeValidated(
@@ -428,21 +527,6 @@ class KnowledgeStore {
         quickTodoDueDate(current) != quickTodoDueDate(task.note)) {
       throw const FormatException('The to-do changed. Reload the task list.');
     }
-    if (due != null && (due.year < 1 || due.year > 9999)) {
-      throw const FormatException('Choose a valid due date.');
-    }
-    NoteFolder? project;
-    if (newProject != null) {
-      project = await repository.catalog.ensureFolder(newProject);
-    } else if (projectId != null) {
-      project = repository.catalog.folders
-          .where((f) => f.id == projectId)
-          .firstOrNull;
-      if (project == null) {
-        throw const FormatException('The project was removed.');
-      }
-    }
-    final date = due == null ? null : journalDate(due);
     if (project?.id == current.folderId && date == quickTodoDueDate(current)) {
       return current;
     }
@@ -464,6 +548,40 @@ class KnowledgeStore {
     await repository.applySync(current.id, snapshot.raw, archive);
     return updated;
   }
+
+  Future<void> _changeQuickTodo(
+    QuickTodo expected, {
+    String? project,
+    String? due,
+    String? text,
+    bool complete = false,
+  }) => quickTodos.change((tasks) {
+    final current = tasks[expected.id];
+    if (current == null ||
+        current.revision != expected.revision ||
+        current.done) {
+      throw const FormatException('The to-do changed. Reload the task list.');
+    }
+    final updatedText = text ?? current.text;
+    if (!complete &&
+        project == current.project &&
+        due == current.due &&
+        updatedText == current.text) {
+      return;
+    }
+    final now = DateTime.now();
+    tasks[current.id] = QuickTodo(
+      id: current.id,
+      text: updatedText,
+      created: current.created,
+      modified: now.isAfter(current.modified)
+          ? now
+          : current.modified.add(const Duration(microseconds: 1)),
+      done: complete,
+      project: complete ? current.project : project,
+      due: complete ? current.due : due,
+    );
+  });
 
   Future<Notebook> sourceNote(Notebook source, int page, String quote) async {
     if (quote.trim().isEmpty || page < 1) {
@@ -493,24 +611,68 @@ class KnowledgeStore {
     bool Function()? cancelled,
     void Function(int, int)? onProgress,
   }) async {
+    bool matchesFilters(Notebook note) =>
+        (!view.openTasks || note.isMarkdown) &&
+        (view.kind == 'all' ||
+            (view.kind == 'markdown' && note.isMarkdown) ||
+            (view.kind == 'pdf' && note.isPdf) ||
+            (view.kind == 'media' && note.isMedia)) &&
+        (view.tag.isEmpty ||
+            note.tags.any(
+              (tag) => tag.toLowerCase() == view.tag.toLowerCase(),
+            )) &&
+        (view.folder.isEmpty || note.folderId == view.folder);
     final notes = (await repository.list())
         .where(
           (note) =>
-              (!onlyQuickTodos || _isQuickTodo(note)) &&
-              (!view.openTasks || note.isMarkdown) &&
-              (view.kind == 'all' ||
-                  (view.kind == 'markdown' && note.isMarkdown) ||
-                  (view.kind == 'pdf' && note.isPdf) ||
-                  (view.kind == 'media' && note.isMedia)) &&
-              (view.tag.isEmpty ||
-                  note.tags.any(
-                    (tag) => tag.toLowerCase() == view.tag.toLowerCase(),
-                  )) &&
-              (view.folder.isEmpty || note.folderId == view.folder),
+              (!onlyQuickTodos || _isQuickTodo(note)) && matchesFilters(note),
         )
         .toList();
     final hits = <KnowledgeHit>[], tasks = <KnowledgeTask>[];
     final warnings = List<String>.of(repository.readErrors);
+    if (view.openTasks || view.query.trim().isNotEmpty) {
+      try {
+        final inbox = (await quickTodos.read()).values.toList()
+          ..sort((a, b) => b.created.compareTo(a.created));
+        for (final todo in inbox) {
+          if (cancelled?.call() == true) break;
+          if (todo.done ||
+              !todo.text.toLowerCase().contains(
+                view.query.trim().toLowerCase(),
+              )) {
+            continue;
+          }
+          // Keep document and inbox results in the same list without creating
+          // a repository document or an editor destination for inbox entries.
+          final note = Notebook(
+            id: 'quick:${todo.id}',
+            title: todo.text,
+            paper: 'markdown',
+            created: todo.created,
+            modified: todo.modified,
+            folderId: todo.project,
+            tags: [
+              todo.project == null ? unsortedTodos : _quickTodoTag,
+              if (todo.due != null) 'Due: ${todo.due}',
+            ],
+          );
+          if (!matchesFilters(note)) continue;
+          final task = KnowledgeTask(
+            note,
+            0,
+            0,
+            todo.text,
+            todo.revision,
+            canPlan: true,
+            quickTodo: todo,
+          );
+          tasks.add(task);
+          hits.add(KnowledgeHit(note, todo.text, task.anchor));
+        }
+      } catch (error) {
+        warnings.add('Quick to-dos: $error');
+      }
+    }
     for (var i = 0; i < notes.length; i++) {
       if (cancelled?.call() == true) break;
       final note = notes[i];
@@ -612,6 +774,11 @@ class KnowledgeStore {
   }
 
   Future<void> completeTask(KnowledgeTask task) async {
+    final todo = task.quickTodo;
+    if (todo != null) {
+      await _changeQuickTodo(todo, complete: true);
+      return;
+    }
     final current = (await repository.list())
         .where((n) => n.id == task.note.id)
         .single;

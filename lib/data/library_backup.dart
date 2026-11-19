@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'markdown_document.dart';
 import 'notebook.dart';
+import 'quick_todos.dart';
 import 'knowledge.dart';
 import 'templates.dart';
 import 'ink.dart';
@@ -43,7 +44,11 @@ class LibraryBackup {
       }
       files['notes/${note.id}.noter'] = bytes;
     }
-    for (final name in ['.knowledge.json', '.library.json']) {
+    for (final name in [
+      '.knowledge.json',
+      '.library.json',
+      QuickTodoStore.fileName,
+    ]) {
       final file = File(p.join(repository.directory.path, name));
       if (await file.exists()) {
         files['settings/$name'] = await file.readAsBytes();
@@ -164,6 +169,9 @@ class LibraryBackup {
       settings = jsonDecode(utf8.decode(knowledge)) as Map<String, dynamic>;
       validateKnowledgeSettings(settings);
     }
+    final backupTodos = QuickTodoStore.decode(
+      files['settings/${QuickTodoStore.fileName}'],
+    );
     final pdfTemplates = <(String, Uint8List, InkDocument?)>[];
     for (final entry in files.entries.where(
       (entry) =>
@@ -250,6 +258,16 @@ class LibraryBackup {
             ? await repository.save(copy, payload)
             : await repository.saveWithInk(copy, payload, ink),
       );
+    }
+    if (backupTodos.isNotEmpty) {
+      await QuickTodoStore(repository.directory).change((tasks) {
+        for (final todo in backupTodos.values) {
+          final current = tasks[todo.id];
+          if (current == null || todo.supersedes(current)) {
+            tasks[todo.id] = todo.withProject(folderIds[todo.project]);
+          }
+        }
+      });
     }
     if (settings != null) {
       final templateIds = <String, String>{};
