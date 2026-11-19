@@ -8,6 +8,7 @@ import '../data/keyboard_shortcuts.dart';
 import '../data/library_backup.dart';
 import '../data/notebook.dart';
 import 'noter_theme.dart';
+import 'plan_todo_dialog.dart';
 import 'quick_todo_dialog.dart';
 import 'workspace_chrome.dart';
 
@@ -22,6 +23,7 @@ class KnowledgePage extends StatefulWidget {
     this.shortcuts,
     this.onImportFile,
     this.onQuickTodo,
+    this.onTaskPlanned,
   });
   final LocalNotebookRepository repository;
   final String initialSection;
@@ -31,14 +33,31 @@ class KnowledgePage extends StatefulWidget {
   final KeyboardShortcuts? shortcuts;
   final Future<void> Function(VoidCallback onImported)? onImportFile;
   final Future<bool> Function()? onQuickTodo;
+  final Future<void> Function(Notebook)? onTaskPlanned;
   @override
   State<KnowledgePage> createState() => _KnowledgePageState();
+}
+
+enum _TaskView {
+  today('Today'),
+  unsorted('Unsorted'),
+  projects('Projects'),
+  all('All tasks');
+
+  const _TaskView(this.label);
+  final String label;
 }
 
 class _KnowledgePageState extends State<KnowledgePage> {
   late final _store = KnowledgeStore(widget.repository);
   late final _backup = LibraryBackup(widget.repository);
-  late String _section = widget.initialSection;
+  late String _section = widget.initialSection == unsortedTodos
+      ? 'Tasks'
+      : widget.initialSection;
+  late _TaskView _taskView = widget.initialSection == unsortedTodos
+      ? _TaskView.unsorted
+      : _TaskView.all;
+  String _projectFilter = '';
   final _query = TextEditingController();
   final _searchFocus = FocusNode();
   final _hubFocus = FocusNode();
@@ -51,11 +70,12 @@ class _KnowledgePageState extends State<KnowledgePage> {
   int _generation = 0, _completed = 0, _total = 0;
   String? _error, _backupStatus;
   KnowledgeScan? _scan;
+  bool _scannedQuickTodosOnly = false;
   List<Notebook> _notes = [];
   List<File> _backups = [];
   DateTime _date = DateTime.now();
-  bool get _taskSection => _section == 'Tasks' || _section == unsortedTodos;
-  bool get _fixedTag => _section == 'Inbox' || _section == unsortedTodos;
+  bool get _taskSection => _section == 'Tasks';
+  bool get _fixedTag => _section == 'Inbox';
   bool get _autoSearch => _taskSection || _section == 'Inbox';
   @override
   void initState() {
@@ -99,6 +119,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
 
   Future<void> _load() => _work(() async {
     await _store.reload();
+    await widget.repository.catalog.load();
     final notes = await widget.repository.list();
     final backups = await _backup.list();
     String? backupStatus;
@@ -140,6 +161,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
   Future<void> _search() async {
     if (_busy) return;
     final generation = ++_generation;
+    final onlyQuickTodos = _taskSection && _taskView != _TaskView.all;
     setState(() {
       _busy = true;
       _error = null;
@@ -152,6 +174,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
     try {
       final result = await _store.scan(
         _view,
+        onlyQuickTodos: onlyQuickTodos,
         cancelled: () =>
             !mounted || generation != _generation || _cancelRequested,
         onProgress: (done, total) {
@@ -166,6 +189,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
       if (mounted && generation == _generation) {
         setState(() {
           _scan = result;
+          _scannedQuickTodosOnly = onlyQuickTodos;
           if (_cancelRequested) {
             _error = 'Search cancelled; partial results are shown.';
           }
@@ -386,8 +410,113 @@ class _KnowledgePageState extends State<KnowledgePage> {
     if (mounted && added) _selectSection(unsortedTodos);
   }
 
+  Future<void> _planTodo(KnowledgeTask task) async {
+    final plan = await showDialog<TodoPlan>(
+      context: context,
+      builder: (_) => PlanTodoDialog(
+        task: task,
+        folders: widget.repository.catalog.folders,
+      ),
+    );
+    if (!mounted || plan == null) return;
+    await _work(() async {
+      if (!await FileGateway.prepareClose()) {
+        throw const FormatException(
+          'Save open documents before changing a task.',
+        );
+      }
+      final note = await _store.planQuickTodo(
+        task,
+        projectId: plan.projectId,
+        newProject: plan.newProject,
+        due: plan.due,
+      );
+      if (!mounted) return;
+      await FileGateway.refreshOpenDocuments?.call();
+      if (mounted) await widget.onTaskPlanned?.call(note);
+    });
+    if (mounted && _error == null) await _search();
+  }
+
+  List<KnowledgeHit> _taskHits(KnowledgeScan scan, String today) {
+    if (!_taskSection || _taskView == _TaskView.all) return scan.hits;
+    final catalog = widget.repository.catalog;
+    final selected = catalog.folderName(_projectFilter) == null
+        ? ''
+        : _projectFilter;
+    final hits = scan.hits.where((hit) {
+      final task = scan.tasksByLocation['${hit.note.id}:${hit.anchor}'];
+      if (task?.canPlan != true) return false;
+      final project = catalog.folderName(hit.note.folderId);
+      return switch (_taskView) {
+        _TaskView.unsorted => project == null,
+        _TaskView.projects =>
+          project != null &&
+              (selected.isEmpty || hit.note.folderId == selected),
+        _TaskView.today => switch (quickTodoDueDate(hit.note)) {
+          final String due => due.compareTo(today) <= 0,
+          null => false,
+        },
+        _TaskView.all => true,
+      };
+    }).toList();
+    if (_taskView == _TaskView.today) {
+      hits.sort((a, b) {
+        final date = quickTodoDueDate(
+          a.note,
+        )!.compareTo(quickTodoDueDate(b.note)!);
+        return date == 0 ? b.note.modified.compareTo(a.note.modified) : date;
+      });
+    }
+    return hits;
+  }
+
+  Widget _taskViews() => Wrap(
+    spacing: 8,
+    runSpacing: 4,
+    children: [
+      for (final view in _TaskView.values)
+        ChoiceChip(
+          key: ValueKey('task-view-${view.name}'),
+          label: Text(view.label),
+          selected: view == _taskView,
+          onSelected: _busy
+              ? null
+              : (_) {
+                  if (view == _taskView) return;
+                  setState(() => _taskView = view);
+                  if (view == _TaskView.all && _scannedQuickTodosOnly) {
+                    unawaited(_search());
+                  }
+                },
+        ),
+    ],
+  );
+
+  String? _taskDetails(KnowledgeHit hit, KnowledgeTask? task, String today) {
+    final source =
+        '${hit.note.title}${hit.anchor.startsWith('line=')
+            ? ' · Line ${hit.anchor.substring(5)}'
+            : hit.anchor.startsWith('page=')
+            ? ' · Page ${hit.anchor.substring(5)}'
+            : ''}';
+    if (task?.canPlan != true) return source;
+    final project = widget.repository.catalog.folderName(hit.note.folderId);
+    final due = quickTodoDueDate(hit.note);
+    final details = [
+      if (hit.note.title != hit.snippet) hit.note.title,
+      ?project,
+      if (due != null)
+        '${due.compareTo(today) < 0 ? 'Overdue' : 'Due'} · '
+            '${MaterialLocalizations.of(context).formatMediumDate(DateTime.parse(due))}',
+    ];
+    return details.isEmpty ? null : details.join(' · ');
+  }
+
   Widget _results() {
     final scan = _scan;
+    final today = journalDate(DateTime.now());
+    final hits = scan == null ? const <KnowledgeHit>[] : _taskHits(scan, today);
     final filtersVisible =
         _filtersExpanded ?? NoterTheme.desktopControls(context);
     final activeFilters = [
@@ -407,6 +536,43 @@ class _KnowledgePageState extends State<KnowledgePage> {
                 padding: const EdgeInsets.all(12),
                 child: Column(
                   children: [
+                    if (_taskSection) ...[
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: _taskViews(),
+                      ),
+                      const SizedBox(height: 8),
+                      if (_taskView == _TaskView.projects)
+                        DropdownButton<String>(
+                          isExpanded: true,
+                          value:
+                              widget.repository.catalog.folderName(
+                                    _projectFilter,
+                                  ) ==
+                                  null
+                              ? ''
+                              : _projectFilter,
+                          items: [
+                            const DropdownMenuItem(
+                              value: '',
+                              child: Text('All projects'),
+                            ),
+                            for (final folder
+                                in widget.repository.catalog.folders)
+                              DropdownMenuItem(
+                                value: folder.id,
+                                child: Text(
+                                  folder.name,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                          ],
+                          onChanged: _busy
+                              ? null
+                              : (value) =>
+                                    setState(() => _projectFilter = value!),
+                        ),
+                    ],
                     TextField(
                       controller: _query,
                       focusNode: _searchFocus,
@@ -416,7 +582,6 @@ class _KnowledgePageState extends State<KnowledgePage> {
                         labelText: switch (_section) {
                           'Tasks' => 'Find an open task or file',
                           'Inbox' => 'Search the inbox',
-                          unsortedTodos => 'Find a to-do',
                           _ => 'Search Markdown and PDFs',
                         },
                         suffixIcon: Row(
@@ -555,10 +720,11 @@ class _KnowledgePageState extends State<KnowledgePage> {
                                   : (v) => setState(() => _onlyTasks = v),
                             ),
 
-                          OutlinedButton(
-                            onPressed: _busy ? null : _saveView,
-                            child: const Text('Save view'),
-                          ),
+                          if (!_taskSection || _taskView == _TaskView.all)
+                            OutlinedButton(
+                              onPressed: _busy ? null : _saveView,
+                              child: const Text('Save view'),
+                            ),
                         ],
                       ),
                   ],
@@ -588,7 +754,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
             ],
           ),
         ),
-        if (scan == null || scan.hits.isEmpty)
+        if (scan == null || hits.isEmpty)
           SliverFillRemaining(
             hasScrollBody: false,
             child: Center(
@@ -597,18 +763,29 @@ class _KnowledgePageState extends State<KnowledgePage> {
                     ? (_section == 'Tasks'
                           ? 'Search to collect open checkboxes from every Markdown file.'
                           : 'Enter text, or leave it empty to list all matching files.')
-                    : _section == unsortedTodos && _view.query.isEmpty
-                    ? 'No open unsorted to-dos.'
+                    : _taskSection && _view.query.isEmpty
+                    ? switch (_taskView) {
+                        _TaskView.unsorted => 'No open unsorted to-dos.',
+                        _TaskView.today =>
+                          'No open to-dos due today or overdue.',
+                        _TaskView.projects => 'No open project to-dos.',
+                        _TaskView.all => 'No matches.',
+                      }
                     : 'No matches.',
               ),
             ),
           )
         else
           SliverList.builder(
-            itemCount: scan.hits.length,
+            itemCount: hits.length,
             itemBuilder: (context, index) {
-              final hit = scan.hits[index];
+              final hit = hits[index];
               final task = scan.tasksByLocation['${hit.note.id}:${hit.anchor}'];
+              final details = _taskDetails(
+                hit,
+                _view.openTasks ? task : null,
+                today,
+              );
               return ListTile(
                 leading: _view.openTasks && task != null
                     ? Checkbox(
@@ -627,16 +804,20 @@ class _KnowledgePageState extends State<KnowledgePage> {
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                 ),
-                subtitle:
-                    _section == unsortedTodos && hit.note.title == hit.snippet
+                subtitle: details == null
                     ? null
                     : Text(
-                        '${hit.note.title}${hit.anchor.startsWith('line=')
-                            ? ' · Line ${hit.anchor.substring(5)}'
-                            : hit.anchor.startsWith('page=')
-                            ? ' · Page ${hit.anchor.substring(5)}'
-                            : ''}',
+                        details,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
+                trailing: _view.openTasks && task != null && task.canPlan
+                    ? IconButton(
+                        tooltip: 'Plan to-do',
+                        onPressed: _busy ? null : () => _planTodo(task),
+                        icon: const Icon(Icons.edit_calendar_outlined),
+                      )
+                    : null,
                 onTap: _busy ? null : () => _open(hit.note, hit.anchor),
               );
             },
@@ -1040,7 +1221,9 @@ class _KnowledgePageState extends State<KnowledgePage> {
   void _selectSection(String section) {
     if (widget.shortcuts != null) _hubFocus.requestFocus();
     setState(() {
-      _section = section;
+      _section = section == unsortedTodos ? 'Tasks' : section;
+      _taskView = section == unsortedTodos ? _TaskView.unsorted : _TaskView.all;
+      _projectFilter = '';
       _scan = null;
       if (_autoSearch) {
         _kind = 'all';
@@ -1206,7 +1389,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
           key: const ValueKey('knowledge-more-sections'),
           enabled: !_busy,
           icon: const Icon(Icons.more_horiz),
-          label: index == -1 && _section != unsortedTodos ? _section : 'More',
+          label: index == -1 ? _section : 'More',
           tooltip: 'More sections',
         ),
       ],
@@ -1218,7 +1401,9 @@ class _KnowledgePageState extends State<KnowledgePage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          _section == unsortedTodos ? unsortedTodos : 'Knowledge hub',
+          _taskSection && _taskView == _TaskView.unsorted
+              ? unsortedTodos
+              : 'Knowledge hub',
         ),
         toolbarHeight: NoterTheme.headerHeight(context),
         actions: [

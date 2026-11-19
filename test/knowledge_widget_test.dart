@@ -64,6 +64,129 @@ void main() {
   tearDown(() async {
     await directory.delete(recursive: true);
   });
+  testWidgets('plan a to-do from Unsorted and review Today and Projects', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.runAsync(() async {
+      final store = KnowledgeStore(repository);
+      final overdue = await store.addQuickTodo('Overdue draft');
+      final future = await store.addQuickTodo('Future draft');
+      await store.addQuickTodo('Review plan');
+      final tasks = (await store.scan(
+        const KnowledgeView('', openTasks: true),
+      )).tasks;
+      final now = DateTime.now();
+      await store.planQuickTodo(
+        tasks.singleWhere((task) => task.note.id == overdue.id),
+        projectId: null,
+        due: DateUtils.addDaysToDate(now, -1),
+      );
+      await store.planQuickTodo(
+        tasks.singleWhere((task) => task.note.id == future.id),
+        projectId: null,
+        due: DateUtils.addDaysToDate(now, 1),
+      );
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: NoterTheme.light,
+        home: KnowledgePage(repository: repository, initialSection: 'Tasks'),
+      ),
+    );
+    await waitKnowledge(
+      tester,
+      () => find.text('Review plan').evaluate().isNotEmpty,
+    );
+    expect(find.text('Read the chapter'), findsOneWidget);
+
+    Future<void> view(String name) async {
+      await tester.tap(find.byKey(ValueKey('task-view-$name')));
+      await tester.pump();
+    }
+
+    Finder row(String title) => find.widgetWithText(ListTile, title);
+    final review = row('Review plan');
+    final plan = find.descendant(
+      of: review,
+      matching: find.byTooltip('Plan to-do'),
+    );
+    await view('unsorted');
+    expect(find.text('Read the chapter'), findsNothing);
+    expect(review, findsOneWidget);
+    await tester.tap(plan);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New project…').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Project name'),
+      'Launch',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Set due date'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'OK'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await waitKnowledge(
+      tester,
+      () =>
+          find.text('Overdue draft').evaluate().isNotEmpty &&
+          review.evaluate().isEmpty,
+    );
+
+    await view('today');
+    final overdue = row('Overdue draft');
+    expect(overdue, findsOneWidget);
+    expect(review, findsOneWidget);
+    expect(find.text('Future draft'), findsNothing);
+    expect(
+      tester.getTopLeft(overdue).dy,
+      lessThan(tester.getTopLeft(review).dy),
+    );
+    await tester.tap(
+      find.descendant(of: overdue, matching: find.byType(Checkbox)),
+    );
+    await waitKnowledge(
+      tester,
+      () => overdue.evaluate().isEmpty && review.evaluate().isNotEmpty,
+    );
+
+    await view('projects');
+    expect(find.textContaining('Launch · Due'), findsOneWidget);
+    await tester.tap(plan);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    final dialog = find.byType(AlertDialog);
+    final unsorted = find.text('Unsorted').last;
+    await tester.tap(unsorted);
+    await tester.pumpAndSettle();
+    expect(dialog, findsOneWidget);
+    await tester.tap(find.byTooltip('Clear due date'));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await waitKnowledge(
+      tester,
+      () => find.text('No open project to-dos.').evaluate().isNotEmpty,
+    );
+    await view('today');
+    expect(find.text('No open to-dos due today or overdue.'), findsOneWidget);
+    await view('unsorted');
+    expect(review, findsOneWidget);
+    await view('all');
+    await waitKnowledge(
+      tester,
+      () => find.text('Read the chapter').evaluate().isNotEmpty,
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('library quick to-do saves directly to unsorted tasks', (
     tester,
   ) async {
