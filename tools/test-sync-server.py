@@ -6,6 +6,7 @@ Adds a real two-device E2EE test when Flutter is available.
 import base64
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
+from http.cookiejar import CookieJar
 import json
 import os
 from pathlib import Path
@@ -42,10 +43,38 @@ def main():
             output = run("exec", "-T", "server", "noter-server", "admin", "add-device", owner)
             return re.search(r"Device: ([0-9a-f-]+)", output)[1], re.search(r": ([0-9a-f]{64})", output)[1]
 
+        def admin_users():
+            return run("exec", "-T", "postgres", "psql", "-U", "noter", "-d", "noter",
+                       "-Atc", "SELECT username FROM admin_users ORDER BY username").splitlines()
+
         try:
             run("up", "-d", "--build", "--wait", "--wait-timeout", "120", capture=False)
             address = run("port", "server", "5150").strip()
             base = f"http://{address}/api/v1"
+            assert admin_users() == [], "A fresh server should start without an admin account"
+            init_admin = ("exec", "-T", "server", "noter-server", "admin", "init-admin")
+            output = run(*init_admin)
+            password = re.search(r"Admin password \(shown once; store securely\): ([0-9a-f]{64})", output)
+            assert password is not None, "The initializer did not return a generated password"
+            retry = subprocess.run([*compose, *init_admin], cwd=ROOT, env=env,
+                                   text=True, capture_output=True)
+            assert retry.returncode != 0 and "already exists" in retry.stderr + retry.stdout
+            assert admin_users() == ["admin"]
+
+            browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
+            with browser.open(f"http://{address}/admin", timeout=30) as response:
+                assert response.headers.get_content_type() == "text/html"
+            login = urllib.request.Request(
+                f"http://{address}/admin/api/login",
+                data=json.dumps({"username": "admin", "password": password[1]}).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            with browser.open(login, timeout=30) as response:
+                assert json.load(response) == {"ok": True, "username": "admin"}
+            with browser.open(f"http://{address}/admin/api/me", timeout=30) as response:
+                assert json.load(response) == {"authenticated": True, "username": "admin"}
+            print("PASS: explicit admin initialization, repeat protection, and authenticated login")
+
             owner, other = account(), account()
             aid, token = device(owner)
             device(owner)

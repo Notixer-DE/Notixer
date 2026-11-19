@@ -510,10 +510,9 @@ pub async fn admin() -> loco_rs::Result<()> {
         Some("init-admin") if args.len() == 1 => {
             // Generate the first administrator's credentials locally and display them once.
             // Never replace an existing account or expose credentials over HTTP.
-            let existing = db.query_one_raw(stmt(
-                "SELECT username FROM admin_users LIMIT 1",
-                vec![],
-            )).await?;
+            let existing = db
+                .query_one_raw(stmt("SELECT username FROM admin_users LIMIT 1", vec![]))
+                .await?;
             if existing.is_some() {
                 return Err(loco_rs::Error::Message(
                     "An administrator already exists; refusing to overwrite credentials".into(),
@@ -523,8 +522,7 @@ pub async fn admin() -> loco_rs::Result<()> {
             let mut random = [0u8; 32];
             rand::rng().fill_bytes(&mut random);
             let password = hex::encode(random);
-            let hash = crate::admin::hash_password(&password)
-                .map_err(loco_rs::Error::Message)?;
+            let hash = crate::admin::hash_password(&password).map_err(loco_rs::Error::Message)?;
             let inserted = db.query_one_raw(stmt(
                 "INSERT INTO admin_users(username, password_hash) VALUES($1, $2) ON CONFLICT (username) DO NOTHING RETURNING username",
                 vec!["admin".into(), hash.into()],

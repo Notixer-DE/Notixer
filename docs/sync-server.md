@@ -27,7 +27,15 @@ A self-hosted synchronization server for Notixer using Loco/Rust, PostgreSQL and
 
 ## Accounts and devices
 
-Public registration is disabled. Manage accounts and device access using the admin dashboard at `/admin` or the server CLI. Change the initial dashboard credentials before exposing it to other users.
+Public registration is disabled. To set up the admin dashboard, initialize the `admin` account after the server is healthy.
+
+```sh
+docker compose exec server noter-server admin init-admin
+```
+
+The command displays a randomly generated password once. Save it and sign in at `/admin`. If an administrator already exists, the command exits without overwriting the credentials.
+
+Manage sync accounts and device access in the dashboard or with the server CLI.
 
 ```sh
 docker compose exec server noter-server admin create-account

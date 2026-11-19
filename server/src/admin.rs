@@ -1,13 +1,13 @@
 use argon2::{
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
 };
 use axum::{
+    Json,
     extract::{Path, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::{delete, get, post},
-    Json,
 };
 use loco_rs::{app::AppContext, controller::Routes};
 use rand::RngCore;
@@ -72,11 +72,10 @@ async fn vue_asset() -> impl IntoResponse {
 fn get_session_token(headers: &HeaderMap) -> Option<String> {
     let cookie_header = headers.get(header::COOKIE)?.to_str().ok()?;
     for cookie in cookie_header.split(';') {
-        let mut parts = cookie.trim().splitn(2, '=');
-        if let (Some(name), Some(val)) = (parts.next(), parts.next()) {
-            if name == "noter_admin_session" && !val.is_empty() {
-                return Some(val.to_string());
-            }
+        if let Some(("noter_admin_session", token)) = cookie.trim().split_once('=')
+            && !token.is_empty()
+        {
+            return Some(token.to_string());
         }
     }
     None
@@ -180,10 +179,7 @@ async fn login(
         .into_response())
 }
 
-async fn logout(
-    State(ctx): State<AppContext>,
-    headers: HeaderMap,
-) -> Result<Response, StatusCode> {
+async fn logout(State(ctx): State<AppContext>, headers: HeaderMap) -> Result<Response, StatusCode> {
     if let Some(token) = get_session_token(&headers) {
         let _ = ctx
             .db
@@ -298,14 +294,28 @@ async fn list_accounts(
 
     let mut accounts = Vec::new();
     for row in rows {
-        let id: String = row.try_get("", "id").map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let cursor: i64 = row.try_get("", "cursor").map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let used_bytes: i64 = row.try_get("", "used_bytes").map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let quota_bytes: i64 = row.try_get("", "quota_bytes").map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let revision_count: i64 = row.try_get("", "revision_count").map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let max_revisions: i64 = row.try_get("", "max_revisions").map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let id: String = row
+            .try_get("", "id")
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let cursor: i64 = row
+            .try_get("", "cursor")
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let used_bytes: i64 = row
+            .try_get("", "used_bytes")
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let quota_bytes: i64 = row
+            .try_get("", "quota_bytes")
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let revision_count: i64 = row
+            .try_get("", "revision_count")
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let max_revisions: i64 = row
+            .try_get("", "max_revisions")
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let key_check: Option<String> = row.try_get("", "key_check").ok();
-        let devices: serde_json::Value = row.try_get("", "devices").unwrap_or_else(|_| serde_json::json!([]));
+        let devices: serde_json::Value = row
+            .try_get("", "devices")
+            .unwrap_or_else(|_| serde_json::json!([]));
 
         accounts.push(serde_json::json!({
             "id": id,
@@ -349,7 +359,11 @@ async fn delete_account(
     let _ = authenticate_admin(&ctx.db, &headers).await?;
     let _ = Uuid::parse_str(&account_id).map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let tx = ctx.db.begin().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let tx = ctx
+        .db
+        .begin()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     tx.execute_raw(Statement::from_sql_and_values(
         DbBackend::Postgres,
@@ -391,7 +405,9 @@ async fn delete_account(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    tx.commit().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    tx.commit()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if let Ok(blob_dir) = std::env::var("BLOB_DIR") {
         let path = std::path::Path::new(&blob_dir).join(&account_id);
@@ -511,9 +527,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_admin_password_hashes_and_verifies() {
-        let hash = hash_password("admin").expect("hashing failed");
-        assert!(verify_password("admin", &hash));
+    fn password_hashes_and_verifies() {
+        let password = "a sample password";
+        let hash = hash_password(password).expect("hashing failed");
+        assert!(verify_password(password, &hash));
         assert!(!verify_password("wrong", &hash));
     }
 }
