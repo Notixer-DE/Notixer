@@ -2,7 +2,7 @@
 Type=Application
 Name=Notixer
 Comment=Handwritten notes and PDF annotations
-Exec=noter
-Icon=noter
+Exec=notixer
+Icon=notixer
 Terminal=false
 Categories=Office;Graphics;

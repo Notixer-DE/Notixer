@@ -4,9 +4,10 @@ project(runner LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "noter")
+set(BINARY_NAME "notixer")
 # The unique GTK application identifier for this application. See:
 # https://wiki.gnome.org/HowDoI/ChooseApplicationID
+# Keep this identifier for existing notebooks and desktop integration.
 set(APPLICATION_ID "de.noter.noter")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent

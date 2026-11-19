@@ -25,7 +25,7 @@ if [[ ! "$app_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   exit 1
 fi
 mkdir -p dist
-artifact="dist/noter_${app_version}_preview.apk"
+artifact="dist/notixer_${app_version}_preview.apk"
 cp build/app/outputs/flutter-apk/app-release.apk "$artifact"
 sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
 if [[ -z "$sdk_root" && -f android/local.properties ]]; then

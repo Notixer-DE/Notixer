@@ -104,14 +104,17 @@ jobs:
           APP_VERSION: ${{ needs.metadata.outputs.version }}
           BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
         run: flutter build apk --release --no-pub --build-name "$APP_VERSION" --build-number "$BUILD_NUMBER"
-      - name: Verify signature and prepare download
+      - name: Verify signature and app name and prepare download
         env:
           APP_VERSION: ${{ needs.metadata.outputs.version }}
           BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
         run: |
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs build/app/outputs/flutter-apk/app-release.apk
+          badging="$("$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging build/app/outputs/flutter-apk/app-release.apk)"
+          grep -Fqx "application-label:'Notixer'" <<< "$badging"
+          grep -Fq "package: name='de.noter.noter' versionCode='$BUILD_NUMBER'" <<< "$badging"
           mkdir -p release-assets
-          cp build/app/outputs/flutter-apk/app-release.apk "release-assets/noter_${APP_VERSION}_build-${BUILD_NUMBER}.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "release-assets/notixer_${APP_VERSION}_build-${BUILD_NUMBER}.apk"
       - uses: actions/upload-artifact@v4
         with:
           name: android-package
@@ -209,6 +212,7 @@ jobs:
           RELEASE_TAG: ${{ needs.metadata.outputs.tag }}
           APP_VERSION: ${{ needs.metadata.outputs.version }}
           BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
+          DEB_VERSION: ${{ needs.metadata.outputs.deb_version }}
           SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
@@ -216,6 +220,8 @@ jobs:
           test "$(find . -maxdepth 1 -name '*.apk' | wc -l)" -eq 1
           test "$(find . -maxdepth 1 -name '*.deb' | wc -l)" -eq 1
           test "$(find . -maxdepth 1 -name '*.zip' | wc -l)" -eq 1
+          test -f "notixer_${APP_VERSION}_build-${BUILD_NUMBER}.apk"
+          test "$(dpkg-deb -f "notixer_${DEB_VERSION}_amd64.deb" Package)" = notixer
           test -f "notixer_${APP_VERSION}_build-${BUILD_NUMBER}_windows-x64.zip"
           sha256sum -- *.apk *.deb *.zip > SHA256SUMS
           notes="$RUNNER_TEMP/release-notes.md"
