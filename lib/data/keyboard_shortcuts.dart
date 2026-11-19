@@ -12,6 +12,7 @@ enum ShortcutSection {
   library('Library and sync'),
   document('Documents'),
   pdf('PDF editor'),
+  pdfTools('PDF tools'),
   markdown('Markdown editor'),
   media('Media'),
   knowledge('Knowledge Hub');
@@ -155,17 +156,43 @@ enum AppShortcut {
     'Previous PDF page',
     LogicalKeyboardKey.pageUp,
   ),
-  pdfPen(
-    ShortcutSection.pdf,
-    'Select the pen',
-    LogicalKeyboardKey.keyD,
+  pdfPen(ShortcutSection.pdfTools, 'Pen', LogicalKeyboardKey.keyD, alt: true),
+  pdfHighlighter(
+    ShortcutSection.pdfTools,
+    'Highlighter',
+    LogicalKeyboardKey.keyH,
     alt: true,
   ),
   pdfEraser(
-    ShortcutSection.pdf,
-    'Select the eraser',
+    ShortcutSection.pdfTools,
+    'Eraser',
     LogicalKeyboardKey.keyE,
     alt: true,
+  ),
+  pdfLasso(
+    ShortcutSection.pdfTools,
+    'Lasso selection',
+    LogicalKeyboardKey.keyG,
+    alt: true,
+  ),
+  pdfSelect(
+    ShortcutSection.pdfTools,
+    'Select',
+    LogicalKeyboardKey.keyA,
+    alt: true,
+  ),
+  pdfSelectText(
+    ShortcutSection.pdfTools,
+    'Select text',
+    LogicalKeyboardKey.keyC,
+    alt: true,
+  ),
+  pdfInsertText(
+    ShortcutSection.pdfTools,
+    'Insert text',
+    LogicalKeyboardKey.keyT,
+    alt: true,
+    shift: true,
   ),
 
   markdownPreview(
@@ -293,7 +320,12 @@ class KeyboardShortcuts extends ChangeNotifier {
     for (final action in AppShortcut.values) action: action.defaultBinding,
   };
 
-  SingleActivator operator [](AppShortcut action) => _bindings[action]!;
+  SingleActivator? operator [](AppShortcut action) => _bindings[action];
+
+  String tooltip(String label, AppShortcut action) {
+    final binding = this[action];
+    return binding == null ? label : '$label (${binding.label})';
+  }
 
   AppShortcut? match(KeyEvent event) {
     final keyboard = HardwareKeyboard.instance;
@@ -309,7 +341,7 @@ class KeyboardShortcuts extends ChangeNotifier {
       AppShortcut.resetZoom,
     ]) {
       final binding = action.defaultBinding;
-      if (this[action].keys != binding.keys) continue;
+      if (this[action]?.keys != binding.keys) continue;
       for (final key in [
         binding.trigger,
         if (action == AppShortcut.zoomIn) ...[
@@ -347,7 +379,8 @@ class KeyboardShortcuts extends ChangeNotifier {
       if (!await file.exists()) return;
       final data = jsonDecode(await file.readAsString());
       if (data is! Map) return;
-      final bindings = _defaults();
+      final bindings = <AppShortcut, SingleActivator>{};
+      final used = <(int, bool, bool, bool, bool)>{};
       for (final action in AppShortcut.values) {
         final row = data[action.name];
         if (row is! Map || row['key'] is! int) continue;
@@ -361,13 +394,19 @@ class KeyboardShortcuts extends ChangeNotifier {
           meta: row['meta'] == true,
           includeRepeats: false,
         );
-        if (_validateBinding(action, binding) == null) {
+        if (_validateBinding(action, binding) == null &&
+            used.add(binding.keys)) {
           bindings[action] = binding;
         }
       }
-      if (bindings.values.map((binding) => binding.keys).toSet().length !=
-          bindings.length) {
-        return;
+      // An upgrade can add defaults that overlap existing custom bindings.
+      for (final action in AppShortcut.values) {
+        if (bindings.containsKey(action) ||
+            (data.containsKey(action.name) && data[action.name] == null)) {
+          continue;
+        }
+        final binding = action.defaultBinding;
+        if (used.add(binding.keys)) bindings[action] = binding;
       }
       _bindings = bindings;
       if (!_disposed) notifyListeners();
@@ -453,8 +492,8 @@ class KeyboardShortcuts extends ChangeNotifier {
       final temporary = File('${file.path}.tmp');
       await temporary.writeAsString(
         jsonEncode({
-          for (final entry in bindings.entries)
-            entry.key.name: entry.value.toJson(),
+          for (final action in AppShortcut.values)
+            action.name: bindings[action]?.toJson(),
         }),
         flush: true,
       );

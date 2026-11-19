@@ -52,6 +52,18 @@ class _MediaPageState extends State<MediaPage> {
         AppShortcut.mediaPlay when widget.format.kind != 'image' => _play,
         _ => null,
       };
+      if (widget.repository case final repository?) {
+        tab.refreshMetadata = () async {
+          final notes = await repository.list();
+          if (!mounted) return;
+          for (final note in notes) {
+            if (note.id == _note?.id) {
+              _updateNote(note);
+              return;
+            }
+          }
+        };
+      }
     }
 
     _timer = Timer.periodic(const Duration(milliseconds: 500), (_) async {
@@ -109,11 +121,19 @@ class _MediaPageState extends State<MediaPage> {
 
   Future<void> _export() => _action(() async {
     await FileGateway().save(
-      '$_name.${widget.format.extension}',
+      FileGateway.exportName(_name, widget.format.extension),
       widget.bytes,
       widget.format.mime,
     );
   });
+
+  void _updateNote(Notebook note) {
+    setState(() {
+      _note = note;
+      _name = note.title;
+    });
+    widget.tabController?.update(note.title, false);
+  }
 
   Future<void> _play() => _action(() async {
     if (Platform.isAndroid && widget.format.kind == 'audio') {
@@ -216,14 +236,11 @@ class _MediaPageState extends State<MediaPage> {
                       ),
                     );
                     if (updated != null) {
-                      await widget.repository!.save(updated, widget.bytes);
-                    }
-                    if (updated != null && mounted) {
-                      setState(() {
-                        _name = updated.title;
-                        _note = updated;
-                      });
-                      widget.tabController?.update(updated.title, false);
+                      final saved = await widget.repository!.save(
+                        updated,
+                        widget.bytes,
+                      );
+                      if (mounted) _updateNote(saved);
                     }
                   }),
             icon: const Icon(Icons.folder_outlined),

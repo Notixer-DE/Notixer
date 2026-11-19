@@ -124,6 +124,10 @@ class _KeyboardSettingsPageState extends State<KeyboardSettingsPage> {
                   'Keyboard shortcuts',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
+                const Text(
+                  'Select an action, then press the keys you want to use.',
+                ),
+                const SizedBox(height: 8),
                 Align(
                   alignment: Alignment.centerLeft,
                   child: OutlinedButton(
@@ -153,7 +157,9 @@ class _KeyboardSettingsPageState extends State<KeyboardSettingsPage> {
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(action.label),
-                      subtitle: Text(widget.shortcuts[action].label),
+                      subtitle: Text(
+                        widget.shortcuts[action]?.label ?? 'Unassigned',
+                      ),
                       trailing: const Icon(Icons.edit_outlined),
                       enabled: !_saving,
                       onTap: () => _edit(action),

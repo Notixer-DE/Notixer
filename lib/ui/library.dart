@@ -258,10 +258,12 @@ class _LibraryPageState extends State<LibraryPage> {
     if (!mounted || _busy) return;
     setState(() => _actionBusy = true);
     try {
-      final before = await _noteStates();
+      final before = autoSync && _sync.enabled && _sync.automatic
+          ? await _noteStates()
+          : null;
       if (!mounted) return;
       await action();
-      if (autoSync && mounted) await _autoSync(before);
+      if (before != null && mounted) await _autoSync(before);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -386,6 +388,7 @@ class _LibraryPageState extends State<LibraryPage> {
                 note: note,
                 bytes: bytes,
                 repository: widget.repository,
+                shortcuts: widget.shortcuts,
               ),
       ),
     );
@@ -398,6 +401,7 @@ class _LibraryPageState extends State<LibraryPage> {
         builder: (_) => PdfSearchPage(
           notes: _notes.where((n) => n.isPdf).toList(),
           repository: widget.repository,
+          shortcuts: widget.shortcuts,
         ),
       ),
     );
@@ -407,7 +411,10 @@ class _LibraryPageState extends State<LibraryPage> {
   Future<void> _study() => _perform(() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => StudyPage(repository: widget.repository),
+        builder: (_) => StudyPage(
+          repository: widget.repository,
+          shortcuts: widget.shortcuts,
+        ),
       ),
     );
     await _refresh();
@@ -619,6 +626,7 @@ class _LibraryPageState extends State<LibraryPage> {
                 note: destination.note,
                 bytes: bytes,
                 repository: widget.repository,
+                shortcuts: widget.shortcuts,
                 initialPage: markdownPdfPage(destination.anchor) == null
                     ? null
                     : markdownPdfPage(destination.anchor)! - 1,
@@ -697,13 +705,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final mime =
         note.mediaFormat?.mime ??
         (note.isPdf ? 'application/pdf' : 'text/markdown');
-    final title = note.title
-        .replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1F]'), '_')
-        .trim();
-    final extension = '.${note.extension}';
-    final name = title.toLowerCase().endsWith(extension)
-        ? title
-        : '${title.isEmpty ? 'Notixer' : title}$extension';
+    final name = FileGateway.exportName(note.title, note.extension);
     if (await FileGateway().save(name, bytes, mime) && mounted) {
       ScaffoldMessenger.of(
         context,
@@ -745,8 +747,8 @@ class _LibraryPageState extends State<LibraryPage> {
         title: const Text('Delete note?'),
         content: Text(
           _sync.enabled
-              ? '„${note.title}“will be moved to the local trash. The deletion will be synced to other devices on the next server sync.'
-              : '„${note.title}“will be moved to the trash and can later be restored as a new copy.',
+              ? '“${note.title}” will be moved to the local trash. The deletion will be synced to other devices on the next server sync.'
+              : '“${note.title}” will be moved to the trash and can later be restored as a new copy.',
         ),
         actions: [
           TextButton(

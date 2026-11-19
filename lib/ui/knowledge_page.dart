@@ -55,11 +55,15 @@ class _KnowledgePageState extends State<KnowledgePage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
       await _load();
       if (!mounted) return;
       if (widget.sharedText != null) {
         await _capture(widget.sharedText!);
-      } else if (_section == 'Tasks' || _section == 'Inbox') {
+      }
+      if (mounted &&
+          ModalRoute.of(context)?.isCurrent == true &&
+          (_section == 'Tasks' || _section == 'Inbox')) {
         await _search();
       }
     });
@@ -114,13 +118,21 @@ class _KnowledgePageState extends State<KnowledgePage> {
       });
     }
   });
+
+  Future<void> _reload() async {
+    final refreshResults =
+        _scan != null || _section == 'Tasks' || _section == 'Inbox';
+    await _load();
+    if (mounted && _error == null && refreshResults) await _search();
+  }
+
   KnowledgeView get _view => KnowledgeView(
     '',
     query: _query.text.trim(),
     tag: _section == 'Inbox' ? 'Inbox' : _tag,
     folder: _folder,
     kind: _kind,
-    openTasks: _section == 'Tasks' || _onlyTasks,
+    openTasks: _section == 'Tasks' || (_section == 'Search' && _onlyTasks),
   );
   Future<void> _search() async {
     if (_busy) return;
@@ -370,9 +382,9 @@ class _KnowledgePageState extends State<KnowledgePage> {
         _filtersExpanded ?? NoterTheme.desktopControls(context);
     final activeFilters = [
       _kind != 'all',
-      _tag.isNotEmpty,
+      _section != 'Inbox' && _tag.isNotEmpty,
       _folder.isNotEmpty,
-      _onlyTasks && _section != 'Tasks',
+      _section == 'Search' && _onlyTasks,
     ].where((value) => value).length;
     return CustomScrollView(
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -391,9 +403,11 @@ class _KnowledgePageState extends State<KnowledgePage> {
                       autofocus: widget.autofocusSearch && _section == 'Search',
                       onSubmitted: (_) => _search(),
                       decoration: InputDecoration(
-                        labelText: _section == 'Tasks'
-                            ? 'Find an open task or file'
-                            : 'Search Markdown and PDFs',
+                        labelText: switch (_section) {
+                          'Tasks' => 'Find an open task or file',
+                          'Inbox' => 'Search the inbox',
+                          _ => 'Search Markdown and PDFs',
+                        },
                         suffixIcon: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -453,34 +467,35 @@ class _KnowledgePageState extends State<KnowledgePage> {
                                 ? null
                                 : (v) => setState(() => _kind = v!),
                           ),
-                          DropdownButton<String>(
-                            value: _tag,
-                            items: [
-                              const DropdownMenuItem(
-                                value: '',
-                                child: Text('All tags'),
-                              ),
-                              for (final tag in {
-                                ..._notes
-                                    .expand((n) => n.tags)
-                                    .where((tag) => tag.isNotEmpty),
-                                if (_tag.isNotEmpty) _tag,
-                              }.toList()..sort())
-                                DropdownMenuItem(
-                                  value: tag,
-                                  child: SizedBox(
-                                    width: 100,
-                                    child: Text(
-                                      tag,
-                                      overflow: TextOverflow.ellipsis,
+                          if (_section != 'Inbox')
+                            DropdownButton<String>(
+                              value: _tag,
+                              items: [
+                                const DropdownMenuItem(
+                                  value: '',
+                                  child: Text('All tags'),
+                                ),
+                                for (final tag in {
+                                  ..._notes
+                                      .expand((n) => n.tags)
+                                      .where((tag) => tag.isNotEmpty),
+                                  if (_tag.isNotEmpty) _tag,
+                                }.toList()..sort())
+                                  DropdownMenuItem(
+                                    value: tag,
+                                    child: SizedBox(
+                                      width: 100,
+                                      child: Text(
+                                        tag,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
                                   ),
-                                ),
-                            ],
-                            onChanged: _busy
-                                ? null
-                                : (v) => setState(() => _tag = v!),
-                          ),
+                              ],
+                              onChanged: _busy
+                                  ? null
+                                  : (v) => setState(() => _tag = v!),
+                            ),
                           DropdownButton<String>(
                             value: _folder,
                             items: [
@@ -1151,7 +1166,6 @@ class _KnowledgePageState extends State<KnowledgePage> {
   Widget _bottomNavigation() {
     final index = _primarySections.indexWhere((entry) => entry.$1 == _section);
     return NavigationBar(
-      labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
       selectedIndex: index == -1 ? _primarySections.length : index,
       onDestinationSelected: (index) {
         if (_busy) return;
@@ -1194,7 +1208,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
           ),
           IconButton(
             tooltip: 'Reload',
-            onPressed: _busy ? null : _load,
+            onPressed: _busy ? null : _reload,
             icon: const Icon(Icons.refresh),
           ),
         ],

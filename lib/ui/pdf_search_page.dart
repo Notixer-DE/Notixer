@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../data/keyboard_shortcuts.dart';
 import '../data/notebook.dart';
 import '../data/pdf_search.dart';
 import 'editor.dart';
@@ -9,9 +10,11 @@ class PdfSearchPage extends StatefulWidget {
     super.key,
     required this.notes,
     required this.repository,
+    this.shortcuts,
   });
   final List<Notebook> notes;
   final NotebookRepository repository;
+  final KeyboardShortcuts? shortcuts;
 
   @override
   State<PdfSearchPage> createState() => _PdfSearchPageState();
@@ -131,6 +134,7 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
             note: note,
             bytes: bytes,
             repository: widget.repository,
+            shortcuts: widget.shortcuts,
             initialPage: hit.pageIndex,
             initialQuery: _searchedQuery,
           ),

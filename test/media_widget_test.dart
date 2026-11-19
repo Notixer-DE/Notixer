@@ -1,11 +1,14 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:noter/data/file_gateway.dart';
 import 'package:noter/data/notebook.dart';
 import 'package:noter/ui/document_workspace.dart';
 import 'package:noter/ui/media_page.dart';
 import 'package:noter/ui/noter_theme.dart';
 import 'media_test.dart' show samplePng;
+import 'widget_test.dart' show settleFileIo;
 
 void main() {
   for (final width in [390.0, 1440.0]) {
@@ -60,6 +63,26 @@ void main() {
       expect(find.byType(Image), findsOneWidget);
       expect(find.byTooltip('Organize file'), findsOneWidget);
       expect(find.byTooltip('Export media'), findsOneWidget);
+      if (width == 390) {
+        await tester.runAsync(() async {
+          await repo.save(note.copy(title: 'Camera: photo.PNG'), samplePng);
+          await FileGateway.refreshOpenDocuments!();
+        });
+        await tester.pump();
+        expect(find.text('Camera: photo.PNG'), findsNWidgets(2));
+        const picker = MethodChannel('plugins.flutter.io/file_selector');
+        final messenger = tester.binding.defaultBinaryMessenger;
+        final destination = File('${directory.path}/photo.png');
+        messenger.setMockMethodCallHandler(picker, (call) async {
+          expect(call.method, 'getSavePath');
+          expect(call.arguments['suggestedName'], 'Camera_ photo.PNG');
+          return destination.path;
+        });
+        addTearDown(() => messenger.setMockMethodCallHandler(picker, null));
+        await tester.tap(find.byTooltip('Export media'));
+        await settleFileIo(tester, destination.existsSync);
+        expect(await tester.runAsync(destination.readAsBytes), samplePng);
+      }
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
       await tester.runAsync(() async {

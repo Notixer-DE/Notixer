@@ -26,6 +26,8 @@ Notixer is an offline-first note-taking and knowledge management app for Android
 - Single-page view fits an unzoomed page initially. A manually chosen zoom is retained when moving to the next or previous page. Mouse/trackpad scrolling stays within the active page; use page controls or a horizontal touch swipe at fit zoom to change pages.
 - The writing magnifier provides a second view over the original page.
 
+Open **Settings → Keyboard shortcuts** to change tool and navigation bindings. The defaults are **Ctrl+Alt+D** for the pen, **Ctrl+Alt+H** for the highlighter, **Ctrl+Alt+E** for the eraser, and **Ctrl+Page Down / Page Up** for the next or previous page. Tooltips show the assigned keys.
+
 ## Markdown
 
 - Switch between editable CommonMark/GFM source and a formatted reading view with interactive checklists.

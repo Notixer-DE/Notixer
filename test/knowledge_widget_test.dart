@@ -174,6 +174,50 @@ void main() {
       variant: TargetPlatformVariant.only(platform),
     );
   }
+  testWidgets(
+    'cancelled quick capture still shows the inbox and reload updates it',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: NoterTheme.light,
+          home: KnowledgePage(
+            repository: repository,
+            initialSection: 'Inbox',
+            sharedText: '',
+          ),
+        ),
+      );
+      final dialog = find.widgetWithText(AlertDialog, 'Quick capture');
+      for (var i = 0; i < 100 && dialog.evaluate().isEmpty; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      await tester.pumpAndSettle();
+      expect(dialog, findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await waitKnowledge(
+        tester,
+        () => find.text('Source note').evaluate().isNotEmpty,
+      );
+      await tester.tap(find.byTooltip('Show search filters'));
+      await tester.pump();
+      expect(find.text('Search the inbox'), findsOneWidget);
+      expect(find.text('All tags'), findsNothing);
+
+      await tester.runAsync(
+        () => KnowledgeStore(repository).capture('New inbox note', 'Text'),
+      );
+      await tester.tap(find.byTooltip('Reload'));
+      await waitKnowledge(
+        tester,
+        () => find.text('New inbox note').evaluate().isNotEmpty,
+      );
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   testWidgets('renaming a selected tag leaves search filters valid', (
     tester,
   ) async {

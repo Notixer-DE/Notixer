@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../data/learning.dart';
+import '../data/keyboard_shortcuts.dart';
 import '../data/notebook.dart';
 import '../data/tapes.dart';
 import 'editor.dart';
@@ -13,9 +14,15 @@ class StudyTask {
 }
 
 class StudyPage extends StatefulWidget {
-  const StudyPage({super.key, required this.repository, this.clock});
+  const StudyPage({
+    super.key,
+    required this.repository,
+    this.clock,
+    this.shortcuts,
+  });
   final NotebookRepository repository;
   final DateTime Function()? clock;
+  final KeyboardShortcuts? shortcuts;
   @override
   State<StudyPage> createState() => _StudyPageState();
 }
@@ -125,6 +132,7 @@ class _StudyPageState extends State<StudyPage> {
               note: note,
               bytes: bytes,
               repository: widget.repository,
+              shortcuts: widget.shortcuts,
               initialPage: target.page,
               initialTapeId: target.id,
               onReviewRated: () => rated = true,

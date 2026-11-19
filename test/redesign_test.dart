@@ -154,6 +154,12 @@ void main() {
       scale: 1.0,
     ),
     (
+      name: 'short desktop',
+      size: const Size(1100, 540),
+      platform: TargetPlatform.linux,
+      scale: 1.0,
+    ),
+    (
       name: 'phone',
       size: const Size(390, 844),
       platform: TargetPlatform.android,
@@ -352,6 +358,11 @@ void main() {
           final preview = tester.widget<MarkdownPreview>(
             find.byType(MarkdownPreview),
           );
+          expect(
+            find.byTooltip('Hide folders'),
+            viewport.name == 'desktop' ? findsOneWidget : findsNothing,
+          );
+          expect(find.byTooltip('Show note list'), findsOneWidget);
           final paragraphFinder = find.byWidgetPredicate(
             (widget) =>
                 widget is SelectableText &&
