@@ -42,12 +42,13 @@ class EditorPane extends StatefulWidget {
     this.initialPage,
     this.initialQuery = '',
     this.onSaveAll,
+    this.useDefaultSaveShortcut = true,
     this.initialTapeId,
     this.onReviewRated,
     this.onOpenSourceNote,
   });
   final DocumentSession session;
-  final bool active, split, showChrome;
+  final bool active, split, showChrome, useDefaultSaveShortcut;
   final int? initialPage;
   final String initialQuery;
   final String? initialTapeId;
@@ -531,7 +532,9 @@ class EditorPaneState extends State<EditorPane> {
                   IconButton(
                     tooltip: 'Page overview',
                     onPressed: () => _togglePages(pagesVisible, compact),
-                    icon: const Icon(Icons.view_sidebar_outlined),
+                    isSelected: !compact && pagesVisible,
+                    icon: const Icon(Icons.view_module_outlined),
+                    selectedIcon: const Icon(Icons.view_module),
                   ),
                   IconButton(
                     tooltip: singlePage
@@ -1761,7 +1764,7 @@ class EditorPaneState extends State<EditorPane> {
           constraints.maxHeight < 360 ||
           (constraints.maxWidth < 480 &&
               MediaQuery.textScalerOf(context).scale(16) > 24);
-      final compactPages = constraints.maxWidth < 600;
+      final compactPages = NoterTheme.mobileLayout(constraints.maxWidth);
       final pagesVisible =
           !compactPages && (_showPages ?? constraints.maxWidth >= 900);
       final sidebarVisible = widget.showChrome && pagesVisible;
@@ -1791,7 +1794,8 @@ class EditorPaneState extends State<EditorPane> {
           if (focused) widget.onActivate();
         },
         onKeyEvent: (_, event) {
-          if (singlePage &&
+          if (widget.useDefaultSaveShortcut &&
+              singlePage &&
               event is KeyDownEvent &&
               event.logicalKey == LogicalKeyboardKey.keyS &&
               (HardwareKeyboard.instance.isControlPressed ||
@@ -2000,9 +2004,11 @@ class EditorPaneState extends State<EditorPane> {
                               hideAnnotationActions: () =>
                                   widget.session.ink.selected.isNotEmpty,
                             ),
-                            onSave: (_) async {
-                              await widget.session.save();
-                            },
+                            onSave: widget.useDefaultSaveShortcut
+                                ? (_) async {
+                                    await widget.session.save();
+                                  }
+                                : null,
                             imagePicker: (_) => FileGateway().pickImage(),
                             pageOverlayBuilder: _overlays,
                             features: PdfEditorFeatures(

@@ -1,10 +1,13 @@
 import 'media_page.dart';
+import 'dart:async';
+import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../data/file_gateway.dart';
 import '../data/notebook.dart';
 import '../data/knowledge.dart';
+import '../data/keyboard_shortcuts.dart';
 import '../data/markdown_document.dart';
 import '../input/stylus_eraser.dart';
 import '../sync/sync_controller.dart';
@@ -12,11 +15,12 @@ import 'document_tab.dart';
 import 'workspace_chrome.dart';
 import 'editor.dart';
 import 'library.dart';
+import 'keyboard_settings.dart';
 import 'markdown_editor.dart';
 
 class _OpenDocument {
-  _OpenDocument(this.note, this.bytes, this.anchor)
-    : controller = DocumentTabController(note.title);
+  _OpenDocument(this.note, this.bytes, this.anchor, KeyboardShortcuts shortcuts)
+    : controller = DocumentTabController(note.title, shortcuts: shortcuts);
   final Notebook note;
   final Uint8List bytes;
   final String anchor;
@@ -40,10 +44,15 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
     with WidgetsBindingObserver {
   final _tabs = <_OpenDocument>[];
   final _library = LibraryWorkspaceController();
+  final _workspaceFocus = FocusNode(debugLabel: 'Document workspace');
+  late final _shortcuts = KeyboardShortcuts(
+    File('${widget.repository.directory.path}/.keyboard-shortcuts.json'),
+  );
   late final _sync = SyncController(widget.repository);
   late final _pdfSessions = WorkspacePdfSessions(widget.repository);
   int _selected = -1;
   bool _busy = false, _showTabs = true;
+  bool _shortcutRunning = false;
   Future<bool> Function()? _previousClose, _previousWorkspaceClose;
   StylusEraser? Function(PointerEvent)? _previousResolver;
   bool Function(PointerEvent)? _previousInterceptor;
@@ -73,6 +82,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
   @override
   void initState() {
     super.initState();
+    unawaited(_shortcuts.load());
     FileGateway.openDocument = openNotebook;
     FileGateway.completeKnowledgeTask = _completeKnowledgeTask;
     FileGateway.refreshOpenDocuments = _refreshOpenDocuments;
@@ -102,7 +112,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
   void _select(int index) {
     if (_busy || _selected == index) return;
     if (_selected >= 0) _tabs[_selected].controller.deactivate();
-    FocusManager.instance.primaryFocus?.unfocus();
+    _workspaceFocus.requestFocus();
     setState(() => _selected = index);
   }
 
@@ -121,9 +131,9 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
       final bytes = await widget.repository.load(note.id);
       if (!mounted) return;
       if (_selected >= 0) _tabs[_selected].controller.deactivate();
-      FocusManager.instance.primaryFocus?.unfocus();
+      _workspaceFocus.requestFocus();
       setState(() {
-        _tabs.add(_OpenDocument(note, bytes, anchor ?? ''));
+        _tabs.add(_OpenDocument(note, bytes, anchor ?? '', _shortcuts));
         _selected = _tabs.length - 1;
       });
     } catch (error) {
@@ -152,7 +162,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
     try {
       if (!await saveAll() || !mounted) return;
       if (_selected >= 0) _tabs[_selected].controller.deactivate();
-      FocusManager.instance.primaryFocus?.unfocus();
+      _workspaceFocus.requestFocus();
       setState(() => _selected = -1);
       await _library.refresh?.call();
     } finally {
@@ -204,22 +214,87 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
   Future<AppExitResponse> didRequestAppExit() async =>
       await saveAll() ? AppExitResponse.exit : AppExitResponse.cancel;
 
+  Future<void> _openSettings() async {
+    await _shortcuts.load();
+    if (!mounted || !_routeCurrent) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => KeyboardSettingsPage(shortcuts: _shortcuts),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
+  KeyEventResult _handleShortcut(FocusNode node, KeyEvent event) {
+    if (!_routeCurrent) return KeyEventResult.ignored;
+    final action = _shortcuts.match(event);
+    if (action == null) return KeyEventResult.ignored;
+    final command = _commandFor(action);
+    if (command == null) return KeyEventResult.ignored;
+    unawaited(_runShortcut(action, command));
+    return KeyEventResult.handled;
+  }
+
+  ShortcutAction? _commandFor(AppShortcut action) {
+    final tab = _selected < 0 ? null : _tabs[_selected];
+    return switch (action) {
+      AppShortcut.settings => _openSettings,
+      AppShortcut.showLibrary => showLibrary,
+      AppShortcut.nextTab => _tabs.isEmpty ? null : () => _moveTab(1),
+      AppShortcut.previousTab => _tabs.isEmpty ? null : () => _moveTab(-1),
+      AppShortcut.closeTab =>
+        tab == null
+            ? null
+            : () async {
+                await closeNotebook(tab.note.id);
+              },
+      AppShortcut.toggleTabs => () => setState(() => _showTabs = !_showTabs),
+      AppShortcut.save => () async {
+        await saveAll();
+      },
+      AppShortcut.searchLibrary => _focusLibrarySearch,
+      _ =>
+        _library.commands[action] ?? tab?.controller.commandFor?.call(action),
+    };
+  }
+
+  void _moveTab(int direction) {
+    final index = _selected < 0
+        ? (direction > 0 ? 0 : _tabs.length - 1)
+        : (_selected + direction) % _tabs.length;
+    _select(index);
+  }
+
+  Future<void> _focusLibrarySearch() async {
+    if (_selected >= 0) await showLibrary();
+    if (!_routeCurrent || _selected >= 0) return;
+    await WidgetsBinding.instance.endOfFrame;
+    if (_routeCurrent) {
+      await _library.commands[AppShortcut.searchLibrary]?.call();
+    }
+  }
+
+  Future<void> _runShortcut(AppShortcut action, ShortcutAction command) async {
+    if (_busy || _shortcutRunning || _sync.busy) return;
+    _shortcutRunning = true;
+    try {
+      if ((action == AppShortcut.importFile || action == AppShortcut.newNote) &&
+          !await saveAll()) {
+        return;
+      }
+      if (_routeCurrent) await command();
+    } catch (error) {
+      _message('Could not run ${action.label.toLowerCase()}: $error');
+    } finally {
+      _shortcutRunning = false;
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => CallbackShortcuts(
-    bindings: {
-      const SingleActivator(
-        LogicalKeyboardKey.keyT,
-        control: true,
-        alt: true,
-      ): () =>
-          setState(() => _showTabs = !_showTabs),
-      const SingleActivator(
-        LogicalKeyboardKey.keyT,
-        meta: true,
-        alt: true,
-      ): () =>
-          setState(() => _showTabs = !_showTabs),
-    },
+  Widget build(BuildContext context) => Focus(
+    focusNode: _workspaceFocus,
+    autofocus: true,
+    onKeyEvent: _handleShortcut,
     child: PopScope(
       canPop: _selected < 0,
       onPopInvokedWithResult: (didPop, _) {
@@ -335,6 +410,8 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                             repository: widget.repository,
                             syncController: _sync,
                             workspaceController: _library,
+                            onSettings: _openSettings,
+                            shortcuts: _shortcuts,
                             hasOpenDocuments: () => _tabs.isNotEmpty,
                             isNotebookOpen: (id) =>
                                 _pdfSessions.contains(id) ||
@@ -440,6 +517,8 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
     }
     _pdfSessions.dispose();
     _sync.dispose();
+    _workspaceFocus.dispose();
+    _shortcuts.dispose();
     super.dispose();
   }
 }

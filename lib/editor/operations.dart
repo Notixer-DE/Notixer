@@ -1,3 +1,4 @@
+import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui';
@@ -69,7 +70,14 @@ void addTape(
 
 Uint8List exportPdf(PdfEditingController editing, {bool withTapes = false}) {
   editing.finishInk();
-  final document = PdfDocument.open(Uint8List.fromList(editing.bytes));
+  return exportPdfBytes(
+    Uint8List.fromList(editing.bytes),
+    withTapes: withTapes,
+  );
+}
+
+Uint8List exportPdfBytes(Uint8List bytes, {bool withTapes = false}) {
+  final document = PdfDocument.open(bytes);
   final editor = PdfEditor(document);
   for (var p = 0; p < document.pageCount; p++) {
     final tapes = document.page(p).annotations.where(isTape).toList();
@@ -81,8 +89,11 @@ Uint8List exportPdf(PdfEditingController editing, {bool withTapes = false}) {
       }
     }
   }
-  return editor.hasChanges ? editor.save() : Uint8List.fromList(editing.bytes);
+  return editor.hasChanges ? editor.save() : bytes;
 }
+
+Future<Uint8List> exportPdfBytesAsync(Uint8List bytes) =>
+    Isolate.run(() => exportPdfBytes(bytes), debugName: 'noter:export-pdf');
 
 bool _inside(Offset p, List<Offset> polygon) {
   var inside = false;

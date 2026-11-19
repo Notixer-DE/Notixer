@@ -8,6 +8,15 @@ import '../data/notebook.dart';
 import '../data/learning.dart';
 import 'sync_revision.dart';
 
+const archivedSettingsConflictTag = 'Archived settings conflict';
+final _settingsConflictId = RegExp(r'^settings_extra_conflict_[0-9a-f]{40}$');
+
+extension SettingsConflictNote on Notebook {
+  bool get isSettingsConflict => isMarkdown && _settingsConflictId.hasMatch(id);
+  bool get isArchivedSettingsConflict =>
+      isSettingsConflict && tags.contains(archivedSettingsConflictTag);
+}
+
 String archiveDigest(Uint8List bytes) {
   final (note, pdf, ink) = LocalNotebookRepository.decodeWithInk(bytes);
   final json = note.toJson()..remove('folderId');
@@ -246,7 +255,19 @@ class NotebookSync {
         throw const SyncFailure('Invalid version history.');
       }
       final live = heads.where((r) => !r.deleted).toList();
-      final winner = live.isEmpty ? heads.first : live.first;
+      var winner = live.isEmpty ? heads.first : live.first;
+      if (live.length > 1 && _settingsConflictId.hasMatch(id)) {
+        // Another device can still have an unpublished copy of this notice.
+        for (final candidate in live) {
+          final (note, _) = await LocalNotebookRepository.decodeValidated(
+            await read(candidate),
+          );
+          if (note.isArchivedSettingsConflict) {
+            winner = candidate;
+            break;
+          }
+        }
+      }
       if (heads.length == 1 &&
           baseline != null &&
           baseline['digest'] == hash &&
@@ -263,12 +284,14 @@ class NotebookSync {
           : await read(winner);
       var resolvedDigest = winner.digest;
       var learning = const LearningProgress.empty();
+      Uint8List? archivedConflictContent;
       final winnerContent = winnerBytes == null || live.length < 2
           ? null
           : await _documentDigest(winnerBytes);
       if (winnerBytes != null && live.length > 1) {
         final (note, pdf, ink) =
             await LocalNotebookRepository.decodeInkValidated(winnerBytes);
+        if (note.isArchivedSettingsConflict) archivedConflictContent = pdf;
         learning = note.learning;
         var modified = note.modified;
         for (final other in live.where((r) => r.revision != winner.revision)) {
@@ -303,6 +326,11 @@ class NotebookSync {
         }
         final (note, pdf, ink) =
             await LocalNotebookRepository.decodeInkValidated(bytes);
+        if (archivedConflictContent != null &&
+            !note.isArchivedSettingsConflict &&
+            sha256.convert(archivedConflictContent) == sha256.convert(pdf)) {
+          continue;
+        }
         final title = note.title.length > 95
             ? note.title.substring(0, 95)
             : note.title;

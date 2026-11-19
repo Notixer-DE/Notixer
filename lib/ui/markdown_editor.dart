@@ -16,6 +16,8 @@ import '../data/markdown_document.dart';
 import '../data/markdown_library.dart';
 import '../data/markdown_session.dart';
 import '../data/notebook.dart';
+import '../data/keyboard_shortcuts.dart';
+import '../sync/notebook_sync.dart' show SettingsConflictNote;
 import 'editor.dart';
 import 'noter_theme.dart';
 import 'markdown_preview.dart';
@@ -120,6 +122,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   String? _folder, _message;
   String _query = '';
   bool _showNotes = false, _source = false, _busy = false, _canPop = false;
+  bool _editingPreview = false;
   bool _showChrome = true;
   bool _showSidebar = true;
   double _sourceZoom = 1;
@@ -157,10 +160,64 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   bool _updating = false;
   Future<bool> Function()? _previousClose;
   late final Future<bool> Function() _closeHandler = _saveBeforeClose;
+  Future<bool> _saveDocument() {
+    _previewKey.currentState?.finishEditing();
+    return _session.save();
+  }
+
+  ShortcutAction? _commandFor(AppShortcut action) {
+    if (_busy || _leaving) return null;
+    final undo = _titleFocus.hasFocus ? _titleUndo : _undo;
+    return switch (action) {
+      AppShortcut.export => () => _export('markdown'),
+      AppShortcut.undo => undo.undo,
+      AppShortcut.redo => undo.redo,
+      AppShortcut.zoomIn => () => _setZoom(_activeZoom + .1),
+      AppShortcut.zoomOut => () => _setZoom(_activeZoom - .1),
+      AppShortcut.resetZoom => () => _setZoom(1),
+      AppShortcut.outline => _outline,
+      AppShortcut.toolbars => () => setState(() => _showChrome = !_showChrome),
+      AppShortcut.markdownPreview => () => _setSource(!_source),
+      AppShortcut.markdownEditPreview => () async {
+        if (_source) await _setSource(false);
+        if (mounted) _togglePreviewEditing();
+      },
+      AppShortcut.markdownBold => () => _insert('**', '**'),
+      AppShortcut.markdownItalic => () => _insert('*', '*'),
+      AppShortcut.markdownChecklist => () => _insert('\n- [ ] ', '\n', 'Task'),
+      AppShortcut.markdownLink => _linkDialog,
+      _ => null,
+    };
+  }
+
+  Future<void> _setSource(bool source) async {
+    _previewKey.currentState?.finishEditing();
+    setState(() => _source = source);
+    if (source) {
+      _focus.requestFocus();
+    } else {
+      _focus.unfocus();
+      await _saveDocument();
+      if (mounted) await _reload();
+    }
+  }
+
+  void _replacePreviewText(int start, int end, String value) {
+    _text.value = TextEditingValue(
+      text: _text.text.replaceRange(start, end, value),
+      selection: TextSelection.collapsed(offset: start + value.length),
+    );
+  }
+
+  void _togglePreviewEditing() {
+    if (_editingPreview) _previewKey.currentState?.finishEditing();
+    setState(() => _editingPreview = !_editingPreview);
+  }
+
   Future<bool> _saveBeforeClose() async {
     final noteId = _session.note.id;
     final offset = _scroll.hasClients ? _scroll.offset : null;
-    final saved = await _session.save();
+    final saved = await _saveDocument();
     if (offset != null) {
       try {
         await widget.repository.catalog.readingPositions.saveMarkdown(
@@ -203,7 +260,8 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
         return KeyEventResult.handled;
       }
       final keyboard = HardwareKeyboard.instance;
-      if ((keyboard.isControlPressed || keyboard.isMetaPressed) &&
+      if (widget.tabController?.shortcuts == null &&
+          (keyboard.isControlPressed || keyboard.isMetaPressed) &&
           !keyboard.isAltPressed) {
         final key = event.logicalKey;
         final zoomIn = [
@@ -247,6 +305,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     if (widget.tabController case final tab?) {
       tab.attach(this, save: _saveBeforeClose, anchor: _anchor);
       tab.completeTask = _applyTask;
+      tab.commandFor = _commandFor;
       tab.refreshMetadata = () async {
         final notes = await widget.repository.list();
         if (!mounted) return;
@@ -497,6 +556,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   }
 
   Future<void> _anchor(String anchor) async {
+    _previewKey.currentState?.finishEditing();
     if (anchor == 'edit:end') {
       setState(() => _source = true);
       _text.selection = TextSelection.collapsed(offset: _text.text.length);
@@ -546,6 +606,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     String after = '',
     String placeholder = 'Text',
   ]) {
+    _previewKey.currentState?.finishEditing();
     final selection = _text.selection;
     final start = selection.isValid ? selection.start : _text.text.length;
     final end = selection.isValid ? selection.end : start;
@@ -567,6 +628,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   }
 
   void _insertLiteral(String value) {
+    _previewKey.currentState?.finishEditing();
     final selection = _text.selection;
     final start = selection.isValid ? selection.start : _text.text.length;
     final end = selection.isValid ? selection.end : start;
@@ -594,13 +656,14 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   }
 
   Future<void> _applyTask(KnowledgeTask task) async {
+    _previewKey.currentState?.finishEditing();
     if (task.note.id != _session.note.id ||
         markdownRevision(_text.text) != task.revision ||
         !markdownOpenTasks(_text.text).any((t) => t.offset == task.offset)) {
       throw const FormatException('The task changed. Reload the list first.');
     }
     _text.text = _text.text.replaceRange(task.offset, task.offset + 1, 'x');
-    if (!await _session.save()) {
+    if (!await _saveDocument()) {
       throw const FormatException('Could not save the task.');
     }
   }
@@ -613,6 +676,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
         builder: (_) => KnowledgePage(
           repository: widget.repository,
           initialSection: section,
+          shortcuts: widget.tabController?.shortcuts,
           onCompleteTask: (task) async {
             if (task.note.id == _session.note.id) {
               await _applyTask(task);
@@ -637,6 +701,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   }
 
   Future<void> _outline() async {
+    _previewKey.currentState?.finishEditing();
     final headings = markdownHeadingTargets(_text.text);
     final slug = await showDialog<String>(
       context: context,
@@ -974,7 +1039,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
 
   Future<void> _image() => _attachMedia(imagesOnly: true);
   Future<void> _attachMedia({bool imagesOnly = false}) => _run(() async {
-    if (!await _session.save() || !mounted) return;
+    if (!await _saveDocument() || !mounted) return;
     final media = await acquireMedia(
       context,
       imagesOnly: imagesOnly,
@@ -990,12 +1055,12 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     _session.update(document.copy(source: _text.text));
     final label = markdownLabel(p.basenameWithoutExtension(media.name));
     _insertLiteral('${media.format.kind == 'image' ? '!' : ''}[$label]($path)');
-    if (await _session.save()) await media.release();
+    if (await _saveDocument()) await media.release();
   });
 
   Future<void> _export(String kind) => _run(() async {
     if (kind == 'rescue') {
-      final saved = await _session.save();
+      final saved = await _saveDocument();
       final bytes = saved
           ? await widget.repository.exportArchive(_session.note)
           : await LocalNotebookRepository.encodeAsync(
@@ -1016,7 +1081,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       }
       return;
     }
-    if (!await _session.save()) return;
+    if (!await _saveDocument()) return;
     final bytes = kind == 'bundle'
         ? await MarkdownLibrary(widget.repository).exportBundle(_session.note)
         : Uint8List.fromList(utf8.encode(_text.text));
@@ -1037,7 +1102,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   });
 
   Future<void> _newNote() => _run(() async {
-    if (!await _session.save() || !mounted) return;
+    if (!await _saveDocument() || !mounted) return;
     final title = TextEditingController();
     final result = await showDialog<String>(
       context: context,
@@ -1076,6 +1141,9 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     }
   });
 
+  String _shortcutTooltip(String label, AppShortcut action, String fallback) =>
+      '$label (${widget.tabController?.shortcuts?[action].label ?? fallback})';
+
   Widget _toolbarContents() {
     final undo = _titleFocus.hasFocus ? _titleUndo : _undo;
     Widget tool(String label, IconData icon, VoidCallback? action) =>
@@ -1090,21 +1158,23 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       children: [
         ...[
           tool(
-            'Zoom out (Ctrl+-)',
+            _shortcutTooltip('Zoom out', AppShortcut.zoomOut, 'Ctrl+-'),
             Icons.text_decrease,
             () => _setZoom(_activeZoom - .1),
           ),
           Tooltip(
-            message: _source
-                ? 'Reset editor zoom (Ctrl+0)'
-                : 'Reset reading zoom (Ctrl+0)',
+            message: _shortcutTooltip(
+              _source ? 'Reset editor zoom' : 'Reset reading zoom',
+              AppShortcut.resetZoom,
+              'Ctrl+0',
+            ),
             child: TextButton(
               onPressed: () => _setZoom(1),
               child: Text('${(_activeZoom * 100).round()}%'),
             ),
           ),
           tool(
-            'Zoom in (Ctrl++)',
+            _shortcutTooltip('Zoom in', AppShortcut.zoomIn, 'Ctrl++'),
             Icons.text_increase,
             () => _setZoom(_activeZoom + .1),
           ),
@@ -1164,9 +1234,55 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     );
   }
 
+  void _toggleFolderSidebar() {
+    setState(() => _showSidebar = !_showSidebar);
+    unawaited(
+      widget.repository.catalog.displayPreferences
+          .set('markdownSidebar', _showSidebar)
+          .catchError((Object _) {}),
+    );
+  }
+
+  void _toggleNoteList(bool desktop) {
+    if (desktop) {
+      setState(() => _showNotes = !_showNotes);
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, update) {
+          final height = MediaQuery.sizeOf(context).height * .7;
+          return SizedBox(
+            height: height,
+            child: Column(
+              children: [
+                SizedBox(
+                  height: (height * .4).clamp(0, 200).toDouble(),
+                  child: _rail(
+                    refresh: () => update(() {}),
+                    closeOnCreate: true,
+                  ),
+                ),
+                Expanded(
+                  child: _list(refresh: () => update(() {}), closeOnTap: true),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _list({VoidCallback? refresh, bool closeOnTap = false}) {
     final notes = _notes.where(
       (n) =>
+          (!n.isArchivedSettingsConflict ||
+              _folder != null ||
+              _query.isNotEmpty) &&
           (_folder == null || n.folderId == _folder) &&
           n.title.toLowerCase().contains(_query.toLowerCase()),
     );
@@ -1323,10 +1439,12 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     onChanged: _setZoom,
     child: CallbackShortcuts(
       bindings: {
-        const SingleActivator(LogicalKeyboardKey.keyS, control: true): () =>
-            _session.save(),
-        const SingleActivator(LogicalKeyboardKey.keyS, meta: true): () =>
-            _session.save(),
+        if (widget.tabController?.shortcuts == null) ...{
+          const SingleActivator(LogicalKeyboardKey.keyS, control: true): () =>
+              _saveDocument(),
+          const SingleActivator(LogicalKeyboardKey.keyS, meta: true): () =>
+              _saveDocument(),
+        },
       },
       child: PopScope(
         canPop: widget.tabController != null || _canPop,
@@ -1335,8 +1453,8 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
         },
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final desktop = constraints.maxWidth >= 1000;
-            final phone = constraints.maxWidth < 600;
+            final phone = NoterTheme.mobileLayout(constraints.maxWidth);
+            final desktop = !phone && constraints.maxWidth >= 1000;
             final inset = phone ? 18.0 : 36.0;
             final paper = Padding(
               padding: EdgeInsets.fromLTRB(
@@ -1454,22 +1572,27 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                   Align(
                                     alignment: Alignment.centerRight,
                                     child: TextButton.icon(
-                                      onPressed: () {
-                                        setState(() => _source = true);
-                                        _focus.requestFocus();
-                                      },
+                                      onPressed: _busy || _leaving
+                                          ? null
+                                          : _togglePreviewEditing,
                                       icon: const Icon(
                                         Icons.edit_outlined,
                                         size: 17,
                                       ),
-                                      label: const Text('Edit text'),
+                                      label: Text(
+                                        _editingPreview
+                                            ? 'Done editing'
+                                            : 'Edit in preview',
+                                      ),
                                     ),
                                   ),
-                                if (!_source && _text.text.isEmpty)
+                                if (!_source &&
+                                    !_editingPreview &&
+                                    _text.text.isEmpty)
                                   const Padding(
                                     padding: EdgeInsets.all(24),
                                     child: Text(
-                                      'Your thoughts start here. Tap “Edit text”.',
+                                      'Tap “Edit in preview” to add text.',
                                     ),
                                   ),
                               ],
@@ -1485,6 +1608,9 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                               document: _session.document,
                               scrollController: _scroll,
                               onFollow: _follow,
+                              onEdit: _editingPreview
+                                  ? _replacePreviewText
+                                  : null,
                               onToggle: (offset, checked) {
                                 if (_busy || _leaving) return;
                                 _text.text = _text.text.replaceRange(
@@ -1529,77 +1655,51 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                           onPressed: _leave,
                         ),
                       ),
-                      title: Text(
-                        _session.note.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      titleSpacing: 0,
+                      title: Row(
+                        children: [
+                          if (desktop)
+                            IconButton(
+                              tooltip: _showSidebar
+                                  ? 'Hide folders'
+                                  : 'Show folders',
+                              isSelected: _showSidebar,
+                              icon: const Icon(Icons.folder_outlined),
+                              selectedIcon: const Icon(
+                                Icons.folder_open_outlined,
+                              ),
+                              onPressed: _toggleFolderSidebar,
+                            ),
+                          IconButton(
+                            tooltip: desktop && _showNotes
+                                ? 'Hide note list'
+                                : 'Show note list',
+                            isSelected: desktop ? _showNotes : null,
+                            icon: const Icon(Icons.list_alt_outlined),
+                            selectedIcon: const Icon(Icons.list_alt),
+                            onPressed: () => _toggleNoteList(desktop),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _session.note.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
                       actions: [
-                        if (desktop)
-                          IconButton(
-                            tooltip: _showSidebar
-                                ? 'Hide sidebar'
-                                : 'Show sidebar',
-                            icon: const Icon(Icons.view_sidebar_outlined),
-                            onPressed: () {
-                              setState(() => _showSidebar = !_showSidebar);
-                              unawaited(
-                                widget.repository.catalog.displayPreferences
-                                    .set('markdownSidebar', _showSidebar)
-                                    .catchError((Object _) {}),
-                              );
-                            },
-                          ),
                         IconButton(
                           tooltip: 'Hide toolbars',
                           onPressed: () => setState(() => _showChrome = false),
                           icon: const Icon(Icons.fullscreen),
                         ),
                         IconButton(
-                          tooltip: _showNotes
-                              ? 'Hide note list'
-                              : 'Show note list',
-                          icon: const Icon(Icons.view_sidebar_outlined),
-                          onPressed: () {
-                            if (desktop) {
-                              setState(() => _showNotes = !_showNotes);
-                            } else {
-                              showModalBottomSheet<void>(
-                                context: context,
-                                isScrollControlled: true,
-                                showDragHandle: true,
-                                builder: (context) => StatefulBuilder(
-                                  builder: (context, update) => SizedBox(
-                                    height:
-                                        MediaQuery.sizeOf(context).height * .7,
-                                    child: Column(
-                                      children: [
-                                        SizedBox(
-                                          height: 200,
-                                          child: _rail(
-                                            refresh: () => update(() {}),
-                                            closeOnCreate: true,
-                                          ),
-                                        ),
-                                        Expanded(
-                                          child: _list(
-                                            refresh: () => update(() {}),
-                                            closeOnTap: true,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }
-                          },
-                        ),
-                        IconButton(
                           tooltip: 'Save',
                           onPressed: _busy || _leaving || _session.saving
                               ? null
-                              : () => _session.save(),
+                              : _saveDocument,
                           icon: Icon(
                             _session.error != null
                                 ? Icons.error_outline
@@ -1752,16 +1852,8 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                                 ),
                                               ],
                                               selected: {_source},
-                                              onSelectionChanged: (value) {
-                                                setState(
-                                                  () => _source = value.single,
-                                                );
-                                                if (!_source) {
-                                                  _focus.unfocus();
-                                                  _session.save();
-                                                  _reload();
-                                                }
-                                              },
+                                              onSelectionChanged: (value) =>
+                                                  _setSource(value.single),
                                             ),
                                           ),
                                         ),
@@ -1811,7 +1903,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                       ),
                                       if (_session.error != null)
                                         TextButton(
-                                          onPressed: () => _session.save(),
+                                          onPressed: () => _saveDocument(),
                                           child: const Text('Retry'),
                                         ),
                                     ],

@@ -32,6 +32,141 @@ class LibraryExtrasSync {
     '.display-preferences.json',
   ];
 
+  /// Archive the original notice in place so later syncs retain its identity.
+  static Future<void> resolveSettingConflict(
+    LocalNotebookRepository repository,
+    String id, {
+    required bool accept,
+  }) async {
+    final snapshot = await repository.snapshotForSync(id);
+    if (snapshot == null) {
+      throw const FormatException('Conflict note is missing.');
+    }
+    final (note, bytes) = await LocalNotebookRepository.decodeValidated(
+      snapshot.archive,
+    );
+    if (!note.isSettingsConflict || note.isArchivedSettingsConflict) {
+      throw const FormatException(
+        'This note is not an open settings conflict.',
+      );
+    }
+    final folder = await repository.catalog.ensureFolder(
+      'Archived settings conflicts',
+    );
+    if (accept) {
+      final source = (await decodeMarkdownAsync(bytes)).source;
+      final match = RegExp(
+        r'^```json\r?\n([\s\S]*?)\r?\n```[ \t]*$',
+        multiLine: true,
+      ).firstMatch(source);
+      if (match == null) {
+        throw const FormatException('The alternative setting is missing.');
+      }
+      final record = jsonDecode(match[1]!);
+      if (record is! Map ||
+          record['setting'] is! String ||
+          record['key'] is! String ||
+          !record.containsKey('value')) {
+        throw const FormatException('Invalid alternative setting.');
+      }
+      final kind = record['setting'] as String, key = record['key'] as String;
+      final value = record['value'];
+      _validate(kind, key, value);
+      await _applyAlternative(repository, kind, key, value);
+    }
+    final archived = await LocalNotebookRepository.encodeAsync(
+      note.copy(
+        folderId: folder.id,
+        folderName: folder.name,
+        tags: [
+          for (final tag in note.tags)
+            if (tag != 'Sync conflict') tag,
+          archivedSettingsConflictTag,
+        ],
+      ),
+      bytes,
+    );
+    await repository.applySync(id, snapshot.raw, archived);
+  }
+
+  static Future<void> _applyAlternative(
+    LocalNotebookRepository repository,
+    String kind,
+    String key,
+    Object? value,
+  ) async {
+    final catalog = repository.catalog;
+    await catalog.load();
+    switch (kind) {
+      case 'knowledge':
+        final store = KnowledgeStore(repository);
+        await store.load();
+        if (key == 'journalTemplate') {
+          if (value != null &&
+              !store.templates.any((template) => template.id == value)) {
+            throw const FormatException(
+              'The alternative journal template is missing.',
+            );
+          }
+          store.journalTemplate = value as String?;
+        } else {
+          store.automaticBackups = value as bool;
+        }
+        await store.save();
+      case 'preset':
+        final index = int.parse(key);
+        if (index >= catalog.presets.length) {
+          throw const FormatException(
+            'The alternative pen preset is unavailable.',
+          );
+        }
+        await catalog.setPreset(
+          index,
+          PenPreset.fromJson(Map<String, dynamic>.from(value as Map)),
+        );
+      case '.drawing-preferences.json':
+        final drawing = catalog.drawingPreferences;
+        switch (key) {
+          case 'values.lastTool':
+            drawing.rememberTool(
+              DrawingToolChoice.fromJson(
+                Map<String, dynamic>.from(value as Map),
+              ),
+            );
+            await drawing.flush();
+          case 'values.wholeStrokeEraser':
+            await drawing.setWholeStrokeEraser(value as bool);
+          case 'values.straightStrokes':
+            await drawing.setStraightStrokes(value as bool);
+          default:
+            await drawing.setPressureSensitive(
+              key.substring('pressureSensitive.'.length),
+              value as bool,
+            );
+        }
+      case '.reading-positions.json':
+        if (key.startsWith('pages.')) {
+          await catalog.readingPositions.save({
+            key.substring('pages.'.length): value as int,
+          });
+        } else {
+          await catalog.readingPositions.saveMarkdown(
+            key.substring('markdown.'.length),
+            (value as num).toDouble(),
+          );
+        }
+      case '.display-preferences.json':
+        await catalog.displayPreferences.set(
+          key.substring('values.'.length),
+          value!,
+        );
+      default:
+        throw const FormatException(
+          'This conflict does not contain a setting.',
+        );
+    }
+  }
+
   Future<SyncReport> run({bool onlyIfChanged = false}) async {
     final directory = Directory(
       p.join(repository.directory.path, '.sync-extras'),

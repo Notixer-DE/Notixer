@@ -207,6 +207,44 @@ void main() {
       expect(result.conflicts, 0);
     },
   );
+  for (final accept in [true, false]) {
+    test(
+      'resolving a setting conflict (accept: $accept) archives it on both devices',
+      () async {
+        void chooseWidth(LocalNotebookRepository repo, double width) => repo
+            .catalog
+            .drawingPreferences
+            .rememberTool(DrawingToolChoice('ink', 0xff000000, width, 1));
+        chooseWidth(a, 1);
+        await sync(a);
+        await sync(b);
+        chooseWidth(a, 2);
+        chooseWidth(b, 3);
+        await sync(a);
+        await sync(b);
+        await sync(a);
+        final conflict = (await b.list()).single;
+        expect(conflict.tags, ['Sync conflict']);
+        final currentWidth = b.catalog.drawingPreferences.lastTool!.width;
+        final wantedWidth = accept ? (currentWidth == 2 ? 3 : 2) : currentWidth;
+        await LibraryExtrasSync.resolveSettingConflict(
+          b,
+          conflict.id,
+          accept: accept,
+        );
+        await sync(b);
+        await sync(a);
+        await sync(b);
+        for (final repo in [a, b]) {
+          expect(repo.catalog.drawingPreferences.lastTool!.width, wantedWidth);
+          final archived = (await repo.list()).single;
+          expect(archived.id, conflict.id);
+          expect(archived.isArchivedSettingsConflict, isTrue);
+          expect(archived.folderName, 'Archived settings conflicts');
+        }
+      },
+    );
+  }
   test(
     'an external settings write aborts application and a retry retains both template edits',
     () async {

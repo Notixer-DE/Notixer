@@ -10,7 +10,7 @@ import 'tapes.dart';
 import 'ink.dart';
 import 'ink_pdf_controller.dart';
 import 'drawing_preferences.dart';
-import '../editor/operations.dart' show exportPdf;
+import '../editor/operations.dart' show exportPdfBytes;
 
 /// A document owns revisions and saves. Views only own their viewport.
 class DocumentSession extends ChangeNotifier {
@@ -300,16 +300,7 @@ class DocumentSession extends ChangeNotifier {
     return Isolate.run(() {
       final merged = pdfWithInk(bytes, snapshot);
       if (withTapes == null) return merged;
-      final controller = PdfEditingController(
-        merged,
-        preferences: PdfEditingPreferences(store: PdfMemoryPreferencesStore()),
-      );
-      try {
-        return exportPdf(controller, withTapes: withTapes);
-      } finally {
-        controller.preferences.dispose();
-        controller.dispose();
-      }
+      return exportPdfBytes(merged, withTapes: withTapes);
     }, debugName: 'noter:export-ink');
   }
 

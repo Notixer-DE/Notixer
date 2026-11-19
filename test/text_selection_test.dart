@@ -296,79 +296,84 @@ void main() {
     },
   );
 
-  testWidgets('tablet keeps one tool strip and a collapsible page sidebar', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1100, 900);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    final pane = await open(tester);
-    final sidebar = find.byKey(const ValueKey('editor-page-sidebar'));
-    expect(sidebar, findsOneWidget);
-    expect(find.byType(EditorToolbar), findsOneWidget);
-    expect(find.byType(PdfEditingToolbar), findsNothing);
-    expect(
-      tester
-          .widget<PdfEditorView>(find.byType(PdfEditorView))
-          .features
-          .headerBar,
-      isFalse,
-    );
-    pane.viewer.setZoom(1.5);
-    await tester.pumpAndSettle();
-    final scale = pane.viewer.zoom;
-    await tester.tap(find.byTooltip('Page overview'));
-    await tester.pumpAndSettle();
-    expect(sidebar, findsNothing);
-    expect(pane.viewer.zoom, closeTo(scale, .01));
-    await tester.tap(find.byTooltip('Tool settings'));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.descendant(
-        of: find.byType(AlertDialog),
-        matching: find.byTooltip('Color #238b7e'),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(pane.editing.color, const Color(0xFF238B7E));
-    await tester.tap(find.text('Done'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Page overview'));
-    await tester.pumpAndSettle();
-    expect(sidebar, findsOneWidget);
-    await tester.tap(find.byTooltip('Hide toolbars'));
-    await tester.pumpAndSettle();
-    expect(find.byType(EditorToolbar), findsNothing);
-    expect(sidebar, findsNothing);
-    expect(pane.viewer.zoom, closeTo(scale, .01));
-    await tester.tap(find.byTooltip('Show toolbars'));
-    await tester.pumpAndSettle();
-    expect(find.byType(EditorToolbar), findsOneWidget);
-    expect(pane.viewer.zoom, closeTo(scale, .01));
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-  });
+  testWidgets(
+    'desktop keeps one tool strip and a collapsible page sidebar',
+    (tester) async {
+      tester.view.physicalSize = const Size(1100, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final pane = await open(tester);
+      final sidebar = find.byKey(const ValueKey('editor-page-sidebar'));
+      expect(sidebar, findsOneWidget);
+      expect(find.byType(EditorToolbar), findsOneWidget);
+      expect(find.byType(PdfEditingToolbar), findsNothing);
+      expect(
+        tester
+            .widget<PdfEditorView>(find.byType(PdfEditorView))
+            .features
+            .headerBar,
+        isFalse,
+      );
+      pane.viewer.setZoom(1.5);
+      await tester.pumpAndSettle();
+      final scale = pane.viewer.zoom;
+      await tester.tap(find.byTooltip('Page overview'));
+      await tester.pumpAndSettle();
+      expect(sidebar, findsNothing);
+      expect(pane.viewer.zoom, closeTo(scale, .01));
+      await tester.tap(find.byTooltip('Tool settings'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.byTooltip('Color #238b7e'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(pane.editing.color, const Color(0xFF238B7E));
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Page overview'));
+      await tester.pumpAndSettle();
+      expect(sidebar, findsOneWidget);
+      await tester.tap(find.byTooltip('Hide toolbars'));
+      await tester.pumpAndSettle();
+      expect(find.byType(EditorToolbar), findsNothing);
+      expect(sidebar, findsNothing);
+      expect(pane.viewer.zoom, closeTo(scale, .01));
+      await tester.tap(find.byTooltip('Show toolbars'));
+      await tester.pumpAndSettle();
+      expect(find.byType(EditorToolbar), findsOneWidget);
+      expect(pane.viewer.zoom, closeTo(scale, .01));
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.linux),
+  );
 
-  testWidgets('phone opens page thumbnails as a dismissible sheet', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(390, 844);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    await open(tester);
-    expect(find.byKey(const ValueKey('editor-page-sidebar')), findsNothing);
-    await tester.tap(find.byTooltip('Page overview'));
-    await tester.pumpAndSettle();
-    final sheet = find.byKey(const ValueKey('editor-page-sheet'));
-    expect(sheet, findsOneWidget);
-    await tester.tap(find.descendant(of: sheet, matching: find.text('1')));
-    await tester.pumpAndSettle();
-    expect(sheet, findsNothing);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-  });
+  for (final size in [const Size(390, 844), const Size(1100, 900)]) {
+    testWidgets(
+      'mobile opens page thumbnails as a dismissible sheet at $size',
+      (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        await open(tester);
+        expect(find.byKey(const ValueKey('editor-page-sidebar')), findsNothing);
+        await tester.tap(find.byTooltip('Page overview'));
+        await tester.pumpAndSettle();
+        final sheet = find.byKey(const ValueKey('editor-page-sheet'));
+        expect(sheet, findsOneWidget);
+        await tester.tap(find.descendant(of: sheet, matching: find.text('1')));
+        await tester.pumpAndSettle();
+        expect(sheet, findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      },
+    );
+  }
 }

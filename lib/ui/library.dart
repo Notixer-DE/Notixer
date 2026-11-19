@@ -4,9 +4,11 @@ import 'media_acquisition.dart';
 import 'media_page.dart';
 import '../data/media.dart';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import '../data/notebook.dart';
+import '../data/keyboard_shortcuts.dart';
 import '../data/file_gateway.dart';
 import '../data/paper.dart';
 import '../data/templates.dart';
@@ -30,6 +32,9 @@ import 'library_graph_page.dart';
 import 'knowledge_page.dart';
 import '../data/knowledge.dart';
 import '../data/markdown_document.dart';
+import '../editor/operations.dart' show exportPdfBytesAsync;
+import '../sync/library_extras_sync.dart';
+import '../sync/notebook_sync.dart' show SettingsConflictNote;
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({
@@ -38,6 +43,8 @@ class LibraryPage extends StatefulWidget {
     this.syncController,
     this.onOpenNotebook,
     this.workspaceController,
+    this.onSettings,
+    this.shortcuts,
     this.isNotebookOpen,
     this.hasOpenDocuments,
     this.onOpenDestination,
@@ -51,6 +58,8 @@ class LibraryPage extends StatefulWidget {
   final SyncController? syncController;
   final Future<void> Function(Notebook)? onOpenNotebook;
   final LibraryWorkspaceController? workspaceController;
+  final Future<void> Function()? onSettings;
+  final KeyboardShortcuts? shortcuts;
   final bool Function(String id)? isNotebookOpen;
   final bool Function()? hasOpenDocuments;
   @override
@@ -79,7 +88,26 @@ class _LibraryPageState extends State<LibraryPage> {
   @override
   void initState() {
     super.initState();
-    widget.workspaceController?.refresh = _refresh;
+    if (widget.workspaceController case final workspace?) {
+      workspace.refresh = _refresh;
+      workspace.commands = {
+        AppShortcut.knowledgeSearch: () => _knowledge(autofocusSearch: true),
+        AppShortcut.importFile: _import,
+        AppShortcut.newNote: _create,
+        AppShortcut.searchLibrary: _focusSearch,
+        AppShortcut.graph: _graphView,
+        AppShortcut.study: _study,
+        AppShortcut.templates: _templates,
+        AppShortcut.syncSettings: _syncSettings,
+        AppShortcut.syncNow: _syncNow,
+        AppShortcut.knowledgeTasks: () => _knowledge(section: 'Tasks'),
+        AppShortcut.knowledgeJournal: () => _knowledge(section: 'Journal'),
+        AppShortcut.knowledgeCapture: () =>
+            _knowledge(section: 'Inbox', sharedText: ''),
+        AppShortcut.knowledgeViews: () => _knowledge(section: 'Views'),
+        AppShortcut.knowledgeBackups: () => _knowledge(section: 'Backups'),
+      };
+    }
     _sync.addListener(_syncChanged);
     MediaGateway.recoveredCapture.addListener(_captureRecovered);
     FileGateway.sharedText.addListener(_sharedCapture);
@@ -146,8 +174,31 @@ class _LibraryPageState extends State<LibraryPage> {
       await _sync.load();
       if (!mounted) return;
       await Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => SyncPage(controller: _sync)),
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              SyncPage(controller: _sync, shortcuts: widget.shortcuts),
+        ),
       );
+      await _refresh();
+    }, autoSync: false);
+  }
+
+  void _focusSearch() {
+    final searchContext = _searchFocus.context;
+    if (searchContext != null) Scrollable.ensureVisible(searchContext);
+    _searchFocus.requestFocus();
+  }
+
+  Future<void> _syncNow() async {
+    if (_hasOpenDocuments || _busy) return;
+    await _sync.load();
+    if (!mounted) return;
+    if (!_sync.enabled) {
+      await _syncSettings();
+      return;
+    }
+    await _perform(() async {
+      await _sync.synchronize();
       await _refresh();
     }, autoSync: false);
   }
@@ -155,6 +206,7 @@ class _LibraryPageState extends State<LibraryPage> {
   @override
   void dispose() {
     widget.workspaceController?.refresh = null;
+    widget.workspaceController?.commands = const {};
     _sync.removeListener(_syncChanged);
     MediaGateway.recoveredCapture.removeListener(_captureRecovered);
     FileGateway.sharedText.removeListener(_sharedCapture);
@@ -410,7 +462,7 @@ class _LibraryPageState extends State<LibraryPage> {
     });
   }
 
-  Future<void> _import() => _perform(() async {
+  Future<void> _import({VoidCallback? onImported}) => _perform(() async {
     final file = await FileGateway().pick();
     if (file == null) return;
     if (await file.length() > 256 * 1024 * 1024) {
@@ -423,6 +475,7 @@ class _LibraryPageState extends State<LibraryPage> {
         widget.repository,
       ).importBundle(bytes);
       await _refresh();
+      onImported?.call();
       await _open(imported.first);
       return;
     }
@@ -442,6 +495,7 @@ class _LibraryPageState extends State<LibraryPage> {
             bytes,
           );
     await _refresh();
+    onImported?.call();
     await _open(note);
   });
   @override
@@ -508,9 +562,13 @@ class _LibraryPageState extends State<LibraryPage> {
     String section = 'Search',
     String? sharedText,
     VoidCallback? onOpening,
+    bool autofocusSearch = false,
   }) async {
     if (!await FileGateway.prepareClose() || !mounted) return;
-    if (onOpening != null && ModalRoute.of(context)?.isCurrent != true) return;
+    if ((onOpening != null || autofocusSearch) &&
+        ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
     onOpening?.call();
     final destination = await Navigator.push<KnowledgeDestination>(
       context,
@@ -520,6 +578,9 @@ class _LibraryPageState extends State<LibraryPage> {
           initialSection: section,
           sharedText: sharedText,
           onCompleteTask: widget.onCompleteTask,
+          autofocusSearch: autofocusSearch,
+          shortcuts: widget.shortcuts,
+          onImportFile: (onImported) => _import(onImported: onImported),
         ),
       ),
     );
@@ -620,6 +681,62 @@ class _LibraryPageState extends State<LibraryPage> {
     });
   }
 
+  Future<void> _exportFile(Notebook note) => _perform(() async {
+    final repository = widget.repository;
+    final Uint8List bytes;
+    if (note.isPdf) {
+      final pdf = await repository.loadPdf(note.id);
+      bytes = await exportPdfBytesAsync(pdf);
+    } else {
+      final stored = await repository.load(note.id);
+      bytes = note.isMarkdown
+          ? utf8.encode((await decodeMarkdownAsync(stored)).source)
+          : stored;
+    }
+    if (!mounted) return;
+    final mime =
+        note.mediaFormat?.mime ??
+        (note.isPdf ? 'application/pdf' : 'text/markdown');
+    final title = note.title
+        .replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1F]'), '_')
+        .trim();
+    final extension = '.${note.extension}';
+    final name = title.toLowerCase().endsWith(extension)
+        ? title
+        : '${title.isEmpty ? 'Notixer' : title}$extension';
+    if (await FileGateway().save(name, bytes, mime) && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('File saved.')));
+    }
+  }, autoSync: false);
+
+  Future<void> _resolveSettingConflict(Notebook note, {required bool accept}) =>
+      _perform(() async {
+        if (accept && _hasOpenDocuments) {
+          throw StateError(
+            'Close open tabs before applying the alternative setting.',
+          );
+        }
+        await LibraryExtrasSync.resolveSettingConflict(
+          widget.repository,
+          note.id,
+          accept: accept,
+        );
+        await _refresh();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                accept
+                    ? 'Alternative setting applied. Conflict archived.'
+                    : 'Conflict archived. Current setting kept.',
+              ),
+            ),
+          );
+        }
+      });
+
   Future<void> _delete(Notebook note) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -667,6 +784,13 @@ class _LibraryPageState extends State<LibraryPage> {
         .where((n) => n.title.toLowerCase().contains(_query.toLowerCase()))
         .where(
           (n) =>
+              !n.isArchivedSettingsConflict ||
+              _query.isNotEmpty ||
+              _folderFilter != null ||
+              _tagFilter != null,
+        )
+        .where(
+          (n) =>
               _folderFilter == null ||
               (_folderFilter == ''
                   ? widget.repository.catalog.folderName(n.folderId) == null
@@ -685,7 +809,7 @@ class _LibraryPageState extends State<LibraryPage> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = NoterTheme.desktopControls(context);
-        final phone = constraints.maxWidth < 600;
+        final phone = NoterTheme.mobileLayout(constraints.maxWidth);
         return Scaffold(
           key: _scaffold,
           drawer: wide ? null : Drawer(child: SafeArea(child: _navigation())),
@@ -793,6 +917,12 @@ class _LibraryPageState extends State<LibraryPage> {
                   onPressed: _busy ? null : _refresh,
                   icon: const Icon(Icons.refresh),
                 ),
+                if (widget.onSettings != null)
+                  IconButton(
+                    tooltip: 'Settings',
+                    onPressed: _busy ? null : widget.onSettings,
+                    icon: const Icon(Icons.settings_outlined),
+                  ),
                 const SizedBox(width: 12),
               ] else
                 PopupMenuButton<String>(
@@ -812,9 +942,16 @@ class _LibraryPageState extends State<LibraryPage> {
                     if (value == 'trash') _recovery();
                     if (value == 'refresh') _refresh();
                     if (value == 'templates') _templates();
+                    if (value == 'settings') widget.onSettings?.call();
                     if (value == 'view') setState(() => _grid = !_grid);
                   },
                   itemBuilder: (_) => [
+                    if (widget.onSettings != null)
+                      PopupMenuItem(
+                        value: 'settings',
+                        enabled: !_busy,
+                        child: const Text('Settings'),
+                      ),
                     if (_recoverableCaptures.isNotEmpty)
                       PopupMenuItem(
                         value: 'recover-media',
@@ -1250,18 +1387,31 @@ class _LibraryPageState extends State<LibraryPage> {
         ? 'Open note: actions available after closing the tab'
         : 'Note actions',
     enabled: !_busy && !_isOpen(note),
-    onSelected: (value) => value == 'rename'
-        ? _rename(note)
-        : value == 'organize'
-        ? _organize(note)
-        : value == 'history'
-        ? _recovery(note: note)
-        : _delete(note),
-    itemBuilder: (_) => const [
-      PopupMenuItem(value: 'rename', child: Text('Rename')),
-      PopupMenuItem(value: 'organize', child: Text('Folders and tags')),
-      PopupMenuItem(value: 'history', child: Text('Version history')),
-      PopupMenuItem(value: 'delete', child: Text('Delete')),
+    onSelected: (value) => switch (value) {
+      'accept-conflict' => _resolveSettingConflict(note, accept: true),
+      'archive-conflict' => _resolveSettingConflict(note, accept: false),
+      'export' => _exportFile(note),
+      'rename' => _rename(note),
+      'organize' => _organize(note),
+      'history' => _recovery(note: note),
+      _ => _delete(note),
+    },
+    itemBuilder: (_) => [
+      if (note.isSettingsConflict && !note.isArchivedSettingsConflict) ...[
+        const PopupMenuItem(
+          value: 'accept-conflict',
+          child: Text('Apply alternative setting'),
+        ),
+        const PopupMenuItem(
+          value: 'archive-conflict',
+          child: Text('Keep current setting and archive'),
+        ),
+      ],
+      const PopupMenuItem(value: 'export', child: Text('Save file to device')),
+      const PopupMenuItem(value: 'rename', child: Text('Rename')),
+      const PopupMenuItem(value: 'organize', child: Text('Folders and tags')),
+      const PopupMenuItem(value: 'history', child: Text('Version history')),
+      const PopupMenuItem(value: 'delete', child: Text('Delete')),
     ],
   );
 

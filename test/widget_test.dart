@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noter/data/notebook.dart';
 import 'package:noter/data/paper.dart';
@@ -45,6 +46,37 @@ void main() {
     );
   });
   tearDown(() => directory.delete(recursive: true));
+  testWidgets('a library PDF can be saved directly to a device file', (
+    tester,
+  ) async {
+    const channel = MethodChannel('plugins.flutter.io/file_selector');
+    final messenger = tester.binding.defaultBinaryMessenger;
+    final destination = File('${directory.path}/exported.pdf');
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      expect(call.method, 'getSavePath');
+      expect(call.arguments['suggestedName'], 'Lecture.pdf');
+      return destination.path;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    await tester.pumpWidget(NoterApp(repository: repository));
+    await settleFileIo(
+      tester,
+      () => find.byTooltip('Note actions').evaluate().isNotEmpty,
+    );
+    await tester.tap(find.byTooltip('Note actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save file to device'));
+    await settleFileIo(
+      tester,
+      () => find.text('File saved.').evaluate().isNotEmpty,
+    );
+    expect(
+      await tester.runAsync(() => destination.readAsBytes()),
+      await tester.runAsync(
+        () async => repository.load((await repository.list()).single.id),
+      ),
+    );
+  });
   testWidgets(
     'library creates, finds and renames a local note on a small display',
     (tester) async {
@@ -102,83 +134,92 @@ void main() {
     (name: 'desktop', size: const Size(1100, 800), scale: 1.0),
     (name: 'large text', size: const Size(375, 812), scale: 2.0),
   ]) {
-    testWidgets('library cards and actions fit ${scenario.name}', (
-      tester,
-    ) async {
-      tester.view.physicalSize = scenario.size;
-      tester.view.devicePixelRatio = 1;
-      tester.platformDispatcher.textScaleFactorTestValue = scenario.scale;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-      await tester.runAsync(() async {
-        final note = (await repository.list()).single;
-        final folder = await repository.catalog.ensureFolder('Studies');
-        await repository.save(
-          note.copy(
-            title: 'Lecture with a very long title spanning multiple lines',
-            folderId: folder.id,
-            tags: ['Mathsmatics', 'Exam preparation'],
-          ),
-          await repository.load(note.id),
+    testWidgets(
+      'library cards and actions fit ${scenario.name}',
+      (tester) async {
+        tester.view.physicalSize = scenario.size;
+        tester.view.devicePixelRatio = 1;
+        tester.platformDispatcher.textScaleFactorTestValue = scenario.scale;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        await tester.runAsync(() async {
+          final note = (await repository.list()).single;
+          final folder = await repository.catalog.ensureFolder('Studies');
+          await repository.save(
+            note.copy(
+              title: 'Lecture with a very long title spanning multiple lines',
+              folderId: folder.id,
+              tags: ['Mathsmatics', 'Exam preparation'],
+            ),
+            await repository.load(note.id),
+          );
+        });
+        await tester.pumpWidget(NoterApp(repository: repository));
+        await settleFileIo(
+          tester,
+          () => find
+              .text('1 note · Most recently modified first')
+              .evaluate()
+              .isNotEmpty,
         );
-      });
-      await tester.pumpWidget(NoterApp(repository: repository));
-      await settleFileIo(
-        tester,
-        () => find
-            .text('1 note · Most recently modified first')
-            .evaluate()
-            .isNotEmpty,
-      );
-      expect(
-        scenario.size.width < 600
-            ? find.byTooltip('New note')
-            : find.text('New note'),
-        findsOneWidget,
-      );
-      expect(
-        scenario.size.width < 600
-            ? find.byTooltip('Library actions')
-            : find.text('Import file'),
-        findsOneWidget,
-      );
-      expect(
-        Theme.of(tester.element(find.byType(TextField))).colorScheme.primary,
-        NoterTheme.accent,
-      );
-      // Previews remain available in an explicitly chosen grid; the default
-      // library now uses compact file rows.
-      if (scenario.size.width < 600) {
-        await tester.tap(find.byTooltip('Library actions'));
+        expect(
+          scenario.name != 'desktop'
+              ? find.byTooltip('New note')
+              : find.text('New note'),
+          findsOneWidget,
+        );
+        expect(
+          scenario.name != 'desktop'
+              ? find.byTooltip('Library actions')
+              : find.text('Import file'),
+          findsOneWidget,
+        );
+        expect(
+          Theme.of(tester.element(find.byType(TextField))).colorScheme.primary,
+          NoterTheme.accent,
+        );
+        // Previews remain available in an explicitly chosen grid; the default
+        // library now uses compact file rows.
+        if (scenario.name != 'desktop') {
+          await tester.tap(find.byTooltip('Library actions'));
+          await tester.pumpAndSettle();
+          final gridView = find.text('Grid view');
+          await tester.ensureVisible(gridView);
+          await tester.pumpAndSettle();
+          await tester.tap(gridView);
+        } else {
+          await tester.tap(find.byTooltip('Grid view'));
+        }
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Grid view'));
-      } else {
-        await tester.tap(find.byTooltip('Grid view'));
-      }
-      await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(
-        find.byType(NotebookPreview),
-        200,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await Scrollable.ensureVisible(
-        tester.element(find.byType(Card).first),
-        alignment: .5,
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('Ruled'), findsOneWidget);
-      expect(
-        find.text('Studies · #Mathsmatics · #Exam preparation'),
-        findsOneWidget,
-      );
-      await tester.tap(find.byTooltip('Note actions'));
-      await tester.pumpAndSettle();
-      expect(find.text('Rename'), findsOneWidget);
-      expect(find.text('Folders and tags'), findsOneWidget);
-      expect(find.text('Delete'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
+        await tester.scrollUntilVisible(
+          find.byType(NotebookPreview),
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await Scrollable.ensureVisible(
+          tester.element(find.byType(Card).first),
+          alignment: .5,
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Ruled'), findsOneWidget);
+        expect(
+          find.text('Studies · #Mathsmatics · #Exam preparation'),
+          findsOneWidget,
+        );
+        await tester.tap(find.byTooltip('Note actions'));
+        await tester.pumpAndSettle();
+        expect(find.text('Rename'), findsOneWidget);
+        expect(find.text('Folders and tags'), findsOneWidget);
+        expect(find.text('Delete'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant.only(
+        scenario.name == 'desktop'
+            ? TargetPlatform.linux
+            : TargetPlatform.android,
+      ),
+    );
   }
 
   testWidgets(
