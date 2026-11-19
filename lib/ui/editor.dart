@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../data/catalog.dart';
 import '../data/document_session.dart';
+import '../data/keyboard_shortcuts.dart';
 import '../data/file_gateway.dart';
 import '../data/notebook.dart';
 import '../data/markdown_document.dart';
@@ -138,6 +139,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
           }
         },
       );
+      tab.commandFor = _commandFor;
       tab.refreshMetadata = () async {
         final notes = await widget.repository.list();
         if (!mounted) return;
@@ -554,6 +556,43 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     if (preset != null) await _perform(() => catalog.setPreset(index!, preset));
   }
 
+  void _selectPdfTool(PdfEditTool tool) {
+    active.key.currentState?.normalTool();
+    session.eraser.setBaseTool(tool);
+  }
+
+  ShortcutAction? _commandFor(AppShortcut action) {
+    final pane = active.key.currentState;
+    if (_busy || _leaving || pane == null) return null;
+    return switch (action) {
+      AppShortcut.export => () => _export(false),
+      AppShortcut.undo => session.undo,
+      AppShortcut.redo => session.redo,
+      AppShortcut.zoomIn => () => pane.viewer.setZoom(pane.viewer.zoom + .25),
+      AppShortcut.zoomOut => () => pane.viewer.setZoom(
+        (pane.viewer.zoom - .25).clamp(.25, double.infinity),
+      ),
+      AppShortcut.resetZoom => () => pane.viewer.setZoom(1),
+      AppShortcut.outline => pane.openNavigation,
+      AppShortcut.toolbars => () => setState(() => _showChrome = !_showChrome),
+      AppShortcut.pdfSearch => () {
+        if (!_showChrome) setState(() => _showChrome = true);
+        pane.toggleSearch();
+      },
+      AppShortcut.pdfPages => _pages,
+      AppShortcut.pdfAddPage => _addPage,
+      AppShortcut.pdfNextPage => () => pane.navigation.jumpToPage(
+        pane.viewer.currentPage + 1,
+      ),
+      AppShortcut.pdfPreviousPage => () => pane.navigation.jumpToPage(
+        pane.viewer.currentPage - 1,
+      ),
+      AppShortcut.pdfPen => () => _selectPdfTool(PdfEditTool.ink),
+      AppShortcut.pdfEraser => () => _selectPdfTool(PdfEditTool.eraser),
+      _ => null,
+    };
+  }
+
   Future<void> _action(String action) async {
     switch (action) {
       case 'finger':
@@ -628,6 +667,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         key: pane.key,
         session: pane.session,
         onSaveAll: _saveAll,
+        useDefaultSaveShortcut: widget.tabController?.shortcuts == null,
         onOpenSourceNote: widget.tabController == null
             ? null
             : (note) async {
@@ -893,10 +933,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                     preferredPreset: _preferredPresets[session.note.id],
                     onTextSelection: () =>
                         active.key.currentState?.selectText(),
-                    onTool: (tool) {
-                      active.key.currentState?.normalTool();
-                      session.eraser.setBaseTool(tool);
-                    },
+                    onTool: _selectPdfTool,
                     onLasso: () => active.key.currentState?.toggleLasso(),
                     onTape: () => active.key.currentState?.toggleTape(),
                     onImage: _image,

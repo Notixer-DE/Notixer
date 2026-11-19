@@ -3,6 +3,7 @@ import '../data/document_session.dart';
 import 'package:flutter/foundation.dart';
 import '../data/notebook.dart';
 import '../data/knowledge.dart';
+import '../data/keyboard_shortcuts.dart';
 import '../input/stylus_eraser.dart';
 
 typedef OpenNotebookTab =
@@ -10,8 +11,9 @@ typedef OpenNotebookTab =
 
 /// The workspace owns tab lifetime; editors keep their own document state.
 class DocumentTabController extends ChangeNotifier {
-  DocumentTabController(this.title);
+  DocumentTabController(this.title, {this.shortcuts});
   String title;
+  final KeyboardShortcuts? shortcuts;
   bool dirty = false;
   Object? _owner;
   bool _disposed = false;
@@ -22,6 +24,7 @@ class DocumentTabController extends ChangeNotifier {
   Future<void> Function(String)? revealAnchor;
   Future<void> Function(KnowledgeTask)? completeTask;
   Future<void> Function()? refreshMetadata;
+  ShortcutAction? Function(AppShortcut)? commandFor;
 
   void attach(
     Object owner, {
@@ -49,6 +52,7 @@ class DocumentTabController extends ChangeNotifier {
     revealAnchor = null;
     completeTask = null;
     refreshMetadata = null;
+    commandFor = null;
   }
 
   void deactivate() => _pause?.call();
@@ -68,12 +72,14 @@ class DocumentTabController extends ChangeNotifier {
     _pause = null;
     resolveEraser = null;
     interceptEvent = null;
+    commandFor = null;
     super.dispose();
   }
 }
 
 class LibraryWorkspaceController {
   Future<void> Function()? refresh;
+  Map<AppShortcut, ShortcutAction> commands = const {};
 }
 
 /// One PDF session per notebook, including panes opened from another tab.

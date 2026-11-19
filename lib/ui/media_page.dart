@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../data/file_gateway.dart';
+import '../data/keyboard_shortcuts.dart';
 import '../data/media.dart';
 import '../data/media_gateway.dart';
 import '../data/notebook.dart';
@@ -44,7 +45,15 @@ class _MediaPageState extends State<MediaPage> {
   @override
   void initState() {
     super.initState();
-    widget.tabController?.attach(this, save: () async => true, pause: _pause);
+    if (widget.tabController case final tab?) {
+      tab.attach(this, save: () async => true, pause: _pause);
+      tab.commandFor = (action) => switch (action) {
+        AppShortcut.export => _export,
+        AppShortcut.mediaPlay when widget.format.kind != 'image' => _play,
+        _ => null,
+      };
+    }
+
     _timer = Timer.periodic(const Duration(milliseconds: 500), (_) async {
       if (!_loaded || !mounted || !Platform.isAndroid) return;
       try {
@@ -97,6 +106,14 @@ class _MediaPageState extends State<MediaPage> {
       if (mounted) setState(() => _busy = false);
     }
   }
+
+  Future<void> _export() => _action(() async {
+    await FileGateway().save(
+      '$_name.${widget.format.extension}',
+      widget.bytes,
+      widget.format.mime,
+    );
+  });
 
   Future<void> _play() => _action(() async {
     if (Platform.isAndroid && widget.format.kind == 'audio') {
@@ -213,15 +230,7 @@ class _MediaPageState extends State<MediaPage> {
           ),
         IconButton(
           tooltip: 'Export media',
-          onPressed: _busy
-              ? null
-              : () => _action(() async {
-                  await FileGateway().save(
-                    '$_name.${widget.format.extension}',
-                    widget.bytes,
-                    widget.format.mime,
-                  );
-                }),
+          onPressed: _busy ? null : _export,
           icon: const Icon(Icons.save_alt),
         ),
       ],

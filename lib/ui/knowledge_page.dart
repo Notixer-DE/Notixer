@@ -1,8 +1,10 @@
 import 'dart:io';
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../data/file_gateway.dart';
 import '../data/knowledge.dart';
+import '../data/keyboard_shortcuts.dart';
 import '../data/library_backup.dart';
 import '../data/notebook.dart';
 
@@ -13,11 +15,17 @@ class KnowledgePage extends StatefulWidget {
     this.initialSection = 'Search',
     this.sharedText,
     this.onCompleteTask,
+    this.autofocusSearch = false,
+    this.shortcuts,
+    this.onImportFile,
   });
   final LocalNotebookRepository repository;
   final String initialSection;
   final String? sharedText;
   final Future<void> Function(KnowledgeTask)? onCompleteTask;
+  final bool autofocusSearch;
+  final KeyboardShortcuts? shortcuts;
+  final Future<void> Function(VoidCallback onImported)? onImportFile;
   @override
   State<KnowledgePage> createState() => _KnowledgePageState();
 }
@@ -27,6 +35,8 @@ class _KnowledgePageState extends State<KnowledgePage> {
   late final _backup = LibraryBackup(widget.repository);
   late String _section = widget.initialSection;
   final _query = TextEditingController();
+  final _searchFocus = FocusNode();
+  final _hubFocus = FocusNode();
   String _tag = '', _folder = '', _kind = 'all';
   bool? _filtersExpanded;
   bool _onlyTasks = false,
@@ -57,6 +67,8 @@ class _KnowledgePageState extends State<KnowledgePage> {
   void dispose() {
     _generation++;
     _query.dispose();
+    _searchFocus.dispose();
+    _hubFocus.dispose();
     super.dispose();
   }
 
@@ -373,6 +385,8 @@ class _KnowledgePageState extends State<KnowledgePage> {
                   children: [
                     TextField(
                       controller: _query,
+                      focusNode: _searchFocus,
+                      autofocus: widget.autofocusSearch && _section == 'Search',
                       onSubmitted: (_) => _search(),
                       decoration: InputDecoration(
                         labelText: _section == 'Tasks'
@@ -990,8 +1004,67 @@ class _KnowledgePageState extends State<KnowledgePage> {
         ),
     ],
   );
+  void _selectSection(String section) {
+    if (widget.shortcuts != null) _hubFocus.requestFocus();
+    setState(() {
+      _section = section;
+      _scan = null;
+      if (section == 'Tasks' || section == 'Inbox') {
+        _kind = 'all';
+        _query.clear();
+        _folder = '';
+        _tag = '';
+      }
+    });
+    if (section == 'Tasks' || section == 'Inbox') unawaited(_search());
+  }
+
+  KeyEventResult _handleShortcut(FocusNode node, KeyEvent event) {
+    if (_busy || ModalRoute.of(context)?.isCurrent != true) {
+      return KeyEventResult.ignored;
+    }
+    switch (widget.shortcuts?.match(event)) {
+      case AppShortcut.knowledgeSearch:
+        if (_section != 'Search') _selectSection('Search');
+        _searchFocus.requestFocus();
+      case AppShortcut.knowledgeTasks:
+        _selectSection('Tasks');
+      case AppShortcut.knowledgeJournal:
+        _selectSection('Journal');
+      case AppShortcut.knowledgeViews:
+        _selectSection('Views');
+      case AppShortcut.knowledgeBackups:
+        _selectSection('Backups');
+      case AppShortcut.knowledgeCapture:
+        unawaited(_capture());
+      case AppShortcut.knowledgeSubmit:
+        if (!['Search', 'Tasks', 'Inbox'].contains(_section)) {
+          return KeyEventResult.ignored;
+        }
+        unawaited(_search());
+      case AppShortcut.importFile when widget.onImportFile != null:
+        unawaited(
+          widget.onImportFile!(() {
+            if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+              Navigator.of(context).pop();
+            }
+          }),
+        );
+      default:
+        return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => Focus(
+    focusNode: _hubFocus,
+    autofocus: widget.shortcuts != null && !widget.autofocusSearch,
+    onKeyEvent: _handleShortcut,
+    child: _buildPage(),
+  );
+
+  Widget _buildPage() => Scaffold(
     appBar: AppBar(
       title: const Text('Knowledge hub'),
       actions: [
@@ -1030,23 +1103,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
                     child: ChoiceChip(
                       label: Text(section),
                       selected: _section == section,
-                      onSelected: _busy
-                          ? null
-                          : (_) {
-                              setState(() {
-                                _section = section;
-                                _scan = null;
-                                if (section == 'Tasks' || section == 'Inbox') {
-                                  _kind = 'all';
-                                  _query.clear();
-                                  _folder = '';
-                                  _tag = '';
-                                }
-                              });
-                              if (section == 'Tasks' || section == 'Inbox') {
-                                _search();
-                              }
-                            },
+                      onSelected: _busy ? null : (_) => _selectSection(section),
                     ),
                   ),
               ],

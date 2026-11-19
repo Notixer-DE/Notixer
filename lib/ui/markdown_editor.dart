@@ -16,6 +16,7 @@ import '../data/markdown_document.dart';
 import '../data/markdown_library.dart';
 import '../data/markdown_session.dart';
 import '../data/notebook.dart';
+import '../data/keyboard_shortcuts.dart';
 import '../sync/notebook_sync.dart' show SettingsConflictNote;
 import 'editor.dart';
 import 'noter_theme.dart';
@@ -164,6 +165,43 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     return _session.save();
   }
 
+  ShortcutAction? _commandFor(AppShortcut action) {
+    if (_busy || _leaving) return null;
+    final undo = _titleFocus.hasFocus ? _titleUndo : _undo;
+    return switch (action) {
+      AppShortcut.export => () => _export('markdown'),
+      AppShortcut.undo => undo.undo,
+      AppShortcut.redo => undo.redo,
+      AppShortcut.zoomIn => () => _setZoom(_activeZoom + .1),
+      AppShortcut.zoomOut => () => _setZoom(_activeZoom - .1),
+      AppShortcut.resetZoom => () => _setZoom(1),
+      AppShortcut.outline => _outline,
+      AppShortcut.toolbars => () => setState(() => _showChrome = !_showChrome),
+      AppShortcut.markdownPreview => () => _setSource(!_source),
+      AppShortcut.markdownEditPreview => () async {
+        if (_source) await _setSource(false);
+        if (mounted) _togglePreviewEditing();
+      },
+      AppShortcut.markdownBold => () => _insert('**', '**'),
+      AppShortcut.markdownItalic => () => _insert('*', '*'),
+      AppShortcut.markdownChecklist => () => _insert('\n- [ ] ', '\n', 'Task'),
+      AppShortcut.markdownLink => _linkDialog,
+      _ => null,
+    };
+  }
+
+  Future<void> _setSource(bool source) async {
+    _previewKey.currentState?.finishEditing();
+    setState(() => _source = source);
+    if (source) {
+      _focus.requestFocus();
+    } else {
+      _focus.unfocus();
+      await _saveDocument();
+      if (mounted) await _reload();
+    }
+  }
+
   void _replacePreviewText(int start, int end, String value) {
     _text.value = TextEditingValue(
       text: _text.text.replaceRange(start, end, value),
@@ -222,7 +260,8 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
         return KeyEventResult.handled;
       }
       final keyboard = HardwareKeyboard.instance;
-      if ((keyboard.isControlPressed || keyboard.isMetaPressed) &&
+      if (widget.tabController?.shortcuts == null &&
+          (keyboard.isControlPressed || keyboard.isMetaPressed) &&
           !keyboard.isAltPressed) {
         final key = event.logicalKey;
         final zoomIn = [
@@ -266,6 +305,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     if (widget.tabController case final tab?) {
       tab.attach(this, save: _saveBeforeClose, anchor: _anchor);
       tab.completeTask = _applyTask;
+      tab.commandFor = _commandFor;
       tab.refreshMetadata = () async {
         final notes = await widget.repository.list();
         if (!mounted) return;
@@ -636,6 +676,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
         builder: (_) => KnowledgePage(
           repository: widget.repository,
           initialSection: section,
+          shortcuts: widget.tabController?.shortcuts,
           onCompleteTask: (task) async {
             if (task.note.id == _session.note.id) {
               await _applyTask(task);
@@ -1100,6 +1141,9 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     }
   });
 
+  String _shortcutTooltip(String label, AppShortcut action, String fallback) =>
+      '$label (${widget.tabController?.shortcuts?[action].label ?? fallback})';
+
   Widget _toolbarContents() {
     final undo = _titleFocus.hasFocus ? _titleUndo : _undo;
     Widget tool(String label, IconData icon, VoidCallback? action) =>
@@ -1114,21 +1158,23 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       children: [
         ...[
           tool(
-            'Zoom out (Ctrl+-)',
+            _shortcutTooltip('Zoom out', AppShortcut.zoomOut, 'Ctrl+-'),
             Icons.text_decrease,
             () => _setZoom(_activeZoom - .1),
           ),
           Tooltip(
-            message: _source
-                ? 'Reset editor zoom (Ctrl+0)'
-                : 'Reset reading zoom (Ctrl+0)',
+            message: _shortcutTooltip(
+              _source ? 'Reset editor zoom' : 'Reset reading zoom',
+              AppShortcut.resetZoom,
+              'Ctrl+0',
+            ),
             child: TextButton(
               onPressed: () => _setZoom(1),
               child: Text('${(_activeZoom * 100).round()}%'),
             ),
           ),
           tool(
-            'Zoom in (Ctrl++)',
+            _shortcutTooltip('Zoom in', AppShortcut.zoomIn, 'Ctrl++'),
             Icons.text_increase,
             () => _setZoom(_activeZoom + .1),
           ),
@@ -1393,10 +1439,12 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     onChanged: _setZoom,
     child: CallbackShortcuts(
       bindings: {
-        const SingleActivator(LogicalKeyboardKey.keyS, control: true): () =>
-            _saveDocument(),
-        const SingleActivator(LogicalKeyboardKey.keyS, meta: true): () =>
-            _saveDocument(),
+        if (widget.tabController?.shortcuts == null) ...{
+          const SingleActivator(LogicalKeyboardKey.keyS, control: true): () =>
+              _saveDocument(),
+          const SingleActivator(LogicalKeyboardKey.keyS, meta: true): () =>
+              _saveDocument(),
+        },
       },
       child: PopScope(
         canPop: widget.tabController != null || _canPop,
@@ -1804,18 +1852,8 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                                 ),
                                               ],
                                               selected: {_source},
-                                              onSelectionChanged: (value) {
-                                                _previewKey.currentState
-                                                    ?.finishEditing();
-                                                setState(
-                                                  () => _source = value.single,
-                                                );
-                                                if (!_source) {
-                                                  _focus.unfocus();
-                                                  _saveDocument();
-                                                  _reload();
-                                                }
-                                              },
+                                              onSelectionChanged: (value) =>
+                                                  _setSource(value.single),
                                             ),
                                           ),
                                         ),

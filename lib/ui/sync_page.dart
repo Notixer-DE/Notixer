@@ -1,11 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import '../data/keyboard_shortcuts.dart';
 import '../sync/sync_controller.dart';
 import '../sync/sync_crypto.dart';
 import '../sync/server_remote.dart';
 
 class SyncPage extends StatefulWidget {
-  const SyncPage({super.key, required this.controller});
+  const SyncPage({super.key, required this.controller, this.shortcuts});
   final SyncController controller;
+  final KeyboardShortcuts? shortcuts;
   @override
   State<SyncPage> createState() => _SyncPageState();
 }
@@ -154,7 +157,21 @@ class _SyncPageState extends State<SyncPage> {
   }
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
+  Widget build(BuildContext context) => Focus(
+    autofocus: widget.shortcuts != null,
+    onKeyEvent: (_, event) {
+      if (ModalRoute.of(context)?.isCurrent != true ||
+          !widget.controller.enabled ||
+          widget.shortcuts?.match(event) != AppShortcut.syncNow) {
+        return KeyEventResult.ignored;
+      }
+      unawaited(_synchronize());
+      return KeyEventResult.handled;
+    },
+    child: _buildSyncPage(),
+  );
+
+  Widget _buildSyncPage() => ListenableBuilder(
     listenable: widget.controller,
     builder: (context, _) {
       final sync = widget.controller;

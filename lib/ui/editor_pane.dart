@@ -42,12 +42,13 @@ class EditorPane extends StatefulWidget {
     this.initialPage,
     this.initialQuery = '',
     this.onSaveAll,
+    this.useDefaultSaveShortcut = true,
     this.initialTapeId,
     this.onReviewRated,
     this.onOpenSourceNote,
   });
   final DocumentSession session;
-  final bool active, split, showChrome;
+  final bool active, split, showChrome, useDefaultSaveShortcut;
   final int? initialPage;
   final String initialQuery;
   final String? initialTapeId;
@@ -1793,7 +1794,8 @@ class EditorPaneState extends State<EditorPane> {
           if (focused) widget.onActivate();
         },
         onKeyEvent: (_, event) {
-          if (singlePage &&
+          if (widget.useDefaultSaveShortcut &&
+              singlePage &&
               event is KeyDownEvent &&
               event.logicalKey == LogicalKeyboardKey.keyS &&
               (HardwareKeyboard.instance.isControlPressed ||
@@ -2002,9 +2004,11 @@ class EditorPaneState extends State<EditorPane> {
                               hideAnnotationActions: () =>
                                   widget.session.ink.selected.isNotEmpty,
                             ),
-                            onSave: (_) async {
-                              await widget.session.save();
-                            },
+                            onSave: widget.useDefaultSaveShortcut
+                                ? (_) async {
+                                    await widget.session.save();
+                                  }
+                                : null,
                             imagePicker: (_) => FileGateway().pickImage(),
                             pageOverlayBuilder: _overlays,
                             features: PdfEditorFeatures(

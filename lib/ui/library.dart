@@ -8,6 +8,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import '../data/notebook.dart';
+import '../data/keyboard_shortcuts.dart';
 import '../data/file_gateway.dart';
 import '../data/paper.dart';
 import '../data/templates.dart';
@@ -42,6 +43,8 @@ class LibraryPage extends StatefulWidget {
     this.syncController,
     this.onOpenNotebook,
     this.workspaceController,
+    this.onSettings,
+    this.shortcuts,
     this.isNotebookOpen,
     this.hasOpenDocuments,
     this.onOpenDestination,
@@ -55,6 +58,8 @@ class LibraryPage extends StatefulWidget {
   final SyncController? syncController;
   final Future<void> Function(Notebook)? onOpenNotebook;
   final LibraryWorkspaceController? workspaceController;
+  final Future<void> Function()? onSettings;
+  final KeyboardShortcuts? shortcuts;
   final bool Function(String id)? isNotebookOpen;
   final bool Function()? hasOpenDocuments;
   @override
@@ -83,7 +88,26 @@ class _LibraryPageState extends State<LibraryPage> {
   @override
   void initState() {
     super.initState();
-    widget.workspaceController?.refresh = _refresh;
+    if (widget.workspaceController case final workspace?) {
+      workspace.refresh = _refresh;
+      workspace.commands = {
+        AppShortcut.knowledgeSearch: () => _knowledge(autofocusSearch: true),
+        AppShortcut.importFile: _import,
+        AppShortcut.newNote: _create,
+        AppShortcut.searchLibrary: _focusSearch,
+        AppShortcut.graph: _graphView,
+        AppShortcut.study: _study,
+        AppShortcut.templates: _templates,
+        AppShortcut.syncSettings: _syncSettings,
+        AppShortcut.syncNow: _syncNow,
+        AppShortcut.knowledgeTasks: () => _knowledge(section: 'Tasks'),
+        AppShortcut.knowledgeJournal: () => _knowledge(section: 'Journal'),
+        AppShortcut.knowledgeCapture: () =>
+            _knowledge(section: 'Inbox', sharedText: ''),
+        AppShortcut.knowledgeViews: () => _knowledge(section: 'Views'),
+        AppShortcut.knowledgeBackups: () => _knowledge(section: 'Backups'),
+      };
+    }
     _sync.addListener(_syncChanged);
     MediaGateway.recoveredCapture.addListener(_captureRecovered);
     FileGateway.sharedText.addListener(_sharedCapture);
@@ -150,8 +174,31 @@ class _LibraryPageState extends State<LibraryPage> {
       await _sync.load();
       if (!mounted) return;
       await Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => SyncPage(controller: _sync)),
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              SyncPage(controller: _sync, shortcuts: widget.shortcuts),
+        ),
       );
+      await _refresh();
+    }, autoSync: false);
+  }
+
+  void _focusSearch() {
+    final searchContext = _searchFocus.context;
+    if (searchContext != null) Scrollable.ensureVisible(searchContext);
+    _searchFocus.requestFocus();
+  }
+
+  Future<void> _syncNow() async {
+    if (_hasOpenDocuments || _busy) return;
+    await _sync.load();
+    if (!mounted) return;
+    if (!_sync.enabled) {
+      await _syncSettings();
+      return;
+    }
+    await _perform(() async {
+      await _sync.synchronize();
       await _refresh();
     }, autoSync: false);
   }
@@ -159,6 +206,7 @@ class _LibraryPageState extends State<LibraryPage> {
   @override
   void dispose() {
     widget.workspaceController?.refresh = null;
+    widget.workspaceController?.commands = const {};
     _sync.removeListener(_syncChanged);
     MediaGateway.recoveredCapture.removeListener(_captureRecovered);
     FileGateway.sharedText.removeListener(_sharedCapture);
@@ -414,7 +462,7 @@ class _LibraryPageState extends State<LibraryPage> {
     });
   }
 
-  Future<void> _import() => _perform(() async {
+  Future<void> _import({VoidCallback? onImported}) => _perform(() async {
     final file = await FileGateway().pick();
     if (file == null) return;
     if (await file.length() > 256 * 1024 * 1024) {
@@ -427,6 +475,7 @@ class _LibraryPageState extends State<LibraryPage> {
         widget.repository,
       ).importBundle(bytes);
       await _refresh();
+      onImported?.call();
       await _open(imported.first);
       return;
     }
@@ -446,6 +495,7 @@ class _LibraryPageState extends State<LibraryPage> {
             bytes,
           );
     await _refresh();
+    onImported?.call();
     await _open(note);
   });
   @override
@@ -512,9 +562,13 @@ class _LibraryPageState extends State<LibraryPage> {
     String section = 'Search',
     String? sharedText,
     VoidCallback? onOpening,
+    bool autofocusSearch = false,
   }) async {
     if (!await FileGateway.prepareClose() || !mounted) return;
-    if (onOpening != null && ModalRoute.of(context)?.isCurrent != true) return;
+    if ((onOpening != null || autofocusSearch) &&
+        ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
     onOpening?.call();
     final destination = await Navigator.push<KnowledgeDestination>(
       context,
@@ -524,6 +578,9 @@ class _LibraryPageState extends State<LibraryPage> {
           initialSection: section,
           sharedText: sharedText,
           onCompleteTask: widget.onCompleteTask,
+          autofocusSearch: autofocusSearch,
+          shortcuts: widget.shortcuts,
+          onImportFile: (onImported) => _import(onImported: onImported),
         ),
       ),
     );
@@ -860,6 +917,12 @@ class _LibraryPageState extends State<LibraryPage> {
                   onPressed: _busy ? null : _refresh,
                   icon: const Icon(Icons.refresh),
                 ),
+                if (widget.onSettings != null)
+                  IconButton(
+                    tooltip: 'Settings',
+                    onPressed: _busy ? null : widget.onSettings,
+                    icon: const Icon(Icons.settings_outlined),
+                  ),
                 const SizedBox(width: 12),
               ] else
                 PopupMenuButton<String>(
@@ -879,9 +942,16 @@ class _LibraryPageState extends State<LibraryPage> {
                     if (value == 'trash') _recovery();
                     if (value == 'refresh') _refresh();
                     if (value == 'templates') _templates();
+                    if (value == 'settings') widget.onSettings?.call();
                     if (value == 'view') setState(() => _grid = !_grid);
                   },
                   itemBuilder: (_) => [
+                    if (widget.onSettings != null)
+                      PopupMenuItem(
+                        value: 'settings',
+                        enabled: !_busy,
+                        child: const Text('Settings'),
+                      ),
                     if (_recoverableCaptures.isNotEmpty)
                       PopupMenuItem(
                         value: 'recover-media',
