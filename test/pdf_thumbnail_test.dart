@@ -389,5 +389,6 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       await frames(tester);
     },
+    variant: TargetPlatformVariant.only(TargetPlatform.linux),
   );
 }

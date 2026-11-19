@@ -531,7 +531,9 @@ class EditorPaneState extends State<EditorPane> {
                   IconButton(
                     tooltip: 'Page overview',
                     onPressed: () => _togglePages(pagesVisible, compact),
-                    icon: const Icon(Icons.view_sidebar_outlined),
+                    isSelected: !compact && pagesVisible,
+                    icon: const Icon(Icons.view_module_outlined),
+                    selectedIcon: const Icon(Icons.view_module),
                   ),
                   IconButton(
                     tooltip: singlePage
@@ -1761,7 +1763,7 @@ class EditorPaneState extends State<EditorPane> {
           constraints.maxHeight < 360 ||
           (constraints.maxWidth < 480 &&
               MediaQuery.textScalerOf(context).scale(16) > 24);
-      final compactPages = constraints.maxWidth < 600;
+      final compactPages = NoterTheme.mobileLayout(constraints.maxWidth);
       final pagesVisible =
           !compactPages && (_showPages ?? constraints.maxWidth >= 900);
       final sidebarVisible = widget.showChrome && pagesVisible;

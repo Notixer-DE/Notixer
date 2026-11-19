@@ -4,6 +4,7 @@ import 'media_acquisition.dart';
 import 'media_page.dart';
 import '../data/media.dart';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import '../data/notebook.dart';
@@ -30,6 +31,9 @@ import 'library_graph_page.dart';
 import 'knowledge_page.dart';
 import '../data/knowledge.dart';
 import '../data/markdown_document.dart';
+import '../editor/operations.dart' show exportPdfBytesAsync;
+import '../sync/library_extras_sync.dart';
+import '../sync/notebook_sync.dart' show SettingsConflictNote;
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({
@@ -620,6 +624,62 @@ class _LibraryPageState extends State<LibraryPage> {
     });
   }
 
+  Future<void> _exportFile(Notebook note) => _perform(() async {
+    final repository = widget.repository;
+    final Uint8List bytes;
+    if (note.isPdf) {
+      final pdf = await repository.loadPdf(note.id);
+      bytes = await exportPdfBytesAsync(pdf);
+    } else {
+      final stored = await repository.load(note.id);
+      bytes = note.isMarkdown
+          ? utf8.encode((await decodeMarkdownAsync(stored)).source)
+          : stored;
+    }
+    if (!mounted) return;
+    final mime =
+        note.mediaFormat?.mime ??
+        (note.isPdf ? 'application/pdf' : 'text/markdown');
+    final title = note.title
+        .replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1F]'), '_')
+        .trim();
+    final extension = '.${note.extension}';
+    final name = title.toLowerCase().endsWith(extension)
+        ? title
+        : '${title.isEmpty ? 'Notixer' : title}$extension';
+    if (await FileGateway().save(name, bytes, mime) && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('File saved.')));
+    }
+  }, autoSync: false);
+
+  Future<void> _resolveSettingConflict(Notebook note, {required bool accept}) =>
+      _perform(() async {
+        if (accept && _hasOpenDocuments) {
+          throw StateError(
+            'Close open tabs before applying the alternative setting.',
+          );
+        }
+        await LibraryExtrasSync.resolveSettingConflict(
+          widget.repository,
+          note.id,
+          accept: accept,
+        );
+        await _refresh();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                accept
+                    ? 'Alternative setting applied. Conflict archived.'
+                    : 'Conflict archived. Current setting kept.',
+              ),
+            ),
+          );
+        }
+      });
+
   Future<void> _delete(Notebook note) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -667,6 +727,13 @@ class _LibraryPageState extends State<LibraryPage> {
         .where((n) => n.title.toLowerCase().contains(_query.toLowerCase()))
         .where(
           (n) =>
+              !n.isArchivedSettingsConflict ||
+              _query.isNotEmpty ||
+              _folderFilter != null ||
+              _tagFilter != null,
+        )
+        .where(
+          (n) =>
               _folderFilter == null ||
               (_folderFilter == ''
                   ? widget.repository.catalog.folderName(n.folderId) == null
@@ -685,7 +752,7 @@ class _LibraryPageState extends State<LibraryPage> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = NoterTheme.desktopControls(context);
-        final phone = constraints.maxWidth < 600;
+        final phone = NoterTheme.mobileLayout(constraints.maxWidth);
         return Scaffold(
           key: _scaffold,
           drawer: wide ? null : Drawer(child: SafeArea(child: _navigation())),
@@ -1250,18 +1317,31 @@ class _LibraryPageState extends State<LibraryPage> {
         ? 'Open note: actions available after closing the tab'
         : 'Note actions',
     enabled: !_busy && !_isOpen(note),
-    onSelected: (value) => value == 'rename'
-        ? _rename(note)
-        : value == 'organize'
-        ? _organize(note)
-        : value == 'history'
-        ? _recovery(note: note)
-        : _delete(note),
-    itemBuilder: (_) => const [
-      PopupMenuItem(value: 'rename', child: Text('Rename')),
-      PopupMenuItem(value: 'organize', child: Text('Folders and tags')),
-      PopupMenuItem(value: 'history', child: Text('Version history')),
-      PopupMenuItem(value: 'delete', child: Text('Delete')),
+    onSelected: (value) => switch (value) {
+      'accept-conflict' => _resolveSettingConflict(note, accept: true),
+      'archive-conflict' => _resolveSettingConflict(note, accept: false),
+      'export' => _exportFile(note),
+      'rename' => _rename(note),
+      'organize' => _organize(note),
+      'history' => _recovery(note: note),
+      _ => _delete(note),
+    },
+    itemBuilder: (_) => [
+      if (note.isSettingsConflict && !note.isArchivedSettingsConflict) ...[
+        const PopupMenuItem(
+          value: 'accept-conflict',
+          child: Text('Apply alternative setting'),
+        ),
+        const PopupMenuItem(
+          value: 'archive-conflict',
+          child: Text('Keep current setting and archive'),
+        ),
+      ],
+      const PopupMenuItem(value: 'export', child: Text('Save file to device')),
+      const PopupMenuItem(value: 'rename', child: Text('Rename')),
+      const PopupMenuItem(value: 'organize', child: Text('Folders and tags')),
+      const PopupMenuItem(value: 'history', child: Text('Version history')),
+      const PopupMenuItem(value: 'delete', child: Text('Delete')),
     ],
   );
 

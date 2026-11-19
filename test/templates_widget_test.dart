@@ -134,13 +134,13 @@ void main() {
               .evaluate()
               .isNotEmpty &&
           tester
-                  .widget<FilledButton>(
-                    find.widgetWithText(FilledButton, 'New note'),
+                  .widget<FloatingActionButton>(
+                    find.byType(FloatingActionButton),
                   )
                   .onPressed !=
               null,
     );
-    await tester.tap(find.text('New note'));
+    await tester.tap(find.byTooltip('New note'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'Meine Kopie');
     await tester.tap(find.text('Choose template'));

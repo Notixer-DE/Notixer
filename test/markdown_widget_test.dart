@@ -81,13 +81,73 @@ void main() {
   }
 
   testWidgets(
+    'formatted preview edits the matching source and keeps tasks close',
+    (tester) async {
+      const original =
+          '```text\r\nShared paragraph\r\n```\r\n\r\n'
+          '## Study plan ##\r\n\r\nShared paragraph\r\n\r\n'
+          '- [ ] First item\r\n- [x] Second item\r\n';
+      await tester.runAsync(
+        () => repository.save(a, MarkdownDocument(original).encode()),
+      );
+      await open(tester, const Size(1024, 1000));
+      final tasks = find.byType(Checkbox);
+      expect(tasks, findsNWidgets(2));
+      expect(
+        tester.getCenter(tasks.last).dy - tester.getCenter(tasks.first).dy,
+        lessThan(52),
+      );
+      await tester.tap(find.text('Edit in preview'));
+      await tester.pumpAndSettle();
+
+      Future<void> edit(Finder button, String text) async {
+        await tester.ensureVisible(button);
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const ValueKey('markdown-preview-edit')),
+          text,
+        );
+        await tester.ensureVisible(find.text('Apply'));
+        await tester.tap(find.text('Apply'));
+        await tester.pumpAndSettle();
+      }
+
+      await edit(find.byTooltip('Edit heading in preview'), 'A better heading');
+      await edit(
+        find.byTooltip('Edit paragraph in preview'),
+        'Edited paragraph',
+      );
+      await edit(
+        find.byTooltip('Edit checklist item in preview').first,
+        'Renamed task',
+      );
+      await edit(find.text('Add checklist item'), 'Another task');
+      await tester.tap(find.byTooltip('Save'));
+      await markdownIo(
+        tester,
+        () => find.byTooltip('Saved locally').evaluate().isNotEmpty,
+      );
+      final bytes = await tester.runAsync(() => repository.load(a.id));
+      expect(
+        MarkdownDocument.decode(bytes!).source,
+        '```text\r\nShared paragraph\r\n```\r\n\r\n'
+        '## A better heading ##\r\n\r\nEdited paragraph\r\n\r\n'
+        '- [ ] Renamed task\r\n- [x] Second item\r\n- [ ] Another task',
+      );
+      expect(tester.takeException(), isNull);
+    },
+    timeout: const Timeout(Duration(seconds: 35)),
+  );
+
+  testWidgets(
     'formatted Markdown zoom rebuilds blocks without reparsing source',
     (tester) async {
       await open(tester, const Size(1440, 1000));
-      await tester.tap(find.byTooltip('Hide sidebar'));
+      await tester.tap(find.byTooltip('Hide folders'));
       await tester.pumpAndSettle();
       expect(find.text('New text note'), findsNothing);
-      await tester.tap(find.byTooltip('Show sidebar'));
+      await tester.tap(find.byTooltip('Show folders'));
       await tester.pumpAndSettle();
       expect(find.text('New text note'), findsOneWidget);
       final preview = find.byType(MarkdownPreview);
@@ -112,6 +172,7 @@ void main() {
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },
+    variant: TargetPlatformVariant.only(TargetPlatform.linux),
   );
 
   testWidgets('Tab indents selected source lines and code blocks render', (
@@ -187,9 +248,38 @@ void main() {
     (tester) async {
       await open(tester, const Size(1440, 1000));
       expect(find.text('My notes'), findsNothing);
-      await tester.tap(find.byTooltip('Show note list'));
+      final folders = find.byTooltip('Hide folders');
+      final noteList = find.byTooltip('Show note list');
+      expect(
+        find.descendant(
+          of: folders,
+          matching: find.byIcon(Icons.folder_open_outlined),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: noteList,
+          matching: find.byIcon(Icons.list_alt_outlined),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester.getCenter(folders).dx,
+        lessThan(tester.getCenter(noteList).dx),
+      );
+      expect(
+        tester.getCenter(noteList).dx,
+        lessThan(tester.getCenter(find.byTooltip('Save')).dx),
+      );
+      await tester.tap(noteList);
       await tester.pumpAndSettle();
       expect(find.text('My notes'), findsOneWidget);
+      await tester.tap(folders);
+      await tester.pumpAndSettle();
+      expect(find.text('My notes'), findsOneWidget);
+      await tester.tap(find.byTooltip('Show folders'));
+      await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('Hide note list'));
       await tester.pumpAndSettle();
       expect(find.text('My notes'), findsNothing);
@@ -236,6 +326,7 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
     },
+    variant: TargetPlatformVariant.only(TargetPlatform.linux),
   );
 
   testWidgets(

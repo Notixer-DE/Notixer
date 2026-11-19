@@ -245,7 +245,8 @@ class EditorToolbar extends StatelessWidget {
                   ],
                 ),
               ),
-              if (constraints.maxWidth >= 900)
+              if (!NoterTheme.mobileLayout(constraints.maxWidth) &&
+                  constraints.maxWidth >= 900)
                 for (final c in _editorColors)
                   IconButton(
                     tooltip:
