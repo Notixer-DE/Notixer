@@ -218,7 +218,7 @@ void main() {
       await _controlAlt(tester, LogicalKeyboardKey.keyM);
       await settleFileIo(
         tester,
-        () => find.text('Edit in preview').evaluate().isNotEmpty,
+        () => find.text('This note is empty.').evaluate().isNotEmpty,
       );
       await _control(tester, LogicalKeyboardKey.keyF);
       await settleFileIo(tester, () => pickerOpens == 1);

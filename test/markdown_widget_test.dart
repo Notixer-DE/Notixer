@@ -82,7 +82,7 @@ void main() {
   }
 
   testWidgets(
-    'formatted preview edits the matching source and keeps tasks close',
+    'formatted view keeps compact interactive tasks without inline text editing',
     (tester) async {
       const original =
           '```text\r\nShared paragraph\r\n```\r\n\r\n'
@@ -98,32 +98,12 @@ void main() {
         tester.getCenter(tasks.last).dy - tester.getCenter(tasks.first).dy,
         lessThan(52),
       );
-      await tester.tap(find.text('Edit in preview'));
+      expect(find.text('Edit in preview'), findsNothing);
+      expect(find.text('Write Markdown'), findsNothing);
+      final title = find.byKey(const ValueKey('markdown-title'));
+      expect(tester.widget<TextField>(title).readOnly, isTrue);
+      await tester.tap(tasks.first);
       await tester.pumpAndSettle();
-
-      Future<void> edit(Finder button, String text) async {
-        await tester.ensureVisible(button);
-        await tester.tap(button);
-        await tester.pumpAndSettle();
-        await tester.enterText(
-          find.byKey(const ValueKey('markdown-preview-edit')),
-          text,
-        );
-        await tester.ensureVisible(find.text('Apply'));
-        await tester.tap(find.text('Apply'));
-        await tester.pumpAndSettle();
-      }
-
-      await edit(find.byTooltip('Edit heading in preview'), 'A better heading');
-      await edit(
-        find.byTooltip('Edit paragraph in preview'),
-        'Edited paragraph',
-      );
-      await edit(
-        find.byTooltip('Edit checklist item in preview').first,
-        'Renamed task',
-      );
-      await edit(find.text('Add checklist item'), 'Another task');
       await tester.tap(find.byTooltip('Save'));
       await markdownIo(
         tester,
@@ -132,54 +112,15 @@ void main() {
       final bytes = await tester.runAsync(() => repository.load(a.id));
       expect(
         MarkdownDocument.decode(bytes!).source,
-        '```text\r\nShared paragraph\r\n```\r\n\r\n'
-        '## A better heading ##\r\n\r\nEdited paragraph\r\n\r\n'
-        '- [ ] Renamed task\r\n- [x] Second item\r\n- [ ] Another task',
+        original.replaceFirst('- [ ] First item', '- [x] First item'),
       );
+      await tester.tap(find.text('Markdown'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(title).readOnly, isFalse);
       expect(tester.takeException(), isNull);
     },
     timeout: const Timeout(Duration(seconds: 35)),
   );
-
-  testWidgets('write Markdown previews a heading before inserting it', (
-    tester,
-  ) async {
-    await open(tester, const Size(390, 844));
-    await tester.tap(find.text('Write Markdown'));
-    await tester.pumpAndSettle();
-    final field = find.byKey(const ValueKey('markdown-preview-edit'));
-    expect(field, findsOneWidget);
-    await tester.enterText(field, '# Hallo\n\n- One item');
-    await tester.pumpAndSettle();
-    final draft = find.byKey(const ValueKey('markdown-draft-preview'));
-    expect(
-      find.descendant(of: draft, matching: find.text('Hallo')),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(of: draft, matching: find.text('One item')),
-      findsOneWidget,
-    );
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
-    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
-    await tester.pumpAndSettle();
-    expect(field, findsNothing);
-    expect(draft, findsNothing);
-    expect(find.text('Hallo'), findsOneWidget);
-    await tester.tap(find.byTooltip('Save'));
-    await markdownIo(
-      tester,
-      () => find.byTooltip('Saved locally').evaluate().isNotEmpty,
-    );
-    final bytes = await tester.runAsync(() => repository.load(a.id));
-    expect(
-      MarkdownDocument.decode(bytes!).source,
-      endsWith('# Hallo\n\n- One item'),
-    );
-  });
 
   testWidgets(
     'formatted Markdown zoom rebuilds blocks without reparsing source',
@@ -570,6 +511,54 @@ void main() {
       expect(find.text('Linked from'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
+    'bare Markdown links open formatted even for an empty or already open note',
+    (tester) async {
+      await tester.runAsync(() async {
+        await repository.save(
+          a,
+          MarkdownDocument(
+            '## Study plan\n\n[Open target](${MarkdownLibrary.linkTo(a, b)})',
+          ).encode(),
+        );
+        await repository.save(b, MarkdownDocument('').encode());
+      });
+      await tester.pumpWidget(NoterApp(repository: repository));
+      await markdownIo(tester, () => find.text(a.title).evaluate().isNotEmpty);
+      await tester.tap(find.text(a.title));
+      final link = find.text('Open target');
+      await markdownIo(tester, () => link.evaluate().isNotEmpty);
+      await tester.tap(link);
+      final source = find.byKey(const ValueKey('markdown-source'));
+      await markdownIo(
+        tester,
+        () =>
+            link.evaluate().isEmpty &&
+            find.text('This note is empty.').evaluate().isNotEmpty,
+      );
+      expect(source, findsNothing);
+
+      await tester.tap(find.text('Markdown'));
+      await tester.pump();
+      await tester.enterText(source, '# Edited target');
+      await tester.tap(find.byKey(ValueKey('document-tab-${a.id}')));
+      await tester.pumpAndSettle();
+      await tester.tap(link);
+      await markdownIo(
+        tester,
+        () => find.text('Edited target').evaluate().isNotEmpty,
+      );
+      expect(source, findsNothing);
+      await tester.tap(find.byTooltip('Save'));
+      await markdownIo(
+        tester,
+        () => find.byTooltip('Saved locally').evaluate().isNotEmpty,
+      );
+      await tester.pumpWidget(const SizedBox());
       await tester.pumpAndSettle();
     },
   );

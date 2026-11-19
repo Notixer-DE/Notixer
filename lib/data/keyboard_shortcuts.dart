@@ -207,18 +207,6 @@ enum AppShortcut {
     LogicalKeyboardKey.keyM,
     alt: true,
   ),
-  markdownEditPreview(
-    ShortcutSection.markdown,
-    'Edit the formatted preview',
-    LogicalKeyboardKey.enter,
-    alt: true,
-  ),
-  markdownApplyDraft(
-    ShortcutSection.markdown,
-    'Apply the Markdown draft',
-    LogicalKeyboardKey.enter,
-    shift: true,
-  ),
   markdownBold(ShortcutSection.markdown, 'Bold', LogicalKeyboardKey.keyB),
   markdownItalic(ShortcutSection.markdown, 'Italic', LogicalKeyboardKey.keyI),
   markdownChecklist(

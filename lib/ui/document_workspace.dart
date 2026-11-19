@@ -24,9 +24,9 @@ class _OpenDocument {
     : controller = DocumentTabController(note.title, shortcuts: shortcuts);
   final Notebook note;
   final Uint8List bytes;
-  final String anchor;
+  final String? anchor;
   int? get initialPdfPage {
-    final page = markdownPdfPage(anchor);
+    final page = markdownPdfPage(anchor ?? '');
     return page == null ? null : page - 1;
   }
 
@@ -122,8 +122,8 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
     final existing = _tabs.indexWhere((tab) => tab.note.id == note.id);
     if (existing >= 0) {
       _select(existing);
-      if (anchor?.isNotEmpty == true) {
-        await _tabs[existing].controller.revealAnchor?.call(anchor!);
+      if (anchor != null && (anchor.isNotEmpty || note.isMarkdown)) {
+        await _tabs[existing].controller.revealAnchor?.call(anchor);
       }
       return;
     }
@@ -134,7 +134,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
       if (_selected >= 0) _tabs[_selected].controller.deactivate();
       _workspaceFocus.requestFocus();
       setState(() {
-        _tabs.add(_OpenDocument(note, bytes, anchor ?? '', _shortcuts));
+        _tabs.add(_OpenDocument(note, bytes, anchor, _shortcuts));
         _selected = _tabs.length - 1;
       });
     } catch (error) {
@@ -449,7 +449,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                                           note: _tabs[i].note,
                                           bytes: _tabs[i].bytes,
                                           repository: widget.repository,
-                                          initialAnchor: _tabs[i].anchor,
+                                          initialAnchor: _tabs[i].anchor ?? '',
                                           tabController: _tabs[i].controller,
                                           onLibrary: showLibrary,
                                         )
@@ -470,7 +470,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                                           tabController: _tabs[i].controller,
                                           initialPage: _tabs[i].initialPdfPage,
                                           initialQuery: markdownPdfQuote(
-                                            _tabs[i].anchor,
+                                            _tabs[i].anchor ?? '',
                                           ),
                                           workspaceSessions: _pdfSessions,
                                           onLibrary: showLibrary,

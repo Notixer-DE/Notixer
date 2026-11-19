@@ -37,7 +37,7 @@ class MarkdownEditorPage extends StatefulWidget {
     required this.note,
     required this.bytes,
     required this.repository,
-    this.initialAnchor = '',
+    this.initialAnchor,
     this.tabController,
     this.onLibrary,
     this.onOpenNotebook,
@@ -45,7 +45,7 @@ class MarkdownEditorPage extends StatefulWidget {
   final Notebook note;
   final Uint8List bytes;
   final LocalNotebookRepository repository;
-  final String initialAnchor;
+  final String? initialAnchor;
   final DocumentTabController? tabController;
   final Future<void> Function()? onLibrary;
   final OpenNotebookTab? onOpenNotebook;
@@ -99,7 +99,7 @@ class _LoadedMarkdownEditor extends StatefulWidget {
   final Notebook note;
   final MarkdownDocument document;
   final LocalNotebookRepository repository;
-  final String initialAnchor;
+  final String? initialAnchor;
   final DocumentTabController? tabController;
   final Future<void> Function()? onLibrary;
   final OpenNotebookTab? onOpenNotebook;
@@ -123,7 +123,6 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   String? _folder, _message;
   String _query = '';
   bool _showNotes = false, _source = false, _busy = false, _canPop = false;
-  bool _editingPreview = false;
   bool _showChrome = true;
   bool _showSidebar = true;
   double _sourceZoom = 1;
@@ -161,10 +160,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   bool _updating = false;
   Future<bool> Function()? _previousClose;
   late final Future<bool> Function() _closeHandler = _saveBeforeClose;
-  Future<bool> _saveDocument() {
-    _previewKey.currentState?.finishEditing();
-    return _session.save();
-  }
+  Future<bool> _saveDocument() => _session.save();
 
   ShortcutAction? _commandFor(AppShortcut action) {
     if (_busy || _leaving) return null;
@@ -179,12 +175,6 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       AppShortcut.outline => _outline,
       AppShortcut.toolbars => () => setState(() => _showChrome = !_showChrome),
       AppShortcut.markdownPreview => () => _setSource(!_source),
-      AppShortcut.markdownEditPreview => () async {
-        if (_source) await _setSource(false);
-        if (mounted) _togglePreviewEditing();
-      },
-      AppShortcut.markdownApplyDraft when !_source && _editingPreview =>
-        () => _previewKey.currentState?.finishEditing(),
       AppShortcut.markdownBold => () => _insert('**', '**'),
       AppShortcut.markdownItalic => () => _insert('*', '*'),
       AppShortcut.markdownChecklist => () => _insert('\n- [ ] ', '\n', 'Task'),
@@ -194,35 +184,15 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   }
 
   Future<void> _setSource(bool source) async {
-    _previewKey.currentState?.finishEditing();
     setState(() => _source = source);
     if (source) {
       _focus.requestFocus();
     } else {
       _focus.unfocus();
+      _titleFocus.unfocus();
       await _saveDocument();
       if (mounted) await _reload();
     }
-  }
-
-  void _replacePreviewText(int start, int end, String value) {
-    _text.value = TextEditingValue(
-      text: _text.text.replaceRange(start, end, value),
-      selection: TextSelection.collapsed(offset: start + value.length),
-    );
-  }
-
-  void _togglePreviewEditing() {
-    if (_editingPreview) _previewKey.currentState?.finishEditing();
-    setState(() => _editingPreview = !_editingPreview);
-  }
-
-  Future<void> _writeInPreview() async {
-    if (!_editingPreview) {
-      setState(() => _editingPreview = true);
-      await WidgetsBinding.instance.endOfFrame;
-    }
-    if (mounted) await _previewKey.currentState?.startWriting();
   }
 
   Future<bool> _saveBeforeClose() async {
@@ -311,7 +281,9 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       return KeyEventResult.handled;
     };
     _title = TextEditingController(text: widget.note.title);
-    _source = _text.text.isEmpty || _text.text == '- [ ] First task\n';
+    _source =
+        widget.initialAnchor == null &&
+        (_text.text.isEmpty || _text.text == '- [ ] First task\n');
     _previousClose = FileGateway.beforeClose;
     if (widget.tabController case final tab?) {
       tab.attach(this, save: _saveBeforeClose, anchor: _anchor);
@@ -336,10 +308,8 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     _titleFocus.addListener(_changed);
     _restoreDisplay();
     _reload();
-    if (widget.initialAnchor.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _anchor(widget.initialAnchor),
-      );
+    if (widget.initialAnchor case final anchor?) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _anchor(anchor));
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) => _restorePosition());
     }
@@ -432,7 +402,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     Navigator.pop(context);
   }
 
-  Future<void> _open(Notebook note, {String anchor = ''}) => _run(() async {
+  Future<void> _open(Notebook note, {String? anchor}) => _run(() async {
     if (!await _saveBeforeClose() || !mounted) return;
     final current = (await widget.repository.list())
         .where((n) => n.id == note.id)
@@ -441,8 +411,9 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       throw const FormatException('The note was deleted.');
     }
     note = current.single;
-    final page = note.isPdf ? markdownPdfPage(anchor) : null;
-    if (note.isPdf && anchor.isNotEmpty) {
+    final location = anchor ?? '';
+    final page = note.isPdf ? markdownPdfPage(location) : null;
+    if (note.isPdf && location.isNotEmpty) {
       if (page == null) {
         throw const FormatException(
           'Use #page= followed by a positive page number for PDF links.',
@@ -486,7 +457,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
             bytes: bytes,
             repository: widget.repository,
             initialPage: page == null ? null : page - 1,
-            initialQuery: markdownPdfQuote(anchor),
+            initialQuery: markdownPdfQuote(location),
           ),
         ),
       );
@@ -505,7 +476,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
             note: note,
             bytes: bytes,
             repository: widget.repository,
-            initialAnchor: anchor,
+            initialAnchor: location,
           ),
         ),
       );
@@ -536,7 +507,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     _source = false;
     setState(() {});
     await _reload();
-    if (anchor.isNotEmpty) {
+    if (anchor != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _anchor(anchor));
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) => _restorePosition());
@@ -577,14 +548,14 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       return;
     }
     if (note.id == _session.note.id) {
-      _anchor(uri.fragment);
+      await _anchor(uri.fragment);
     } else {
       await _open(note, anchor: uri.fragment);
     }
   }
 
   Future<void> _anchor(String anchor) async {
-    _previewKey.currentState?.finishEditing();
+    if (!mounted) return;
     if (anchor == 'edit:end') {
       setState(() => _source = true);
       _text.selection = TextSelection.collapsed(offset: _text.text.length);
@@ -620,8 +591,14 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     }
     if (_source) {
       setState(() => _source = false);
+      _focus.unfocus();
+      _titleFocus.unfocus();
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
+    }
+    if (anchor.isEmpty) {
+      if (_scroll.hasClients) _scroll.jumpTo(0);
+      return;
     }
     final found = await _previewKey.currentState?.scrollToHeading(anchor);
     if (found != true && mounted) {
@@ -634,7 +611,6 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     String after = '',
     String placeholder = 'Text',
   ]) {
-    _previewKey.currentState?.finishEditing();
     final selection = _text.selection;
     final start = selection.isValid ? selection.start : _text.text.length;
     final end = selection.isValid ? selection.end : start;
@@ -656,7 +632,6 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   }
 
   void _insertLiteral(String value) {
-    _previewKey.currentState?.finishEditing();
     final selection = _text.selection;
     final start = selection.isValid ? selection.start : _text.text.length;
     final end = selection.isValid ? selection.end : start;
@@ -684,7 +659,6 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   }
 
   Future<void> _applyTask(KnowledgeTask task) async {
-    _previewKey.currentState?.finishEditing();
     if (task.note.id != _session.note.id ||
         markdownRevision(_text.text) != task.revision ||
         !markdownOpenTasks(_text.text).any((t) => t.offset == task.offset)) {
@@ -735,7 +709,6 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   }
 
   Future<void> _outline() async {
-    _previewKey.currentState?.finishEditing();
     final headings = markdownHeadingTargets(_text.text);
     final slug = await showDialog<String>(
       context: context,
@@ -1261,7 +1234,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
           ),
         for (final note in _backlinks)
           TextButton.icon(
-            onPressed: () => _open(note),
+            onPressed: () => _open(note, anchor: ''),
             icon: const Icon(Icons.link, size: 16),
             label: Text(note.title),
           ),
@@ -1529,7 +1502,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                   controller: _title,
                                   undoController: _titleUndo,
                                   focusNode: _titleFocus,
-                                  readOnly: _busy || _leaving,
+                                  readOnly: !_source || _busy || _leaving,
                                   maxLength: 120,
                                   minLines: 1,
                                   maxLines: null,
@@ -1605,37 +1578,6 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                     ),
                                   ),
                                 ),
-                                if (!_source)
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: Wrap(
-                                      alignment: WrapAlignment.end,
-                                      spacing: 8,
-                                      children: [
-                                        TextButton.icon(
-                                          onPressed: _busy || _leaving
-                                              ? null
-                                              : _writeInPreview,
-                                          icon: const Icon(Icons.add, size: 17),
-                                          label: const Text('Write Markdown'),
-                                        ),
-                                        TextButton.icon(
-                                          onPressed: _busy || _leaving
-                                              ? null
-                                              : _togglePreviewEditing,
-                                          icon: const Icon(
-                                            Icons.edit_outlined,
-                                            size: 17,
-                                          ),
-                                          label: Text(
-                                            _editingPreview
-                                                ? 'Done editing'
-                                                : 'Edit in preview',
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
                               ],
                             ),
                           ),
@@ -1647,12 +1589,8 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                               key: _previewKey,
                               zoom: _readingZoom,
                               document: _session.document,
-                              shortcuts: widget.tabController?.shortcuts,
                               scrollController: _scroll,
                               onFollow: _follow,
-                              onEdit: _editingPreview
-                                  ? _replacePreviewText
-                                  : null,
                               onToggle: (offset, checked) {
                                 if (_busy || _leaving) return;
                                 _text.text = _text.text.replaceRange(

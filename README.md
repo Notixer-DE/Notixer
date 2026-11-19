@@ -32,7 +32,7 @@ Open **Settings → Keyboard shortcuts** to change tool and navigation bindings.
 ## Markdown
 
 - Switch between editable CommonMark/GFM source and a formatted reading view with interactive checklists.
-- Choose **Write Markdown** in the formatted view to append text. Headings, lists and inline formatting appear live below the input. Select **Apply** or press **Ctrl+Shift+Enter** to insert the text.
+- Use **Markdown** to edit the title or source. Links to Markdown notes open **Formatted**, including links to headings. Checklist boxes remain interactive in the formatted view.
 - **Tab** inserts four spaces, or indents all selected lines. **Shift+Tab** removes one indentation level. Selection direction and existing line endings are preserved.
 - In both source and formatted Markdown views, **Ctrl+Plus**, **Ctrl+Minus**, and **Ctrl+0** enlarge, reduce or reset the font. Number-pad equivalents and Cmd shortcuts are supported. Toolbar controls offer the same actions. The formatted view also supports two-finger pinch zoom. Each view retains its own zoom level; zoom does not change note contents.
 - Insert inline code or fenced code blocks. The code-block action safely wraps selections that already contain backticks.

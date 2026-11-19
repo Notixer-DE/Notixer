@@ -4,29 +4,20 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
+import 'dart:typed_data';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:markdown/markdown.dart' as md;
 
 import '../data/markdown_document.dart';
-import '../data/keyboard_shortcuts.dart';
 import 'markdown_style.dart';
 
 class _PreviewBlock {
-  _PreviewBlock(this.node, this.key, this.offsets, this.headings, this.edit);
+  _PreviewBlock(this.node, this.key, this.offsets, this.headings);
   final md.Node node;
   final String key;
   final List<int> offsets;
   final List<String> headings;
-  final _BlockEdit? edit;
 }
-
-typedef _BlockEdit = ({
-  MarkdownPreviewRange range,
-  String label,
-  String prefix,
-  String previewPrefix,
-});
 
 Object _nodeKey(md.Node node) => node is md.Element
     ? [
@@ -46,10 +37,9 @@ int _taskCount(md.Node node) => node is md.Element
           )
     : 0;
 
-List<_PreviewBlock> _parsePreview(String source, bool editable) {
+List<_PreviewBlock> _parsePreview(String source) {
   final nodes = <md.Node>[];
-  final ranges = editable ? <md.Node, MarkdownPreviewRange>{} : null;
-  for (final node in parseMarkdownForPreview(source, editableRanges: ranges)) {
+  for (final node in parseMarkdownForPreview(source)) {
     if (node is md.Element && (node.tag == 'ul' || node.tag == 'ol')) {
       var index = int.tryParse(node.attributes['start'] ?? '') ?? 1;
       for (final item in node.children!) {
@@ -82,58 +72,15 @@ List<_PreviewBlock> _parsePreview(String source, bool editable) {
         final headingCount = markdownHeadingsFromNodes([node]).length;
         final slugs = headings.sublist(heading, heading + headingCount);
         heading += headingCount;
-        final range = ranges?[node];
-        final edit = range != null
-            ? (
-                range: range,
-                label: slugs.isEmpty ? 'Paragraph' : 'Heading',
-                prefix: '',
-                previewPrefix: slugs.isNotEmpty && node is md.Element
-                    ? '${'#' * int.parse(node.tag.substring(1))} '
-                    : '',
-              )
-            : (editable && tasks.isNotEmpty
-                  ? _taskEdit(source, node, tasks.first)
-                  : null);
-        return _PreviewBlock(
-          node,
-          '$fingerprint:$occurrence',
-          tasks,
-          slugs,
-          edit,
-        );
+        return _PreviewBlock(node, '$fingerprint:$occurrence', tasks, slugs);
       })(),
   ];
 }
 
-_BlockEdit? _taskEdit(String source, md.Node node, int checkbox) {
-  if (node is! md.Element || (node.tag != 'ul' && node.tag != 'ol')) {
-    return null;
-  }
-  final item = node.children!.single;
-  if (item is! md.Element || item.attributes['class'] != 'task-list-item') {
-    return null;
-  }
-  final labelStart = checkbox + 2;
-  final newline = source.indexOf(RegExp(r'\r|\n'), labelStart);
-  final end = newline < 0 ? source.length : newline;
-  var start = labelStart;
-  while (start < end && (source[start] == ' ' || source[start] == '\t')) {
-    start++;
-  }
-  return (
-    range: (start: start, end: end, singleLine: true),
-    label: 'Checklist item',
-    prefix: start == labelStart ? ' ' : '',
-    previewPrefix: '- [${source[checkbox]}] ',
-  );
-}
-
-Future<List<_PreviewBlock>> _parseOffThread(String source, bool editable) =>
-    Isolate.run(
-      () => _parsePreview(source, editable),
-      debugName: 'noter:markdown-preview',
-    );
+Future<List<_PreviewBlock>> _parseOffThread(String source) => Isolate.run(
+  () => _parsePreview(source),
+  debugName: 'noter:markdown-preview',
+);
 
 /// Parse large documents off the UI isolate; build and retain only nearby
 /// Markdown blocks. Scrolling and save-status updates never parse the source.
@@ -145,16 +92,12 @@ class MarkdownPreview extends StatefulWidget {
     required this.scrollController,
     required this.onToggle,
     required this.onFollow,
-    this.onEdit,
-    this.shortcuts,
   });
   final MarkdownDocument document;
   final double zoom;
   final ScrollController scrollController;
   final void Function(int offset, bool checked) onToggle;
   final void Function(String href) onFollow;
-  final void Function(int start, int end, String text)? onEdit;
-  final KeyboardShortcuts? shortcuts;
   @override
   State<MarkdownPreview> createState() => MarkdownPreviewState();
 }
@@ -168,9 +111,6 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
   Future<void> get ready => _ready;
   int _generation = 0, _navigation = 0;
   String? _pendingSource, _error;
-  final _draft = TextEditingController();
-  final _appendKey = GlobalKey();
-  ({String? key, _BlockEdit edit})? _editing;
   int debugParses = 0, debugBlockBuilds = 0;
   int get debugCachedBlocks => _widgets.length;
 
@@ -189,9 +129,7 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
     );
     final zoomChanged = oldWidget.zoom != widget.zoom;
     if (assetsChanged || zoomChanged) _widgets.clear();
-    if (oldWidget.document.source != widget.document.source ||
-        (oldWidget.onEdit == null) != (widget.onEdit == null)) {
-      _editing = null;
+    if (oldWidget.document.source != widget.document.source) {
       _navigation++;
       _load();
     } else if (assetsChanged || zoomChanged) {
@@ -202,15 +140,14 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
   void _load() {
     final source = widget.document.source;
     final generation = ++_generation;
-    final editable = widget.onEdit != null;
     _pendingSource = source;
     _error = null;
     debugParses++;
     if (source.length < 16384) {
-      _install(_parsePreview(source, editable));
+      _install(_parsePreview(source));
       _ready = Future.value();
     } else {
-      _ready = _parseOffThread(source, editable)
+      _ready = _parseOffThread(source)
           .then((blocks) {
             if (mounted && generation == _generation) {
               setState(() => _install(blocks));
@@ -244,9 +181,6 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
     final indices = {for (var i = 0; i < blocks.length; i++) blocks[i].key: i};
     _delegate = SliverChildBuilderDelegate(
       (context, index) {
-        if (index == blocks.length) {
-          return KeyedSubtree(key: _appendKey, child: _appendControls());
-        }
         final block = blocks[index];
         final compactTaskSpacing =
             block.offsets.isNotEmpty &&
@@ -266,7 +200,7 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
               headingKeys: [for (final slug in block.headings) _anchors[slug]!],
               assets: widget.document.assets,
               onToggle: (offset, checked) {
-                if (_pendingSource == null && _editing == null) {
+                if (_pendingSource == null) {
                   widget.onToggle(offset, checked);
                 }
               },
@@ -277,228 +211,14 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
         while (_widgets.length > 256) {
           _widgets.remove(_widgets.keys.first);
         }
-        final edit = block.edit;
-        if (edit == null || widget.onEdit == null || _pendingSource != null) {
-          return child;
-        }
-        return KeyedSubtree(
-          key: ValueKey(block.key),
-          child: block.key == _editing?.key
-              ? _blockEditor(edit)
-              : Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: child),
-                    IconButton(
-                      tooltip: 'Edit ${edit.label.toLowerCase()} in preview',
-                      icon: const Icon(Icons.edit_outlined, size: 18),
-                      onPressed: _editing != null
-                          ? null
-                          : () => _startEdit(block.key, edit),
-                    ),
-                  ],
-                ),
-        );
+        return child;
       },
-      childCount: blocks.length + (widget.onEdit == null ? 0 : 1),
+      childCount: blocks.length,
       addAutomaticKeepAlives: false,
-      findChildIndexCallback: (key) => key == _appendKey
-          ? blocks.length
-          : key is ValueKey<String>
-          ? indices[key.value]
-          : null,
+      findChildIndexCallback: (key) =>
+          key is ValueKey<String> ? indices[key.value] : null,
     );
   }
-
-  void _startEdit(String? key, _BlockEdit edit) {
-    final range = edit.range;
-    final text = widget.document.source.substring(range.start, range.end);
-    _draft.value = TextEditingValue(
-      text: text,
-      selection: TextSelection.collapsed(offset: text.length),
-    );
-    setState(() {
-      _editing = (key: key, edit: edit);
-      _makeDelegate();
-    });
-  }
-
-  Widget _appendControls() {
-    if (_editing case (key: null, :final edit)) return _blockEditor(edit);
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        OutlinedButton.icon(
-          onPressed: _editing == null && _pendingSource == null
-              ? () => _append(task: false)
-              : null,
-          icon: const Icon(Icons.add),
-          label: const Text('Continue writing'),
-        ),
-        OutlinedButton.icon(
-          onPressed: _editing == null && _pendingSource == null
-              ? () => _append(task: true)
-              : null,
-          icon: const Icon(Icons.checklist),
-          label: const Text('Add checklist item'),
-        ),
-      ],
-    );
-  }
-
-  void _append({required bool task}) {
-    final source = widget.document.source;
-    final newline = source.contains('\r\n') ? '\r\n' : '\n';
-    final joinsList =
-        task && _blocks!.lastOrNull?.edit?.label == 'Checklist item';
-    final separator =
-        source.trim().isEmpty || source.endsWith('$newline$newline')
-        ? ''
-        : source.endsWith(newline)
-        ? (joinsList ? '' : newline)
-        : (joinsList ? newline : '$newline$newline');
-    _startEdit(null, (
-      range: (start: source.length, end: source.length, singleLine: task),
-      label: task ? 'Checklist item' : 'Paragraph',
-      prefix: '$separator${task ? '- [ ] ' : ''}',
-      previewPrefix: task ? '- [ ] ' : '',
-    ));
-  }
-
-  Future<void> startWriting() async {
-    await ready;
-    if (!mounted || widget.onEdit == null || _blocks == null) return;
-    if (_editing?.key != null) {
-      finishEditing();
-      await WidgetsBinding.instance.endOfFrame;
-      await ready;
-    }
-    final scroll = widget.scrollController;
-    if (!mounted || widget.onEdit == null || !scroll.hasClients) return;
-    if (_editing == null) _append(task: false);
-    await WidgetsBinding.instance.endOfFrame;
-    while (mounted && _editing != null && scroll.hasClients) {
-      final target = _appendKey.currentContext;
-      if (target != null && target.mounted) {
-        await Scrollable.ensureVisible(target);
-        return;
-      }
-      final position = scroll.position;
-      if (position.pixels >= position.maxScrollExtent) return;
-      scroll.jumpTo(position.maxScrollExtent);
-      await WidgetsBinding.instance.endOfFrame;
-    }
-  }
-
-  void finishEditing({bool apply = true}) {
-    final edit = _editing?.edit;
-    if (edit == null) return;
-    setState(() {
-      _editing = null;
-      _makeDelegate();
-    });
-    final range = edit.range;
-    final text = _draft.text;
-    if (apply &&
-        text != widget.document.source.substring(range.start, range.end)) {
-      widget.onEdit?.call(
-        range.start,
-        range.end,
-        text.isEmpty ? '' : '${edit.prefix}$text',
-      );
-    }
-  }
-
-  Widget _blockEditor(_BlockEdit edit) => CallbackShortcuts(
-    bindings: {
-      if (widget.shortcuts == null) ...{
-        AppShortcut.markdownApplyDraft.defaultBinding: finishEditing,
-        const SingleActivator(
-          LogicalKeyboardKey.enter,
-          shift: true,
-          meta: true,
-        ): finishEditing,
-      },
-    },
-    child: Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TextField(
-            key: const ValueKey('markdown-preview-edit'),
-            autofocus: true,
-            controller: _draft,
-            minLines: edit.range.singleLine ? 1 : 2,
-            maxLines: edit.range.singleLine ? 1 : 8,
-            decoration: InputDecoration(
-              labelText: edit.label,
-              hintText: edit.range.singleLine
-                  ? null
-                  : '# Heading, **bold**, - list',
-            ),
-            onSubmitted: edit.range.singleLine ? (_) => finishEditing() : null,
-          ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Wrap(
-              spacing: 8,
-              children: [
-                TextButton(
-                  onPressed: () => finishEditing(apply: false),
-                  child: const Text('Cancel'),
-                ),
-                Tooltip(
-                  message:
-                      widget.shortcuts?.tooltip(
-                        'Apply',
-                        AppShortcut.markdownApplyDraft,
-                      ) ??
-                      'Apply (${AppShortcut.markdownApplyDraft.defaultBinding.label})',
-                  child: FilledButton(
-                    onPressed: finishEditing,
-                    child: const Text('Apply'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          ValueListenableBuilder<TextEditingValue>(
-            valueListenable: _draft,
-            builder: (context, draft, _) {
-              if (draft.text.trim().isEmpty) return const SizedBox.shrink();
-              final source = '${edit.previewPrefix}${draft.text}';
-              final nodes = parseMarkdownForPreview(source);
-              return IgnorePointer(
-                child: Column(
-                  key: const ValueKey('markdown-draft-preview'),
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Divider(),
-                    for (final node in nodes)
-                      _MarkdownBlock(
-                        node: node,
-                        zoom: widget.zoom,
-                        offsets: const [],
-                        compactTaskSpacing: false,
-                        headingKeys: [
-                          for (final _ in markdownHeadingsFromNodes([node]))
-                            GlobalKey(),
-                        ],
-                        assets: widget.document.assets,
-                        onToggle: (_, _) {},
-                        onFollow: (_) {},
-                      ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    ),
-  );
 
   Future<bool> scrollToHeading(String slug) async {
     await ready;
@@ -538,13 +258,19 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
       ? SliverToBoxAdapter(child: Text(_error!))
       : _delegate == null
       ? const SliverToBoxAdapter(child: LinearProgressIndicator())
+      : widget.document.source.trim().isEmpty
+      ? const SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Text('This note is empty.'),
+          ),
+        )
       : SliverList(delegate: _delegate!);
 
   @override
   void dispose() {
     _generation++;
     _navigation++;
-    _draft.dispose();
     _widgets.clear();
     super.dispose();
   }
