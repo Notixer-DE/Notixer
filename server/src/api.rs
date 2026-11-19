@@ -507,6 +507,34 @@ pub async fn admin() -> loco_rs::Result<()> {
     .await?;
     let args: Vec<String> = std::env::args().skip(2).collect();
     match args.first().map(String::as_str) {
+        Some("init-admin") if args.len() == 1 => {
+            // Generate the first administrator's credentials locally and display them once.
+            // Never replace an existing account or expose credentials over HTTP.
+            let existing = db
+                .query_one_raw(stmt("SELECT username FROM admin_users LIMIT 1", vec![]))
+                .await?;
+            if existing.is_some() {
+                return Err(loco_rs::Error::Message(
+                    "An administrator already exists; refusing to overwrite credentials".into(),
+                ));
+            }
+
+            let mut random = [0u8; 32];
+            rand::rng().fill_bytes(&mut random);
+            let password = hex::encode(random);
+            let hash = crate::admin::hash_password(&password).map_err(loco_rs::Error::Message)?;
+            let inserted = db.query_one_raw(stmt(
+                "INSERT INTO admin_users(username, password_hash) VALUES($1, $2) ON CONFLICT (username) DO NOTHING RETURNING username",
+                vec!["admin".into(), hash.into()],
+            )).await?;
+            if inserted.is_none() {
+                return Err(loco_rs::Error::Message(
+                    "Administrator already exists; refusing to overwrite credentials".into(),
+                ));
+            }
+            println!("Admin username: admin");
+            println!("Admin password (shown once; store securely): {password}");
+        }
         Some("create-account") => {
             let id = Uuid::new_v4().to_string();
             db.execute_raw(stmt(
@@ -551,7 +579,7 @@ pub async fn admin() -> loco_rs::Result<()> {
         }
         _ => {
             return Err(loco_rs::Error::Message(
-                "Usage: admin create-account | add-device ACCOUNT_UUID | revoke-device DEVICE_UUID"
+                "Usage: admin init-admin | create-account | add-device ACCOUNT_UUID | revoke-device DEVICE_UUID"
                     .into(),
             ));
         }
