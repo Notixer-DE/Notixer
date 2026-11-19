@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:noter/data/markdown_document.dart';
 import 'package:noter/data/notebook.dart';
 import 'package:noter/data/paper.dart';
 import 'package:noter/main.dart';
@@ -204,6 +205,94 @@ void main() {
       ),
     );
   }
+
+  testWidgets('select mixed notes, move them and trash them together', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final (text, pdf, pdfBytes, folder) = (await tester.runAsync(() async {
+      final folder = await repository.catalog.ensureFolder('Archive');
+      final text = await repository.create(
+        'Batch text',
+        MarkdownDocument('# Keep this text\n').encode(),
+        paper: 'markdown',
+      );
+      final tagged = await repository.save(
+        text.copy(tags: ['Reference']),
+        await repository.load(text.id),
+      );
+      final pdfBytes = await createPaper('blank');
+      final pdf = await repository.create('Batch PDF', pdfBytes, paper: 'pdf');
+      return (tagged, pdf, pdfBytes, folder);
+    }))!;
+    await tester.pumpWidget(NoterApp(repository: repository));
+    await settleFileIo(
+      tester,
+      () => find.text('Batch PDF').evaluate().isNotEmpty,
+    );
+
+    await tester.longPress(find.text('Batch PDF'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 selected'), findsOneWidget);
+    await tester.tap(find.text('Batch text'));
+    await tester.pumpAndSettle();
+    expect(find.text('2 selected'), findsOneWidget);
+    await tester.tap(find.byTooltip('Move selected notes'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Archive').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Move'));
+    await settleFileIo(
+      tester,
+      () => find.byTooltip('Select notes').evaluate().isNotEmpty,
+    );
+    final moved = (await tester.runAsync(repository.list))!;
+    expect(
+      moved.where((note) => note.folderId == folder.id).map((note) => note.id),
+      unorderedEquals([text.id, pdf.id]),
+    );
+    expect(moved.singleWhere((note) => note.id == text.id).tags, ['Reference']);
+    expect(await tester.runAsync(() => repository.load(pdf.id)), pdfBytes);
+
+    await tester.enterText(find.byType(TextField), 'Batch');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Grid view'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Select notes'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Select all visible notes'));
+    await tester.pumpAndSettle();
+    expect(find.text('2 selected'), findsOneWidget);
+    expect(
+      tester.widgetList<Checkbox>(find.byType(Checkbox)).map((c) => c.value),
+      everyElement(isTrue),
+    );
+    await tester.tap(find.byTooltip('Move selected notes to trash'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('2 selected'), findsOneWidget);
+    await tester.tap(find.byTooltip('Move selected notes to trash'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await settleFileIo(
+      tester,
+      () => find.text('No matching notes found.').evaluate().isNotEmpty,
+    );
+
+    final trash = (await tester.runAsync(repository.recovery))!;
+    expect(
+      trash.map((entry) => entry.note.id),
+      unorderedEquals([text.id, pdf.id]),
+    );
+    expect(await tester.runAsync(repository.list), hasLength(1));
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'folder and tag filters combine with search',
