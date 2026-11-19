@@ -591,6 +591,16 @@ class _LibraryPageState extends State<LibraryPage> {
           shortcuts: widget.shortcuts,
           onImportFile: (onImported) => _import(onImported: onImported),
           onQuickTodo: _quickTodo,
+          onTaskPlanned: (note) async {
+            if (!mounted ||
+                _busy ||
+                _isOpen(note) ||
+                !_sync.enabled ||
+                !_sync.automatic) {
+              return;
+            }
+            await _sync.synchronize(noteId: note.id, onlyIfChanged: true);
+          },
         ),
       ),
     );

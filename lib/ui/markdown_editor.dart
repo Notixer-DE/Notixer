@@ -687,6 +687,12 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
           repository: widget.repository,
           initialSection: section,
           shortcuts: widget.tabController?.shortcuts,
+          onTaskPlanned: (note) async {
+            if (mounted && note.id == _session.note.id) {
+              _session.note = note;
+              _changed();
+            }
+          },
           onCompleteTask: (task) async {
             if (task.note.id == _session.note.id) {
               await _applyTask(task);

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
+import 'catalog.dart';
 import 'markdown_document.dart';
 import 'markdown_library.dart';
 import 'notebook.dart';
@@ -132,19 +133,27 @@ class KnowledgeTask {
     this.offset,
     this.line,
     this.text,
-    this.revision,
-  );
+    this.revision, {
+    this.canPlan = false,
+  });
   final Notebook note;
   final int offset, line;
   final String text, revision;
+  final bool canPlan;
 }
 
 String markdownRevision(String source) =>
     sha256.convert(utf8.encode(source)).toString();
-List<({int offset, int line, String text})> markdownOpenTasks(String source) {
+List<({int offset, int line, String text})> markdownOpenTasks(String source) =>
+    _openTasks(source, markdownTaskOffsets(source));
+
+List<({int offset, int line, String text})> _openTasks(
+  String source,
+  List<int> offsets,
+) {
   final tasks = <({int offset, int line, String text})>[];
   var line = 1, nextBreak = source.indexOf('\n');
-  for (final offset in markdownTaskOffsets(source)) {
+  for (final offset in offsets) {
     if (source[offset] != ' ') continue;
     while (nextBreak >= 0 && nextBreak < offset) {
       line++;
@@ -182,10 +191,12 @@ Future<
     List<({int offset, int line, String text})> tasks,
     List<({String snippet, int line})> matches,
     String revision,
+    bool singleTask,
   })
 >
 _scanMarkdown(String source, String query) => Isolate.run(() {
-  final tasks = markdownOpenTasks(source);
+  final offsets = markdownTaskOffsets(source);
+  final tasks = _openTasks(source, offsets);
   final matches = <({String snippet, int line})>[];
   if (query.isNotEmpty) {
     final lines = const LineSplitter().convert(source);
@@ -204,12 +215,38 @@ _scanMarkdown(String source, String query) => Isolate.run(() {
       }
     }
   }
-  return (tasks: tasks, matches: matches, revision: markdownRevision(source));
+  return (
+    tasks: tasks,
+    matches: matches,
+    revision: markdownRevision(source),
+    singleTask: offsets.length == 1,
+  );
 });
 
 /// Shared, local preferences. Notes, journal entries and tags remain ordinary
 /// portable notebook documents; this file contains only views and templates.
 const unsortedTodos = 'Unsorted to-dos';
+const _quickTodoTag = 'Quick to-do';
+final _dueTag = RegExp(r'^Due: (\d{4}-\d{2}-\d{2})$', caseSensitive: false);
+
+bool _isQuickTodo(Notebook note) =>
+    note.isMarkdown && note.tags.any(_isTodoTag);
+
+bool _isTodoTag(String tag) =>
+    tag.toLowerCase() == unsortedTodos.toLowerCase() ||
+    tag.toLowerCase() == _quickTodoTag.toLowerCase();
+
+String? quickTodoDueDate(Notebook note) {
+  for (final tag in note.tags) {
+    final date = _dueTag.firstMatch(tag)?[1];
+    if (date == null) continue;
+    final parsed = DateTime.tryParse(date);
+    if (parsed != null && parsed.year > 0 && journalDate(parsed) == date) {
+      return date;
+    }
+  }
+  return null;
+}
 
 class KnowledgeStore {
   KnowledgeStore(this.repository);
@@ -361,6 +398,64 @@ class KnowledgeStore {
     );
   }
 
+  Future<Notebook> planQuickTodo(
+    KnowledgeTask task, {
+    required String? projectId,
+    String? newProject,
+    required DateTime? due,
+  }) async {
+    final snapshot = await repository.snapshotForSync(task.note.id);
+    if (snapshot == null) throw const FormatException('The to-do was removed.');
+    final (current, bytes) = await LocalNotebookRepository.decodeValidated(
+      snapshot.archive,
+    );
+    final document = await decodeMarkdownAsync(bytes);
+    final offsets = markdownTaskOffsets(document.source);
+    if (!_isQuickTodo(current) ||
+        markdownRevision(document.source) != task.revision ||
+        offsets.singleOrNull != task.offset ||
+        document.source[task.offset] != ' ' ||
+        current.folderId != task.note.folderId ||
+        quickTodoDueDate(current) != quickTodoDueDate(task.note)) {
+      throw const FormatException('The to-do changed. Reload the task list.');
+    }
+    if (due != null && (due.year < 1 || due.year > 9999)) {
+      throw const FormatException('Choose a valid due date.');
+    }
+    NoteFolder? project;
+    if (newProject != null) {
+      project = await repository.catalog.ensureFolder(newProject);
+    } else if (projectId != null) {
+      project = repository.catalog.folders
+          .where((f) => f.id == projectId)
+          .firstOrNull;
+      if (project == null) {
+        throw const FormatException('The project was removed.');
+      }
+    }
+    final date = due == null ? null : journalDate(due);
+    if (project?.id == current.folderId && date == quickTodoDueDate(current)) {
+      return current;
+    }
+    // Tags keep the planning date portable across archive and client versions.
+    final updated = current.copy(
+      folderId: project?.id,
+      folderName: project?.name,
+      clearFolder: project == null,
+      modified: DateTime.now(),
+      tags: [
+        ...current.tags.where(
+          (tag) => !_isTodoTag(tag) && !_dueTag.hasMatch(tag),
+        ),
+        project == null ? unsortedTodos : _quickTodoTag,
+        if (date != null) 'Due: $date',
+      ],
+    );
+    final archive = await LocalNotebookRepository.encodeAsync(updated, bytes);
+    await repository.applySync(current.id, snapshot.raw, archive);
+    return updated;
+  }
+
   Future<Notebook> sourceNote(Notebook source, int page, String quote) async {
     if (quote.trim().isEmpty || page < 1) {
       throw const FormatException('Select PDF text first.');
@@ -385,12 +480,14 @@ class KnowledgeStore {
 
   Future<KnowledgeScan> scan(
     KnowledgeView view, {
+    bool onlyQuickTodos = false,
     bool Function()? cancelled,
     void Function(int, int)? onProgress,
   }) async {
     final notes = (await repository.list())
         .where(
           (note) =>
+              (!onlyQuickTodos || _isQuickTodo(note)) &&
               (!view.openTasks || note.isMarkdown) &&
               (view.kind == 'all' ||
                   (view.kind == 'markdown' && note.isMarkdown) ||
@@ -440,6 +537,7 @@ class KnowledgeStore {
                   task.line,
                   task.text,
                   result.revision,
+                  canPlan: result.singleTask && _isQuickTodo(note),
                 ),
               ),
             );
