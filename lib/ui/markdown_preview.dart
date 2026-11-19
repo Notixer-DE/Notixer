@@ -258,6 +258,13 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
       ? SliverToBoxAdapter(child: Text(_error!))
       : _delegate == null
       ? const SliverToBoxAdapter(child: LinearProgressIndicator())
+      : widget.document.source.trim().isEmpty
+      ? const SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Text('This note is empty.'),
+          ),
+        )
       : SliverList(delegate: _delegate!);
 
   @override

@@ -538,7 +538,7 @@ void main() {
         tester,
         () =>
             link.evaluate().isEmpty &&
-            find.byType(MarkdownPreview).evaluate().isNotEmpty,
+            find.text('This note is empty.').evaluate().isNotEmpty,
       );
       expect(source, findsNothing);
 
