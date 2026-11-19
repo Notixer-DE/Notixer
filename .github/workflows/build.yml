@@ -134,7 +134,7 @@ jobs:
           cache: true
       - name: Generate Windows Flutter runner
         shell: pwsh
-        run: flutter create --platforms=windows --project-name notixer .
+        run: ./tools/generate-windows-runner.ps1
       - name: Resolve dependencies
         shell: pwsh
         run: flutter pub get --enforce-lockfile
@@ -149,7 +149,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force release-assets | Out-Null
           $bundle = "build/windows/x64/runner/Release"
-          if (-not (Test-Path "$bundle/notixer.exe" -PathType Leaf)) { throw "Missing notixer.exe" }
+          $executable = Get-Item -LiteralPath "$bundle/notixer.exe" -ErrorAction Stop
+          if ($executable.VersionInfo.ProductName -ne 'noter') { throw 'Windows storage identity changed' }
+          if ($executable.VersionInfo.OriginalFilename -ne 'notixer.exe') { throw 'Unexpected Windows executable name in version info' }
           Compress-Archive -Path "$bundle/*" -DestinationPath "release-assets/notixer_${env:APP_VERSION}_build-${env:BUILD_NUMBER}_windows-x64.zip"
       - uses: actions/upload-artifact@v4
         with:
