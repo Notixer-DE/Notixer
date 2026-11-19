@@ -7,6 +7,8 @@ import '../data/knowledge.dart';
 import '../data/keyboard_shortcuts.dart';
 import '../data/library_backup.dart';
 import '../data/notebook.dart';
+import 'noter_theme.dart';
+import 'workspace_chrome.dart';
 
 class KnowledgePage extends StatefulWidget {
   const KnowledgePage({
@@ -365,7 +367,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
   Widget _results() {
     final scan = _scan;
     final filtersVisible =
-        _filtersExpanded ?? MediaQuery.sizeOf(context).width >= 900;
+        _filtersExpanded ?? NoterTheme.desktopControls(context);
     final activeFilters = [
       _kind != 'all',
       _tag.isNotEmpty,
@@ -1064,83 +1066,195 @@ class _KnowledgePageState extends State<KnowledgePage> {
     child: _buildPage(),
   );
 
-  Widget _buildPage() => Scaffold(
-    appBar: AppBar(
-      title: const Text('Knowledge hub'),
-      actions: [
-        IconButton(
-          tooltip: 'Quick capture',
-          onPressed: _busy ? null : _capture,
-          icon: const Icon(Icons.note_add_outlined),
+  static const _primarySections = [
+    ('Search', Icons.search),
+    ('Tasks', Icons.checklist),
+    ('Journal', Icons.calendar_today_outlined),
+  ];
+  static const _otherSections = [
+    ('Inbox', Icons.inbox_outlined),
+    ('Tags', Icons.sell_outlined),
+    ('Views', Icons.bookmark_border),
+    ('Templates', Icons.dashboard_customize_outlined),
+    ('Backups', Icons.backup_outlined),
+  ];
+
+  Widget _sectionTile(String title, IconData icon, VoidCallback? onTap) =>
+      ListTile(
+        key: ValueKey('knowledge-section-$title'),
+        title: Text(title),
+        leading: Icon(icon, size: 20),
+        selected: _section == title,
+        selectedTileColor: NoterTheme.active,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+        onTap: onTap,
+      );
+
+  Widget _sectionList(List<Widget> children, {bool shrinkWrap = false}) =>
+      ListTileTheme(
+        data: ListTileThemeData(
+          minLeadingWidth: 18,
+          horizontalTitleGap: 10,
+          dense: NoterTheme.desktopControls(context),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+          titleTextStyle: Theme.of(context).textTheme.bodyMedium,
         ),
-        IconButton(
-          tooltip: 'Reload',
-          onPressed: _busy ? null : _load,
-          icon: const Icon(Icons.refresh),
+        child: ListView(
+          padding: const EdgeInsets.all(12),
+          shrinkWrap: shrinkWrap,
+          children: children,
+        ),
+      );
+
+  Widget _sidebar() => SizedBox(
+    width: 220,
+    child: WorkspaceSidebar(
+      key: const ValueKey('knowledge-sidebar'),
+      child: Material(
+        color: Colors.white,
+        child: _sectionList([
+          for (final (title, icon) in _primarySections)
+            _sectionTile(
+              title,
+              icon,
+              _busy ? null : () => _selectSection(title),
+            ),
+          const Divider(),
+          for (final (title, icon) in _otherSections)
+            _sectionTile(
+              title,
+              icon,
+              _busy ? null : () => _selectSection(title),
+            ),
+        ]),
+      ),
+    ),
+  );
+
+  Future<void> _openSections() async {
+    final section = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        top: false,
+        child: _sectionList([
+          for (final (title, icon) in _otherSections)
+            _sectionTile(title, icon, () => Navigator.pop(context, title)),
+        ], shrinkWrap: true),
+      ),
+    );
+    if (mounted && !_busy && section != null) _selectSection(section);
+  }
+
+  Widget _bottomNavigation() {
+    final index = _primarySections.indexWhere((entry) => entry.$1 == _section);
+    return NavigationBar(
+      labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
+      selectedIndex: index == -1 ? _primarySections.length : index,
+      onDestinationSelected: (index) {
+        if (_busy) return;
+        if (index == _primarySections.length) {
+          unawaited(_openSections());
+        } else {
+          _selectSection(_primarySections[index].$1);
+        }
+      },
+      destinations: [
+        for (final (title, icon) in _primarySections)
+          NavigationDestination(
+            key: ValueKey('knowledge-section-$title'),
+            enabled: !_busy,
+            icon: Icon(icon),
+            label: title,
+          ),
+        NavigationDestination(
+          key: const ValueKey('knowledge-more-sections'),
+          enabled: !_busy,
+          icon: const Icon(Icons.more_horiz),
+          label: index == -1 ? _section : 'More',
+          tooltip: 'More sections',
         ),
       ],
-    ),
-    body: SafeArea(
-      child: Column(
-        children: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.all(8),
-            child: Row(
-              children: [
-                for (final section in [
-                  'Search',
-                  'Tasks',
-                  'Journal',
-                  'Inbox',
-                  'Tags',
-                  'Views',
-                  'Templates',
-                  'Backups',
-                ])
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      label: Text(section),
-                      selected: _section == section,
-                      onSelected: _busy ? null : (_) => _selectSection(section),
-                    ),
-                  ),
-              ],
-            ),
+    );
+  }
+
+  Widget _buildPage() {
+    final desktop = NoterTheme.desktopControls(context);
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Knowledge hub'),
+        toolbarHeight: NoterTheme.headerHeight(context),
+        actions: [
+          IconButton(
+            tooltip: 'Quick capture',
+            onPressed: _busy ? null : _capture,
+            icon: const Icon(Icons.note_add_outlined),
           ),
-          if (_busy) const LinearProgressIndicator(),
-          if (_searching)
-            TextButton(
-              onPressed: _cancelRequested
-                  ? null
-                  : () => setState(() => _cancelRequested = true),
-              child: Text(
-                _cancelRequested ? 'Finishing current file…' : 'Cancel search',
-              ),
-            ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.all(8),
-              child: Text(
-                _error!,
-                maxLines: 4,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ),
-          Expanded(
-            child: switch (_section) {
-              'Journal' => _journal(),
-              'Tags' => _tags(),
-              'Templates' => _templates(),
-              'Views' => _views(),
-              'Backups' => _backupPage(),
-              _ => _results(),
-            },
+          IconButton(
+            tooltip: 'Reload',
+            onPressed: _busy ? null : _load,
+            icon: const Icon(Icons.refresh),
           ),
         ],
       ),
-    ),
+      bottomNavigationBar: desktop ? null : _bottomNavigation(),
+      body: SafeArea(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (desktop) _sidebar(),
+            Expanded(
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1000),
+                  child: _sectionBody(),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sectionBody() => Column(
+    children: [
+      if (_busy) const LinearProgressIndicator(),
+      if (_searching)
+        TextButton(
+          onPressed: _cancelRequested
+              ? null
+              : () => setState(() => _cancelRequested = true),
+          child: Text(
+            _cancelRequested ? 'Finishing current file…' : 'Cancel search',
+          ),
+        ),
+      if (_error != null)
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: Text(
+            _error!,
+            maxLines: 4,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ),
+      Expanded(
+        child: KeyedSubtree(
+          key: ValueKey(_section),
+          child: switch (_section) {
+            'Journal' => _journal(),
+            'Tags' => _tags(),
+            'Templates' => _templates(),
+            'Views' => _views(),
+            'Backups' => _backupPage(),
+            _ => _results(),
+          },
+        ),
+      ),
+    ],
   );
 }

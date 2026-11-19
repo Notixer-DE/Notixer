@@ -25,6 +25,27 @@ Future<void> waitKnowledge(WidgetTester tester, bool Function() ready) async {
   fail('Knowledge operation did not finish.');
 }
 
+Future<void> openSection(WidgetTester tester, String section) async {
+  final destination = find.byKey(ValueKey('knowledge-section-$section'));
+  if (destination.evaluate().isEmpty) {
+    await tester.tap(find.byKey(const ValueKey('knowledge-more-sections')));
+    await tester.pumpAndSettle();
+    if (destination.evaluate().isEmpty) {
+      await tester.scrollUntilVisible(
+        destination,
+        100,
+        scrollable: find.descendant(
+          of: find.byType(BottomSheet),
+          matching: find.byType(Scrollable),
+        ),
+      );
+    }
+  }
+  await tester.ensureVisible(destination);
+  await tester.tap(destination);
+  await tester.pumpAndSettle();
+}
+
 void main() {
   late Directory directory;
   late LocalNotebookRepository repository;
@@ -93,7 +114,12 @@ void main() {
     FileGateway.workspaceBeforeClose = null;
   });
 
-  for (final size in [const Size(390, 844), const Size(1200, 900)]) {
+  for (final (size, platform) in const [
+    (Size(390, 844), TargetPlatform.android),
+    (Size(844, 390), TargetPlatform.android),
+    (Size(1024, 1000), TargetPlatform.android),
+    (Size(1200, 900), TargetPlatform.linux),
+  ]) {
     testWidgets(
       'hub tasks can be completed and sections fit at width ${size.width}',
       (tester) async {
@@ -114,6 +140,14 @@ void main() {
           tester,
           () => find.text('Read the chapter').evaluate().isNotEmpty,
         );
+        expect(
+          find.byKey(const ValueKey('knowledge-sidebar')),
+          platform == TargetPlatform.linux ? findsOneWidget : findsNothing,
+        );
+        expect(
+          find.byType(NavigationBar),
+          platform == TargetPlatform.linux ? findsNothing : findsOneWidget,
+        );
         expect(find.text('Finished'), findsNothing);
         await tester.tap(find.byType(Checkbox).first);
         await waitKnowledge(
@@ -132,14 +166,12 @@ void main() {
           'Backups',
           'Search',
         ]) {
-          final chip = find.widgetWithText(ChoiceChip, section);
-          await tester.ensureVisible(chip);
-          await tester.tap(chip);
-          await tester.pumpAndSettle();
+          await openSection(tester, section);
           expect(tester.takeException(), isNull);
         }
         await tester.pumpWidget(const SizedBox());
       },
+      variant: TargetPlatformVariant.only(platform),
     );
   }
   testWidgets('renaming a selected tag leaves search filters valid', (
@@ -161,8 +193,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Inbox').last);
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Tags'));
-    await tester.pumpAndSettle();
+    await openSection(tester, 'Tags');
     await tester.tap(find.text('#Inbox'));
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextField, 'Name'), 'Captured');
@@ -171,9 +202,7 @@ void main() {
       tester,
       () => find.text('#Captured').evaluate().isNotEmpty,
     );
-    await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'Search'));
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Search'));
-    await tester.pumpAndSettle();
+    await openSection(tester, 'Search');
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
