@@ -21,21 +21,21 @@ A self-hosted synchronization server for Notixer using Loco/Rust, PostgreSQL and
    curl --fail http://127.0.0.1:5150/api/v1/health
    ```
 
-3. The API binds to `127.0.0.1:5150` by default. To connect other devices, place a reverse proxy with a valid TLS certificate in front of it. Support streaming, request bodies of at least **4 MiB + 28 bytes**, and suitable upload timeouts. Avoid logging Authorization headers or request bodies, and configure rate limits.
+3. Once the health check succeeds, initialize the dashboard administrator:
+
+   ```sh
+   docker compose exec server noter-server admin init-admin
+   ```
+
+   The command creates the `admin` account and displays a randomly generated password once. Save it and use it to sign in at `/admin`. If an administrator already exists, the command exits without overwriting the credentials.
+
+4. The API binds to `127.0.0.1:5150` by default. To connect other devices, place a reverse proxy with a valid TLS certificate in front of it. Support streaming, request bodies of at least **4 MiB + 28 bytes**, and suitable upload timeouts. Avoid logging Authorization headers or request bodies, and configure rate limits.
 
    For deliberate LAN tests without TLS, enable **Allow HTTP for this new connection** in the app. Device tokens and connection metadata are then unencrypted in transit. Use HTTPS for production.
 
 ## Accounts and devices
 
-Public registration is disabled. To set up the admin dashboard, initialize the `admin` account after the server is healthy.
-
-```sh
-docker compose exec server noter-server admin init-admin
-```
-
-The command displays a randomly generated password once. Save it and sign in at `/admin`. If an administrator already exists, the command exits without overwriting the credentials.
-
-Manage sync accounts and device access in the dashboard or with the server CLI.
+Public registration is disabled. Manage sync accounts and device access in the dashboard or with the server CLI.
 
 ```sh
 docker compose exec server noter-server admin create-account
