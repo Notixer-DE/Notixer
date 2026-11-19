@@ -129,10 +129,12 @@ sudo apt install ./dist/noter_1.3.0_amd64.deb
 ### Windows (x64)
 
 ```powershell
-flutter create --platforms=windows --project-name noter .
+flutter create --platforms=windows --project-name notixer .
 flutter pub get --enforce-lockfile
 flutter build windows --release --no-pub
 ```
+
+The runner builds `build/windows/x64/runner/Release/notixer.exe`.
 
 ### Performance probes
 
