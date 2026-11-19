@@ -8,6 +8,7 @@ import 'markdown_document.dart';
 import 'markdown_library.dart';
 import 'notebook.dart';
 import 'pdf_search.dart';
+import 'todo_list.dart';
 
 typedef KnowledgeDestination = ({Notebook note, String anchor});
 
@@ -194,34 +195,42 @@ Future<
     bool singleTask,
   })
 >
-_scanMarkdown(String source, String query) => Isolate.run(() {
-  final offsets = markdownTaskOffsets(source);
-  final tasks = _openTasks(source, offsets);
-  final matches = <({String snippet, int line})>[];
-  if (query.isNotEmpty) {
-    final lines = const LineSplitter().convert(source);
-    for (var i = 0; i < lines.length && matches.length < 50; i++) {
-      if (lines[i].toLowerCase().contains(query.toLowerCase())) {
-        final line = lines[i];
-        final offset = line.toLowerCase().indexOf(query.toLowerCase());
-        final start = (offset - 60).clamp(0, line.length);
-        matches.add((
-          snippet: line.substring(
-            start,
-            (offset + query.length + 120).clamp(start, line.length),
+_scanMarkdown(String source, String query, {required bool plainTasks}) =>
+    Isolate.run(() {
+      final offsets = markdownTaskOffsets(source);
+      final tasks = [
+        for (final task in _openTasks(source, offsets))
+          (
+            offset: task.offset,
+            line: task.line,
+            text: plainTasks ? todoItemText(task.text) : task.text,
           ),
-          line: i + 1,
-        ));
+      ];
+      final matches = <({String snippet, int line})>[];
+      if (query.isNotEmpty) {
+        final lines = const LineSplitter().convert(source);
+        for (var i = 0; i < lines.length && matches.length < 50; i++) {
+          final line = plainTasks ? todoItemText(lines[i]) : lines[i];
+          if (line.toLowerCase().contains(query.toLowerCase())) {
+            final offset = line.toLowerCase().indexOf(query.toLowerCase());
+            final start = (offset - 60).clamp(0, line.length);
+            matches.add((
+              snippet: line.substring(
+                start,
+                (offset + query.length + 120).clamp(start, line.length),
+              ),
+              line: i + 1,
+            ));
+          }
+        }
       }
-    }
-  }
-  return (
-    tasks: tasks,
-    matches: matches,
-    revision: markdownRevision(source),
-    singleTask: offsets.length == 1,
-  );
-});
+      return (
+        tasks: tasks,
+        matches: matches,
+        revision: markdownRevision(source),
+        singleTask: offsets.length == 1,
+      );
+    });
 
 /// Shared, local preferences. Notes, journal entries and tags remain ordinary
 /// portable notebook documents; this file contains only views and templates.
@@ -230,7 +239,7 @@ const _quickTodoTag = 'Quick to-do';
 final _dueTag = RegExp(r'^Due: (\d{4}-\d{2}-\d{2})$', caseSensitive: false);
 
 bool _isQuickTodo(Notebook note) =>
-    note.isMarkdown && note.tags.any(_isTodoTag);
+    note.isMarkdown && !note.isTodoList && note.tags.any(_isTodoTag);
 
 bool _isTodoTag(String tag) =>
     tag.toLowerCase() == unsortedTodos.toLowerCase() ||
@@ -525,6 +534,7 @@ class KnowledgeStore {
           final result = await _scanMarkdown(
             document.source,
             view.query.trim(),
+            plainTasks: note.isTodoList,
           );
           if (view.query.trim().isEmpty ||
               note.title.toLowerCase().contains(view.query.toLowerCase()) ||

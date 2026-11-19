@@ -21,6 +21,7 @@ import '../sync/notebook_sync.dart' show SettingsConflictNote;
 import 'editor.dart';
 import 'noter_theme.dart';
 import 'markdown_preview.dart';
+import 'todo_list_page.dart';
 import 'markdown_source_edit.dart';
 import 'workspace_chrome.dart';
 import 'document_tab.dart';
@@ -492,6 +493,23 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       // The PDF editor owns the desktop close handler while its route is open.
       FileGateway.beforeClose = _closeHandler;
       await _reload();
+      return;
+    }
+    if (note.isTodoList) {
+      final bytes = await widget.repository.load(note.id);
+      if (!mounted) return;
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => TodoListPage(
+            note: note,
+            bytes: bytes,
+            repository: widget.repository,
+            initialAnchor: anchor,
+          ),
+        ),
+      );
+      if (mounted) await _reload();
       return;
     }
     final document = await decodeMarkdownAsync(

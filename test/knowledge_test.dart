@@ -10,6 +10,7 @@ import 'package:noter/data/markdown_document.dart';
 import 'package:noter/data/markdown_library.dart';
 import 'package:noter/data/notebook.dart';
 import 'package:noter/data/paper.dart';
+import 'package:noter/data/todo_list.dart';
 import 'package:noter/sync/notebook_sync.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'sync_scenarios.dart' show MemoryRemote;
@@ -28,6 +29,61 @@ void main() {
     await repository.flush();
     await directory.delete(recursive: true);
   });
+
+  test(
+    'to-do list identity and literal tasks survive sync, archive import, and backup',
+    () async {
+      final todo = await createTodoList(repository, 'Supplies');
+      expect(todo.isTodoList, isTrue);
+      const task = 'Buy [tea] *and* coffee';
+      final source = appendTodoItem(appendTodoItem('', task), 'Pick up mail');
+      expect(todoListItems(source).map((item) => item.text), [
+        task,
+        'Pick up mail',
+      ]);
+      await repository.save(todo, MarkdownDocument(source).encode());
+      final scan = await store.scan(
+        const KnowledgeView('', openTasks: true, query: '[tea]'),
+      );
+      expect(scan.hits.single.snippet, task);
+      final open = scan.tasksByLocation['${todo.id}:line=1']!;
+      expect(open.canPlan, isFalse);
+      await store.completeTask(open);
+
+      final remote = MemoryRemote();
+      final second = LocalNotebookRepository(
+        Directory('${directory.path}/second'),
+      );
+      await NotebookSync(repository, remote).run();
+      await NotebookSync(second, remote).run();
+      final imported = await second.importArchive(
+        await repository.exportArchive(todo),
+      );
+      final restoredRepo = LocalNotebookRepository(
+        Directory('${directory.path}/restored'),
+      );
+      final restored = (await LibraryBackup(
+        restoredRepo,
+      ).restore(await LibraryBackup(repository).snapshot())).single;
+      for (final (repo, note) in [
+        (
+          second,
+          (await second.list()).singleWhere((note) => note.id == todo.id),
+        ),
+        (second, imported),
+        (restoredRepo, restored),
+      ]) {
+        expect(note.isTodoList, isTrue);
+        final items = todoListItems(
+          MarkdownDocument.decode(await repo.load(note.id)).source,
+        );
+        expect(items.map((item) => (item.text, item.done)), [
+          (task, true),
+          ('Pick up mail', false),
+        ]);
+      }
+    },
+  );
 
   test(
     'quick to-do plans survive sync and backup without changing the checklist',

@@ -38,6 +38,9 @@ List<int> _metadataBytes(Notebook note) {
 }
 
 class Notebook {
+  // The immediate parent survives archive import, sync conflicts and restore.
+  static const todoListDirectory = 'notixer-todo-lists';
+
   const Notebook({
     required this.id,
     required this.title,
@@ -59,6 +62,10 @@ class Notebook {
   final LearningProgress learning;
   final String? linkPath;
   bool get isMarkdown => paper == 'markdown';
+  bool get isTodoList =>
+      isMarkdown &&
+      linkPath != null &&
+      p.posix.basename(p.posix.dirname(linkPath!)) == todoListDirectory;
   MediaFormat? get mediaFormat =>
       paper.startsWith('media:') ? MediaFormat.of(paper.substring(6)) : null;
   bool get isMedia => mediaFormat != null;
