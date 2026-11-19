@@ -82,8 +82,11 @@ class _TodoListEditorState extends State<_TodoListEditor> {
   late final Future<bool> Function() _closeHandler = _session.save;
   TodoListPage get _page => widget.page;
   String get _source => _session.document.source;
-  double get _rowHeight =>
-      math.max(64.0, MediaQuery.textScalerOf(context).scale(16) * 2.6 + 18);
+  double get _rowHeight {
+    final style = Theme.of(context).textTheme.bodyMedium!;
+    final fontSize = MediaQuery.textScalerOf(context).scale(style.fontSize!);
+    return math.max(44.0, fontSize * (style.height ?? 1.4) * 2 + 3);
+  }
 
   @override
   void initState() {
@@ -334,8 +337,12 @@ class _TodoListEditorState extends State<_TodoListEditor> {
                                   selected: _selectedLine == item.line,
                                   selectedTileColor: NoterTheme.active,
                                   contentPadding: EdgeInsets.zero,
+                                  dense: true,
+                                  minVerticalPadding: 0,
+                                  horizontalTitleGap: 6,
                                   leading: Checkbox(
                                     value: item.done,
+                                    visualDensity: VisualDensity.compact,
                                     semanticLabel: item.text,
                                     onChanged: _leaving
                                         ? null
@@ -349,15 +356,18 @@ class _TodoListEditorState extends State<_TodoListEditor> {
                                         : item.text,
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
-                                    style: item.done
-                                        ? const TextStyle(
-                                            decoration:
-                                                TextDecoration.lineThrough,
-                                          )
-                                        : null,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium!
+                                        .copyWith(
+                                          decoration: item.done
+                                              ? TextDecoration.lineThrough
+                                              : null,
+                                        ),
                                   ),
                                   trailing: IconButton(
                                     tooltip: 'Edit task',
+                                    visualDensity: VisualDensity.compact,
                                     onPressed: _leaving
                                         ? null
                                         : () => _edit(item),

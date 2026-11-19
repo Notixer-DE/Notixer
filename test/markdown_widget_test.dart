@@ -759,6 +759,19 @@ void main() {
     await tester.tap(find.byTooltip('Add task'));
     await tester.pump();
     final second = find.widgetWithText(ListTile, 'Collect a parcel');
+    final first = find.widgetWithText(ListTile, 'Buy [tea]');
+    expect(tester.getSize(first).height, lessThanOrEqualTo(46));
+    expect(
+      tester.getTopLeft(second).dy - tester.getTopLeft(first).dy,
+      lessThanOrEqualTo(46),
+    );
+    tester.platformDispatcher.textScaleFactorTestValue = 2;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await tester.pump();
+    expect(tester.getSize(first).height, greaterThan(60));
+    expect(tester.takeException(), isNull);
+    tester.platformDispatcher.clearTextScaleFactorTestValue();
+    await tester.pump();
     await tester.tap(
       find.descendant(of: second, matching: find.byTooltip('Edit task')),
     );

@@ -124,13 +124,17 @@ flutter build apk --release
 bash tools/build-android.sh
 ```
 
+The packaging script writes `dist/notixer_<version>_preview.apk`. The release APK retains the Android application ID so existing installations can update in place.
+
 ### Debian 13 (amd64)
 
 ```sh
 sudo apt-get install clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev
 bash tools/build-deb.sh
-sudo apt install ./dist/noter_1.3.0_amd64.deb
+sudo apt install ./dist/notixer_1.3.0_amd64.deb
 ```
+
+Installing the `notixer` package replaces the previous `noter` package and keeps the existing notebooks. Launch it from the app menu or run `notixer`.
 
 ### Windows (x64)
 
