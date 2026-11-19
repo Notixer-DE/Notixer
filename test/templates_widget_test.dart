@@ -126,6 +126,7 @@ void main() {
       () async => repository.templates.save('Seminar', await templateFixture()),
     );
     await tester.pumpWidget(NoterApp(repository: repository));
+    final newNote = find.widgetWithText(FilledButton, 'New note');
     await settleFileIo(
       tester,
       () =>
@@ -133,14 +134,9 @@ void main() {
               .text('0 notes · Most recently modified first')
               .evaluate()
               .isNotEmpty &&
-          tester
-                  .widget<FloatingActionButton>(
-                    find.byType(FloatingActionButton),
-                  )
-                  .onPressed !=
-              null,
+          tester.widget<FilledButton>(newNote).onPressed != null,
     );
-    await tester.tap(find.byTooltip('New note'));
+    await tester.tap(newNote);
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'Meine Kopie');
     await tester.tap(find.text('Choose template'));
