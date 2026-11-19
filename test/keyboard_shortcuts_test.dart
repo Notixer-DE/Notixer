@@ -15,6 +15,7 @@ import 'package:noter/ui/keyboard_settings.dart';
 import 'package:noter/ui/knowledge_page.dart';
 import 'package:noter/ui/library.dart';
 import 'package:noter/ui/markdown_editor.dart';
+import 'package:noter/ui/markdown_preview.dart';
 
 import 'widget_test.dart' show settleFileIo;
 
@@ -218,7 +219,7 @@ void main() {
       await _controlAlt(tester, LogicalKeyboardKey.keyM);
       await settleFileIo(
         tester,
-        () => find.text('Edit in preview').evaluate().isNotEmpty,
+        () => find.byType(MarkdownPreview).evaluate().isNotEmpty,
       );
       await _control(tester, LogicalKeyboardKey.keyF);
       await settleFileIo(tester, () => pickerOpens == 1);

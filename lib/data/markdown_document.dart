@@ -401,87 +401,9 @@ class _Tasks implements md.NodeVisitor {
   void visitText(md.Text text) => _merge(_offset(text.text));
 }
 
-typedef MarkdownPreviewRange = ({int start, int end, bool singleLine});
-
-// The Markdown parser handles fences, nested blocks and reference definitions.
-// Keep offsets only for the original top-level lines it actually consumes.
-class _PreviewLine extends md.Line {
-  _PreviewLine(super.content, this.start, this.end, this.previousEnd);
-  final int start, end, previousEnd;
-}
-
-class _PreviewParagraph extends md.ParagraphSyntax {
-  _PreviewParagraph(this.ranges);
-  final Map<md.Node, MarkdownPreviewRange> ranges;
-
-  @override
-  md.Node? parse(md.BlockParser parser) {
-    final first = parser.current;
-    final node = super.parse(parser);
-    if (node != null && parser.parentSyntax == null && first is _PreviewLine) {
-      final end = parser.isDone
-          ? (parser.lines.last as _PreviewLine).end
-          : (parser.current as _PreviewLine).previousEnd;
-      ranges[node] = (start: first.start, end: end, singleLine: false);
-    }
-    return node;
-  }
-}
-
-class _PreviewHeading extends md.HeaderSyntax {
-  _PreviewHeading(this.ranges);
-  final Map<md.Node, MarkdownPreviewRange> ranges;
-
-  @override
-  md.Node parse(md.BlockParser parser) {
-    final line = parser.current;
-    final node = super.parse(parser);
-    if (parser.parentSyntax == null && line is _PreviewLine) {
-      final content = node.textContent;
-      final opening = RegExp(r'^ {0,3}#{1,6}[ \t]+').firstMatch(line.content);
-      if (content.isNotEmpty && opening != null) {
-        final at = line.content.indexOf(content, opening.end);
-        if (at >= 0) {
-          ranges[node] = (
-            start: line.start + at,
-            end: line.start + at + content.length,
-            singleLine: true,
-          );
-        }
-      }
-    }
-    return node;
-  }
-}
-
-class _PreviewSetextHeading extends md.SetextHeaderSyntax {
-  _PreviewSetextHeading(this.ranges);
-  final Map<md.Node, MarkdownPreviewRange> ranges;
-
-  @override
-  md.Node? parse(md.BlockParser parser) {
-    final first = parser.linesToConsume.first, underline = parser.current;
-    final node = super.parse(parser);
-    if (node != null &&
-        parser.parentSyntax == null &&
-        first is _PreviewLine &&
-        underline is _PreviewLine) {
-      ranges[node] = (
-        start: first.start,
-        end: underline.previousEnd,
-        singleLine: true,
-      );
-    }
-    return node;
-  }
-}
-
 /// Adapt the GFM AST without rewriting the source. Move loose-list checkboxes
 /// out of the first paragraph so the widget builder recognizes them.
-List<md.Node> parseMarkdownForPreview(
-  String source, {
-  Map<md.Node, MarkdownPreviewRange>? editableRanges,
-}) {
+List<md.Node> parseMarkdownForPreview(String source) {
   var emptyMarker = '\uE000noter-empty\uE001';
   while (source.contains(emptyMarker)) {
     emptyMarker += 'x';
@@ -514,46 +436,11 @@ List<md.Node> parseMarkdownForPreview(
         }
       }
     }
-    final cleaned = md.Element(node.tag, children)
-      ..attributes.addAll(node.attributes);
-    final range = editableRanges?.remove(node);
-    if (range != null) editableRanges![cleaned] = range;
-    return cleaned;
+    return md.Element(node.tag, children)..attributes.addAll(node.attributes);
   }
 
   final lines = const LineSplitter().convert(source);
-  if (editableRanges == null) {
-    return parseMarkdown(lines.map(mark).join('\n')).map(clean).toList();
-  }
-  final original = md.Document(extensionSet: md.ExtensionSet.gitHubFlavored);
-  final syntaxes = md.BlockParser([], original).blockSyntaxes;
-  final parser = md.Document(
-    blockSyntaxes: [
-      for (final syntax in syntaxes)
-        switch (syntax) {
-          md.ParagraphSyntax() => _PreviewParagraph(editableRanges),
-          md.HeaderSyntax() => _PreviewHeading(editableRanges),
-          md.SetextHeaderSyntax() => _PreviewSetextHeading(editableRanges),
-          _ => syntax,
-        },
-    ],
-    withDefaultBlockSyntaxes: false,
-    inlineSyntaxes: [
-      WikiLinkSyntax(),
-      ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
-    ],
-    encodeHtml: false,
-  );
-  var start = 0, previousEnd = 0;
-  final positioned = <md.Line>[];
-  for (final line in lines) {
-    final end = start + line.length;
-    positioned.add(_PreviewLine(mark(line), start, end, previousEnd));
-    previousEnd = start = end;
-    if (start < source.length && source.codeUnitAt(start) == 13) start++;
-    if (start < source.length && source.codeUnitAt(start) == 10) start++;
-  }
-  return parser.parseLineList(positioned).map(clean).toList();
+  return parseMarkdown(lines.map(mark).join('\n')).map(clean).toList();
 }
 
 /// PDF destinations use one-based page numbers in portable Markdown links.
