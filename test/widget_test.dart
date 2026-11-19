@@ -163,34 +163,17 @@ void main() {
               .evaluate()
               .isNotEmpty,
         );
-        expect(
-          scenario.name != 'desktop'
-              ? find.byTooltip('New note')
-              : find.text('New note'),
-          findsOneWidget,
-        );
-        expect(
-          scenario.name != 'desktop'
-              ? find.byTooltip('Library actions')
-              : find.text('Import file'),
-          findsOneWidget,
-        );
+        expect(find.text('New note'), findsOneWidget);
+        expect(find.text('Import file'), findsOneWidget);
+        expect(find.byTooltip('Library actions'), findsOneWidget);
+        expect(find.byType(NavigationBar), findsNothing);
         expect(
           Theme.of(tester.element(find.byType(TextField))).colorScheme.primary,
           NoterTheme.accent,
         );
         // Previews remain available in an explicitly chosen grid; the default
         // library now uses compact file rows.
-        if (scenario.name != 'desktop') {
-          await tester.tap(find.byTooltip('Library actions'));
-          await tester.pumpAndSettle();
-          final gridView = find.text('Grid view');
-          await tester.ensureVisible(gridView);
-          await tester.pumpAndSettle();
-          await tester.tap(gridView);
-        } else {
-          await tester.tap(find.byTooltip('Grid view'));
-        }
+        await tester.tap(find.byTooltip('Grid view'));
         await tester.pumpAndSettle();
         await tester.scrollUntilVisible(
           find.byType(NotebookPreview),
@@ -263,6 +246,16 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('No matching notes found.'), findsOneWidget);
+      final tagFilter = find.widgetWithText(InputChip, '#Mathsmatics');
+      expect(tagFilter, findsOneWidget);
+      await tester.tap(
+        find.descendant(
+          of: tagFilter,
+          matching: find.byTooltip('Clear tag filter'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tagFilter, findsNothing);
       expect(tester.takeException(), isNull);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.linux),
@@ -294,9 +287,7 @@ void main() {
       );
       expect(find.text('Your space for thoughts.'), findsNothing);
       expect(find.byType(SliverGrid), findsNothing);
-      await tester.tap(find.byTooltip('Library actions'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Grid view'));
+      await tester.tap(find.byTooltip('Grid view'));
       await tester.pumpAndSettle();
       final grid = tester.widget<SliverGrid>(find.byType(SliverGrid));
       expect(
@@ -304,7 +295,7 @@ void main() {
             .crossAxisCount,
         2,
       );
-      await tester.tap(find.byType(NavigationDestination).at(1));
+      await tester.tap(find.byTooltip('Show folders'));
       await tester.pumpAndSettle();
       await tester.tap(
         find.descendant(
@@ -330,10 +321,12 @@ void main() {
         find.text('2 notes · Most recently modified first'),
         findsOneWidget,
       );
+      expect(find.text('Import file'), findsOneWidget);
       await tester.tap(find.byTooltip('Library actions'));
       await tester.pumpAndSettle();
-      expect(find.text('Import file'), findsOneWidget);
       expect(find.text('Search PDFs'), findsOneWidget);
+      expect(find.text('Manage folders'), findsNothing);
+      expect(find.text('Quick capture'), findsNothing);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();

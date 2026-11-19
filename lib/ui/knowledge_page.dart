@@ -1286,10 +1286,9 @@ class _KnowledgePageState extends State<KnowledgePage> {
     ('Search', Icons.search),
     ('Tasks', Icons.checklist),
     ('Journal', Icons.calendar_today_outlined),
+    ('Inbox', Icons.inbox_outlined),
   ];
   static const _otherSections = [
-    (unsortedTodos, Icons.playlist_add_check),
-    ('Inbox', Icons.inbox_outlined),
     ('Tags', Icons.sell_outlined),
     ('Views', Icons.bookmark_border),
     ('Templates', Icons.dashboard_customize_outlined),
@@ -1414,11 +1413,12 @@ class _KnowledgePageState extends State<KnowledgePage> {
             onPressed: _busy ? null : _quickTodo,
             icon: const Icon(Icons.playlist_add),
           ),
-          IconButton(
-            tooltip: 'Quick capture',
-            onPressed: _busy ? null : _capture,
-            icon: const Icon(Icons.note_add_outlined),
-          ),
+          if (_section == 'Inbox')
+            IconButton(
+              tooltip: 'Quick capture',
+              onPressed: _busy ? null : _capture,
+              icon: const Icon(Icons.note_add_outlined),
+            ),
           IconButton(
             tooltip: 'Reload',
             onPressed: _busy ? null : _reload,

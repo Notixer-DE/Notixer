@@ -638,10 +638,6 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         active.key.currentState?.toggleSinglePage();
       case 'addPage':
         await _addPage();
-      case 'textSelect':
-        active.key.currentState?.selectText();
-      case 'image':
-        await _image();
       case 'paste':
         active.key.currentState?.normalTool();
         session.editing.pasteAnnotations(
@@ -668,10 +664,6 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         await _closeSide();
       case 'loupe':
         active.key.currentState?.toggleLoupe();
-      case 'lasso':
-        active.key.currentState?.toggleLasso();
-      case 'tape':
-        active.key.currentState?.toggleTape();
       case 'learn':
         active.key.currentState?.toggleLearning();
       case 'reveal':
@@ -858,37 +850,14 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                   enabled: !_busy,
                   onSelected: _action,
                   itemBuilder: (_) => [
-                    CheckedPopupMenuItem(
-                      value: 'finger',
-                      checked: session.preferences.fingerDrawsInk,
-                      child: const Text('Finger drawing'),
-                    ),
-                    CheckedPopupMenuItem(
-                      value: 'singlePage',
-                      checked: active.key.currentState?.singlePage ?? false,
-                      child: const Text('Single-page view'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'addPage',
-                      child: Text('Add page'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'textSelect',
-                      child: Text('Select and highlight text'),
-                    ),
                     const PopupMenuItem(
                       value: 'search',
                       child: Text('Search PDF'),
                     ),
                     const PopupMenuItem(
-                      value: 'image',
-                      child: Text('Insert image'),
+                      value: 'addPage',
+                      child: Text('Add page'),
                     ),
-                    if (session.editing.hasAnnotationClipboard)
-                      const PopupMenuItem(
-                        value: 'paste',
-                        child: Text('Paste selection'),
-                      ),
                     const PopupMenuItem(
                       value: 'pages',
                       child: Text('Manage pages'),
@@ -905,29 +874,30 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                       value: 'notebookTemplate',
                       child: Text('Save note as template'),
                     ),
+                    if (session.editing.hasAnnotationClipboard)
+                      const PopupMenuItem(
+                        value: 'paste',
+                        child: Text('Paste selection'),
+                      ),
+                    const PopupMenuDivider(),
+                    CheckedPopupMenuItem(
+                      value: 'finger',
+                      checked: session.preferences.fingerDrawsInk,
+                      child: const Text('Finger drawing'),
+                    ),
                     const PopupMenuItem(
-                      value: 'lasso',
-                      child: Text('Lasso selection'),
+                      value: 'presets',
+                      child: Text('Edit pen presets'),
                     ),
                     const PopupMenuItem(
                       value: 'loupe',
                       child: Text('Writing magnifier'),
                     ),
-                    const PopupMenuItem(
-                      value: 'tape',
-                      child: Text('Draw study cover'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'learn',
-                      child: Text('Toggle study mode'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'reveal',
-                      child: Text('Reveal all'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'cover',
-                      child: Text('Hide all'),
+                    const PopupMenuDivider(),
+                    CheckedPopupMenuItem(
+                      value: 'singlePage',
+                      checked: active.key.currentState?.singlePage ?? false,
+                      child: const Text('Single-page view'),
                     ),
                     const PopupMenuItem(
                       value: 'split',
@@ -943,10 +913,21 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                         child: Text('Close second view'),
                       ),
                     ],
-                    const PopupMenuItem(
-                      value: 'presets',
-                      child: Text('Edit pen presets'),
+                    const PopupMenuDivider(),
+                    CheckedPopupMenuItem(
+                      value: 'learn',
+                      checked: active.key.currentState?.learningActive ?? false,
+                      child: const Text('Study mode'),
                     ),
+                    const PopupMenuItem(
+                      value: 'reveal',
+                      child: Text('Reveal all study covers'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'cover',
+                      child: Text('Hide all study covers'),
+                    ),
+                    const PopupMenuDivider(),
                     const PopupMenuItem(
                       value: 'pdf',
                       child: Text('Export as PDF'),

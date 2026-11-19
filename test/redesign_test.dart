@@ -292,12 +292,12 @@ void main() {
             findsNothing,
             reason: 'Compact rows are the default',
           );
-          if (find.byTooltip('Hide sidebar').evaluate().isNotEmpty) {
+          if (find.byTooltip('Hide folders').evaluate().isNotEmpty) {
             expect(find.byType(WorkspaceSidebar), findsOneWidget);
-            await tester.tap(find.byTooltip('Hide sidebar'));
+            await tester.tap(find.byTooltip('Hide folders'));
             await tester.pumpAndSettle();
             expect(find.byType(WorkspaceSidebar), findsNothing);
-            await tester.tap(find.byTooltip('Show sidebar'));
+            await tester.tap(find.byTooltip('Show folders'));
             await tester.pumpAndSettle();
             expect(find.byType(WorkspaceSidebar), findsOneWidget);
           }

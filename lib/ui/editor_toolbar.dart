@@ -110,14 +110,17 @@ class EditorToolbar extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  scrollDirection: Axis.horizontal,
+                child: _ScrollableTools(
                   children: [
                     tool(
                       'Undo',
                       Icons.undo,
                       editing.canUndo ? editing.undo : null,
+                    ),
+                    tool(
+                      'Redo',
+                      Icons.redo,
+                      editing.canRedo ? editing.redo : null,
                     ),
                     tool(
                       'Select text',
@@ -141,25 +144,6 @@ class EditorToolbar extends StatelessWidget {
                       selected: normal && editing.tool == PdfEditTool.highlight,
                     ),
                     tool(
-                      'Straight strokes (ruler)',
-                      Icons.straighten,
-                      () async {
-                        try {
-                          await catalog.drawingPreferences
-                              .toggleStraightStrokes();
-                        } catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Could not save ruler mode: $e'),
-                              ),
-                            );
-                          }
-                        }
-                      },
-                      selected: catalog.drawingPreferences.straightStrokes,
-                    ),
-                    tool(
                       'Eraser',
                       Icons.auto_fix_normal,
                       () => onTool(PdfEditTool.eraser),
@@ -180,6 +164,25 @@ class EditorToolbar extends StatelessWidget {
                       () => onTool(PdfEditTool.select),
                       shortcut: AppShortcut.pdfSelect,
                       selected: normal && editing.tool == PdfEditTool.select,
+                    ),
+                    tool(
+                      'Straight strokes (ruler)',
+                      Icons.straighten,
+                      () async {
+                        try {
+                          await catalog.drawingPreferences
+                              .toggleStraightStrokes();
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Could not save ruler mode: $e'),
+                              ),
+                            );
+                          }
+                        }
+                      },
+                      selected: catalog.drawingPreferences.straightStrokes,
                     ),
                     const ToolbarSeparator(),
                     for (var i = 0; i < catalog.presets.length; i++)
@@ -251,11 +254,6 @@ class EditorToolbar extends StatelessWidget {
                       selected:
                           tapeActive && editing.tool == PdfEditTool.select,
                     ),
-                    tool(
-                      'Redo',
-                      Icons.redo,
-                      editing.canRedo ? editing.redo : null,
-                    ),
                   ],
                 ),
               ),
@@ -289,6 +287,38 @@ class EditorToolbar extends StatelessWidget {
         ),
       );
     },
+  );
+}
+
+class _ScrollableTools extends StatefulWidget {
+  const _ScrollableTools({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  State<_ScrollableTools> createState() => _ScrollableToolsState();
+}
+
+class _ScrollableToolsState extends State<_ScrollableTools> {
+  final _scroll = ScrollController();
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scrollbar(
+    controller: _scroll,
+    thumbVisibility: true,
+    scrollbarOrientation: ScrollbarOrientation.bottom,
+    child: ListView(
+      controller: _scroll,
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+      children: widget.children,
+    ),
   );
 }
 

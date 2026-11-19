@@ -16,12 +16,6 @@ class LibraryNavigation extends StatelessWidget {
     required this.onFolder,
     required this.onTag,
     required this.onManage,
-    required this.onTrash,
-    required this.onSync,
-    this.onKnowledge,
-    this.onJournal,
-    this.onTasks,
-    this.onCapture,
   });
 
   final List<Notebook> notes;
@@ -29,8 +23,7 @@ class LibraryNavigation extends StatelessWidget {
   final String? folder, tag;
   final bool enabled;
   final ValueChanged<String?> onFolder, onTag;
-  final VoidCallback onManage, onTrash, onSync;
-  final VoidCallback? onKnowledge, onJournal, onTasks, onCapture;
+  final VoidCallback onManage;
 
   @override
   Widget build(BuildContext context) {
@@ -73,18 +66,6 @@ class LibraryNavigation extends StatelessWidget {
                   ),
                 ),
               ),
-              for (final item in [
-                ('Knowledge hub', Icons.manage_search, onKnowledge),
-                ('Journal', Icons.calendar_today_outlined, onJournal),
-                ('All open tasks', Icons.checklist, onTasks),
-                ('Quick capture', Icons.note_add_outlined, onCapture),
-              ])
-                if (item.$3 != null)
-                  ListTile(
-                    leading: Icon(item.$2),
-                    title: Text(item.$1),
-                    onTap: enabled ? item.$3 : null,
-                  ),
               entry('All notes', Icons.grid_view_outlined, null, notes.length),
               entry(
                 'Unfiled',
@@ -146,28 +127,6 @@ class LibraryNavigation extends StatelessWidget {
                   ],
                 ),
               ],
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 20),
-                child: Divider(),
-              ),
-              ListTile(
-                leading: const Icon(Icons.delete_outline),
-                title: const Text(
-                  'Trash',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                onTap: enabled ? onTrash : null,
-              ),
-              ListTile(
-                leading: const Icon(Icons.cloud_sync_outlined),
-                title: const Text(
-                  'Sync',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                onTap: enabled ? onSync : null,
-              ),
             ],
           ),
         ),

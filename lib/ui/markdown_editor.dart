@@ -1695,10 +1695,6 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                           onSelected: (value) {
                             if (value == 'knowledge') {
                               _knowledge('Search');
-                            } else if (value == 'journal') {
-                              _knowledge('Journal');
-                            } else if (value == 'tasks') {
-                              _knowledge('Tasks');
                             } else if (value == 'outline') {
                               _outline();
                             } else if (value == 'template') {
@@ -1715,21 +1711,14 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                           },
                           itemBuilder: (_) => const [
                             PopupMenuItem(
-                              value: 'knowledge',
-                              child: Text('Knowledge hub'),
-                            ),
-                            PopupMenuItem(
-                              value: 'journal',
-                              child: Text('Journal'),
-                            ),
-                            PopupMenuItem(
-                              value: 'tasks',
-                              child: Text('All open tasks'),
-                            ),
-                            PopupMenuItem(
                               value: 'outline',
                               child: Text('Outline'),
                             ),
+                            PopupMenuItem(
+                              value: 'organize',
+                              child: Text('Folders and tags'),
+                            ),
+                            PopupMenuDivider(),
                             PopupMenuItem(
                               value: 'template',
                               child: Text('Insert Markdown template'),
@@ -1738,14 +1727,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                               value: 'save-template',
                               child: Text('Save as Markdown template'),
                             ),
-                            PopupMenuItem(
-                              value: 'graph',
-                              child: Text('Graph view'),
-                            ),
-                            PopupMenuItem(
-                              value: 'organize',
-                              child: Text('Folders and tags'),
-                            ),
+                            PopupMenuDivider(),
                             PopupMenuItem(
                               value: 'md',
                               child: Text('Export Markdown (.md)'),
@@ -1753,12 +1735,21 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                             PopupMenuItem(
                               value: 'bundle',
                               child: Text(
-                                'With linked notes and images (.zip)',
+                                'Export with links and images (.zip)',
                               ),
                             ),
                             PopupMenuItem(
                               value: 'rescue',
                               child: Text('Export Notixer backup'),
+                            ),
+                            PopupMenuDivider(),
+                            PopupMenuItem(
+                              value: 'knowledge',
+                              child: Text('Knowledge hub'),
+                            ),
+                            PopupMenuItem(
+                              value: 'graph',
+                              child: Text('Graph view'),
                             ),
                           ],
                         ),

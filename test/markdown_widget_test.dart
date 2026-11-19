@@ -723,7 +723,7 @@ void main() {
       tester,
       () => find.text('My text note').evaluate().isNotEmpty,
     );
-    await tester.tap(find.byTooltip('New note'));
+    await tester.tap(find.widgetWithText(FilledButton, 'New note'));
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextField, 'Title'), 'Errands');
     await tester.tap(find.byType(DropdownButtonFormField<String>));
