@@ -114,7 +114,9 @@ void main() {
       tester,
       () => find.text('Other deleted note').evaluate().isNotEmpty,
     );
-    final empty = find.byTooltip('Empty trash');
+    final empty = find.byWidgetPredicate(
+      (widget) => widget is IconButton && widget.tooltip == 'Empty trash',
+    );
     await tester.tap(empty);
     await tester.pumpAndSettle();
     expect(find.text('Empty trash?'), findsOneWidget);
