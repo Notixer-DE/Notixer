@@ -195,10 +195,11 @@ Future<void> main() async {
     WidgetsBinding.instance.rootElement!.visitChildren(visit);
     pane!.selectText();
     await pause();
+    const selection = 'geometrically';
     final text = PdfTextExtractor.extract(pane!.editing.document, 0);
     final rect = pane!.viewer.globalRectOf(
       0,
-      text.findAll('Linearkombination').single.rects.single,
+      text.findAll(selection).single.rects.single,
     )!;
     WidgetsBinding.instance.handlePointerEvent(
       PointerDownEvent(pointer: 30, position: rect.center),
@@ -208,7 +209,7 @@ Future<void> main() async {
       PointerUpEvent(pointer: 30, position: rect.center),
     );
     await capture('editor');
-    if (!pane!.viewer.selectedText.contains('Linearkombination')) {
+    if (!pane!.viewer.selectedText.contains(selection)) {
       throw StateError('Native text selection failed');
     }
     navigator.currentState!.push(

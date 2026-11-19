@@ -1166,7 +1166,6 @@ class _KnowledgePageState extends State<KnowledgePage> {
   Widget _bottomNavigation() {
     final index = _primarySections.indexWhere((entry) => entry.$1 == _section);
     return NavigationBar(
-      labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
       selectedIndex: index == -1 ? _primarySections.length : index,
       onDestinationSelected: (index) {
         if (_busy) return;
