@@ -93,6 +93,7 @@ class _LibraryPageState extends State<LibraryPage> {
     super.initState();
     if (widget.workspaceController case final workspace?) {
       workspace.refresh = _refresh;
+      workspace.syncQuickTodos = _syncQuickTodos;
       workspace.commands = {
         AppShortcut.knowledgeSearch: () => _knowledge(autofocusSearch: true),
         AppShortcut.importFile: _import,
@@ -172,6 +173,12 @@ class _LibraryPageState extends State<LibraryPage> {
     };
   }
 
+  Future<void> _syncQuickTodos() async {
+    if (mounted && !_busy && _sync.enabled && _sync.automatic) {
+      await _sync.synchronizePreferences();
+    }
+  }
+
   Future<void> _syncSettings() async {
     if (_hasOpenDocuments) return;
     await _perform(() async {
@@ -210,6 +217,7 @@ class _LibraryPageState extends State<LibraryPage> {
   @override
   void dispose() {
     widget.workspaceController?.refresh = null;
+    widget.workspaceController?.syncQuickTodos = null;
     widget.workspaceController?.commands = const {};
     _sync.removeListener(_syncChanged);
     MediaGateway.recoveredCapture.removeListener(_captureRecovered);
@@ -223,7 +231,19 @@ class _LibraryPageState extends State<LibraryPage> {
   Future<void> _refresh() async {
     try {
       await widget.repository.catalog.load();
-      final notes = await widget.repository.list();
+      var notes = await widget.repository.list();
+      String? migrationWarning;
+      try {
+        final migrated = await KnowledgeStore(widget.repository)
+            .migrateQuickTodos(
+              notes,
+              isOpen: (id) => widget.isNotebookOpen?.call(id) ?? false,
+            );
+        if (migrated) notes = await widget.repository.list();
+      } catch (error) {
+        notes = await widget.repository.list();
+        migrationWarning = 'Could not move older quick to-dos: $error';
+      }
       final captures = MediaGateway.canCapture
           ? await MediaGateway.pendingCaptures()
           : const <String>[];
@@ -241,7 +261,7 @@ class _LibraryPageState extends State<LibraryPage> {
           }
           _loading = false;
           _error = widget.repository.readErrors.isEmpty
-              ? widget.repository.catalog.loadWarning
+              ? migrationWarning ?? widget.repository.catalog.loadWarning
               : 'Some note files could not be read: ${widget.repository.readErrors.join(', ')}';
         });
       }
@@ -602,15 +622,15 @@ class _LibraryPageState extends State<LibraryPage> {
           shortcuts: widget.shortcuts,
           onImportFile: (onImported) => _import(onImported: onImported),
           onQuickTodo: _quickTodo,
+          onQuickTodosChanged: _syncQuickTodos,
           onTaskPlanned: (note) async {
-            if (!mounted ||
-                _busy ||
-                _isOpen(note) ||
-                !_sync.enabled ||
-                !_sync.automatic) {
-              return;
+            if (mounted &&
+                !_busy &&
+                _sync.enabled &&
+                _sync.automatic &&
+                !_isOpen(note)) {
+              await _sync.synchronize(noteId: note.id, onlyIfChanged: true);
             }
-            await _sync.synchronize(noteId: note.id, onlyIfChanged: true);
           },
         ),
       ),

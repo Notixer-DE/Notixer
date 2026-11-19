@@ -24,6 +24,7 @@ class KnowledgePage extends StatefulWidget {
     this.onImportFile,
     this.onQuickTodo,
     this.onTaskPlanned,
+    this.onQuickTodosChanged,
   });
   final LocalNotebookRepository repository;
   final String initialSection;
@@ -34,6 +35,7 @@ class KnowledgePage extends StatefulWidget {
   final Future<void> Function(VoidCallback onImported)? onImportFile;
   final Future<bool> Function()? onQuickTodo;
   final Future<void> Function(Notebook)? onTaskPlanned;
+  final Future<void> Function()? onQuickTodosChanged;
   @override
   State<KnowledgePage> createState() => _KnowledgePageState();
 }
@@ -389,6 +391,11 @@ class _KnowledgePageState extends State<KnowledgePage> {
 
   Future<void> _complete(KnowledgeTask task) async {
     await _work(() async {
+      if (task.quickTodo != null) {
+        await _store.completeTask(task);
+        if (mounted) await widget.onQuickTodosChanged?.call();
+        return;
+      }
       if (!await FileGateway.prepareClose()) {
         throw const FormatException(
           'Save open documents before changing a task.',
@@ -407,7 +414,9 @@ class _KnowledgePageState extends State<KnowledgePage> {
     final added =
         await (widget.onQuickTodo?.call() ??
             showQuickTodoDialog(context, widget.repository));
-    if (mounted && added) _selectSection(unsortedTodos);
+    if (!mounted || !added) return;
+    if (widget.onQuickTodo == null) await widget.onQuickTodosChanged?.call();
+    if (mounted) _selectSection(unsortedTodos);
   }
 
   Future<void> _planTodo(KnowledgeTask task) async {
@@ -420,7 +429,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
     );
     if (!mounted || plan == null) return;
     await _work(() async {
-      if (!await FileGateway.prepareClose()) {
+      if (task.quickTodo == null && !await FileGateway.prepareClose()) {
         throw const FormatException(
           'Save open documents before changing a task.',
         );
@@ -430,10 +439,15 @@ class _KnowledgePageState extends State<KnowledgePage> {
         projectId: plan.projectId,
         newProject: plan.newProject,
         due: plan.due,
+        text: plan.text,
       );
       if (!mounted) return;
-      await FileGateway.refreshOpenDocuments?.call();
-      if (mounted) await widget.onTaskPlanned?.call(note);
+      if (note == null) {
+        await widget.onQuickTodosChanged?.call();
+      } else {
+        await FileGateway.refreshOpenDocuments?.call();
+        if (mounted) await widget.onTaskPlanned?.call(note);
+      }
     });
     if (mounted && _error == null) await _search();
   }
@@ -453,7 +467,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
         _TaskView.projects =>
           project != null &&
               (selected.isEmpty || hit.note.folderId == selected),
-        _TaskView.today => switch (quickTodoDueDate(hit.note)) {
+        _TaskView.today => switch (task!.due) {
           final String due => due.compareTo(today) <= 0,
           null => false,
         },
@@ -462,9 +476,8 @@ class _KnowledgePageState extends State<KnowledgePage> {
     }).toList();
     if (_taskView == _TaskView.today) {
       hits.sort((a, b) {
-        final date = quickTodoDueDate(
-          a.note,
-        )!.compareTo(quickTodoDueDate(b.note)!);
+        final date = scan.tasksByLocation['${a.note.id}:${a.anchor}']!.due!
+            .compareTo(scan.tasksByLocation['${b.note.id}:${b.anchor}']!.due!);
         return date == 0 ? b.note.modified.compareTo(a.note.modified) : date;
       });
     }
@@ -502,7 +515,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
             : ''}';
     if (task?.canPlan != true) return source;
     final project = widget.repository.catalog.folderName(hit.note.folderId);
-    final due = quickTodoDueDate(hit.note);
+    final due = task!.due;
     final details = [
       if (hit.note.title != hit.snippet) hit.note.title,
       ?project,
@@ -818,7 +831,11 @@ class _KnowledgePageState extends State<KnowledgePage> {
                         icon: const Icon(Icons.edit_calendar_outlined),
                       )
                     : null,
-                onTap: _busy ? null : () => _open(hit.note, hit.anchor),
+                onTap: _busy
+                    ? null
+                    : task?.quickTodo != null
+                    ? () => _planTodo(task!)
+                    : () => _open(hit.note, hit.anchor),
               );
             },
           ),
@@ -1189,7 +1206,9 @@ class _KnowledgePageState extends State<KnowledgePage> {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
-                            'Restored ${notes.length} files as copies.',
+                            notes.isEmpty
+                                ? 'Restored library data.'
+                                : 'Restored library data and ${notes.length} file copies.',
                           ),
                         ),
                       );

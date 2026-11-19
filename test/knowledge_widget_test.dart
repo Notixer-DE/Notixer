@@ -81,12 +81,12 @@ void main() {
       )).tasks;
       final now = DateTime.now();
       await store.planQuickTodo(
-        tasks.singleWhere((task) => task.note.id == overdue.id),
+        tasks.singleWhere((task) => task.quickTodo?.id == overdue.id),
         projectId: null,
         due: DateUtils.addDaysToDate(now, -1),
       );
       await store.planQuickTodo(
-        tasks.singleWhere((task) => task.note.id == future.id),
+        tasks.singleWhere((task) => task.quickTodo?.id == future.id),
         projectId: null,
         due: DateUtils.addDaysToDate(now, 1),
       );
@@ -233,21 +233,14 @@ void main() {
       tester,
       () => find.text('No open unsorted to-dos.').evaluate().isNotEmpty,
     );
-    (Notebook, MarkdownDocument)? savedTodo;
-    final read = repository.list().then((notes) async {
-      final saved = notes.singleWhere(
-        (note) => note.tags.contains(unsortedTodos),
-      );
-      savedTodo = (
-        saved,
-        MarkdownDocument.decode(await repository.load(saved.id)),
-      );
-    });
-    await waitKnowledge(tester, () => savedTodo != null);
-    await read;
-    final (saved, document) = savedTodo!;
-    expect(saved.title, 'Send the meeting notes');
-    expect(document.source, '- [x] Send the meeting notes\n');
+    final notes = await tester.runAsync(repository.list);
+    expect(notes!.map((note) => note.id), [note.id]);
+    final savedTodo = await tester.runAsync(
+      () async =>
+          (await KnowledgeStore(repository).quickTodos.read()).values.single,
+    );
+    expect(savedTodo!.text, 'Send the meeting notes');
+    expect(savedTodo.done, isTrue);
     await tester.pumpWidget(const SizedBox());
   });
 

@@ -685,12 +685,25 @@ class LocalNotebookRepository implements NotebookRepository {
   }
 
   /// Purging a trash item also removes its local history, never server revisions.
-  Future<void> purgeTrash(String id) => _serialize(() async {
-    final file = _recoveryFile(id, null);
-    if (await file.exists()) await file.delete();
-    final history = Directory(p.join(directory.path, '.history', id));
-    if (await history.exists()) await history.delete(recursive: true);
-  });
+  Future<void> purgeTrash(String id) => purgeTrashItems([id]);
+
+  /// Delete only the entries already shown when the user confirmed the purge.
+  Future<void> purgeTrashItems(Iterable<String> ids) {
+    final entries = {for (final id in ids) id: _recoveryFile(id, null)};
+    return _serialize(() async {
+      for (final entry in entries.entries) {
+        if (!await entry.value.exists()) continue;
+        // A remote change may have brought this document back since deletion.
+        if (!await _file(entry.key).exists()) {
+          final history = Directory(
+            p.join(directory.path, '.history', entry.key),
+          );
+          if (await history.exists()) await history.delete(recursive: true);
+        }
+        await entry.value.delete();
+      }
+    });
+  }
 
   Future<void> clearHistory(String id) => _serialize(() async {
     _file(id);

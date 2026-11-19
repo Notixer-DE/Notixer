@@ -462,6 +462,8 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                                           tabController: _tabs[i].controller,
                                           onLibrary: showLibrary,
                                           onOpenNotebook: openNotebook,
+                                          onQuickTodosChanged: () async =>
+                                              _library.syncQuickTodos?.call(),
                                         )
                                       : EditorPage(
                                           note: _tabs[i].note,

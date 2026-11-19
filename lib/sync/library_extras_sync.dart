@@ -10,6 +10,7 @@ import '../data/ink.dart';
 import '../data/knowledge.dart';
 import '../data/markdown_document.dart';
 import '../data/notebook.dart';
+import '../data/quick_todos.dart';
 import '../data/templates.dart';
 import 'notebook_sync.dart';
 import 'sync_revision.dart';
@@ -26,6 +27,7 @@ class LibraryExtrasSync {
       'extra_${sha256.convert(utf8.encode('$kind:$key'))}';
   static const _files = [
     '.knowledge.json',
+    QuickTodoStore.fileName,
     '.library.json',
     '.drawing-preferences.json',
     '.reading-positions.json',
@@ -225,7 +227,7 @@ class LibraryExtrasSync {
   }
 
   Future<SyncReport> _run({required bool onlyIfChanged}) async {
-    onProgress?.call('Checking templates and preferences …');
+    onProgress?.call('Checking quick to-dos, templates and preferences …');
     await repository.catalog.load();
     await repository.catalog.readingPositions.load();
     await repository.flush();
@@ -351,6 +353,17 @@ class LibraryExtrasSync {
         preferRemote: knowledge.automaticBackups,
       );
     }
+    final quickTodos = QuickTodoStore(repository.directory);
+    for (final todo in QuickTodoStore.decode(
+      before[QuickTodoStore.fileName],
+    ).values) {
+      await value(
+        'quick-todo',
+        todo.id,
+        todo.withProject(repository.catalog.folderName(todo.project)).toJson(),
+        title: 'Quick to-do',
+      );
+    }
     if (before['.library.json'] != null) {
       for (final folder in repository.catalog.folders) {
         await value('folder', folder.name.toLowerCase(), folder.name);
@@ -433,6 +446,7 @@ class LibraryExtrasSync {
       // Unset optional values are not deletions. In-app resets explicitly write
       // their defaults; corrupt/missing device files must not erase other devices.
       if (kind.startsWith('.') ||
+          kind == 'quick-todo' ||
           kind == 'preset' ||
           ((kind == 'markdown' || kind == 'knowledge' || kind == 'view') &&
               before['.knowledge.json'] == null) ||
@@ -499,6 +513,7 @@ class LibraryExtrasSync {
     }
     final nextTemplates = <MarkdownTemplate>[];
     final nextViews = <KnowledgeView>[];
+    final remoteTodos = <String, QuickTodo>{};
     final settings = <String, Map<String, dynamic>>{
       for (final name in [
         '.drawing-preferences.json',
@@ -557,7 +572,13 @@ class LibraryExtrasSync {
         continue;
       }
       final data = jsonDecode(document.source);
-      if (record.kind == 'view') {
+      if (record.kind == 'quick-todo') {
+        final todo = QuickTodo.fromJson(record.key, data);
+        final current = remoteTodos[todo.id];
+        if (current == null || todo.supersedes(current)) {
+          remoteTodos[todo.id] = todo;
+        }
+      } else if (record.kind == 'view') {
         hasKnowledge = true;
         final map = Map<String, dynamic>.from(data as Map);
         map['name'] = conflict ? record.note.title : record.key;
@@ -653,6 +674,15 @@ class LibraryExtrasSync {
         await repository.catalog.removeFolder(folder.id);
       }
     }
+    final localTodos = <String, QuickTodo>{};
+    for (final todo in remoteTodos.values) {
+      final project = todo.project?.toLowerCase();
+      final folder = repository.catalog.folders
+          .where((folder) => folder.name.toLowerCase() == project)
+          .firstOrNull;
+      localTodos[todo.id] = todo.withProject(folder?.id);
+    }
+    await quickTodos.applySync(before[QuickTodoStore.fileName], localTodos);
     if (hasKnowledge) {
       knowledge.templates = nextTemplates;
       knowledge.views = nextViews;
@@ -681,6 +711,8 @@ class LibraryExtrasSync {
       if (data is! String || data.trim().isEmpty || data.length > 1024) {
         throw const FormatException('Invalid folder.');
       }
+    } else if (kind == 'quick-todo') {
+      QuickTodo.fromJson(key, data);
     } else if (kind == 'view') {
       KnowledgeView.fromJson(Map<String, dynamic>.from(data as Map));
     } else if (kind == 'preset') {
