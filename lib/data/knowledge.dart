@@ -209,6 +209,8 @@ _scanMarkdown(String source, String query) => Isolate.run(() {
 
 /// Shared, local preferences. Notes, journal entries and tags remain ordinary
 /// portable notebook documents; this file contains only views and templates.
+const unsortedTodos = 'Unsorted to-dos';
+
 class KnowledgeStore {
   KnowledgeStore(this.repository);
   final LocalNotebookRepository repository;
@@ -339,6 +341,23 @@ class KnowledgeStore {
         tags: const ['Inbox'],
       ),
       MarkdownDocument(source).encode(),
+    );
+  }
+
+  Future<Notebook> addQuickTodo(String text) async {
+    final task = text.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
+    if (task.isEmpty) throw const FormatException('Enter a to-do.');
+    final now = DateTime.now();
+    return repository.save(
+      Notebook(
+        id: LocalNotebookRepository.newId(),
+        title: task,
+        paper: 'markdown',
+        created: now,
+        modified: now,
+        tags: const [unsortedTodos],
+      ),
+      MarkdownDocument('- [ ] $task\n').encode(),
     );
   }
 

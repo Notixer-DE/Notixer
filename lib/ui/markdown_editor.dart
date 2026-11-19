@@ -182,6 +182,8 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
         if (_source) await _setSource(false);
         if (mounted) _togglePreviewEditing();
       },
+      AppShortcut.markdownApplyDraft when !_source && _editingPreview =>
+        () => _previewKey.currentState?.finishEditing(),
       AppShortcut.markdownBold => () => _insert('**', '**'),
       AppShortcut.markdownItalic => () => _insert('*', '*'),
       AppShortcut.markdownChecklist => () => _insert('\n- [ ] ', '\n', 'Task'),
@@ -212,6 +214,14 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   void _togglePreviewEditing() {
     if (_editingPreview) _previewKey.currentState?.finishEditing();
     setState(() => _editingPreview = !_editingPreview);
+  }
+
+  Future<void> _writeInPreview() async {
+    if (!_editingPreview) {
+      setState(() => _editingPreview = true);
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    if (mounted) await _previewKey.currentState?.startWriting();
   }
 
   Future<bool> _saveBeforeClose() async {
@@ -1574,28 +1584,32 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                 if (!_source)
                                   Align(
                                     alignment: Alignment.centerRight,
-                                    child: TextButton.icon(
-                                      onPressed: _busy || _leaving
-                                          ? null
-                                          : _togglePreviewEditing,
-                                      icon: const Icon(
-                                        Icons.edit_outlined,
-                                        size: 17,
-                                      ),
-                                      label: Text(
-                                        _editingPreview
-                                            ? 'Done editing'
-                                            : 'Edit in preview',
-                                      ),
-                                    ),
-                                  ),
-                                if (!_source &&
-                                    !_editingPreview &&
-                                    _text.text.isEmpty)
-                                  const Padding(
-                                    padding: EdgeInsets.all(24),
-                                    child: Text(
-                                      'Tap “Edit in preview” to add text.',
+                                    child: Wrap(
+                                      alignment: WrapAlignment.end,
+                                      spacing: 8,
+                                      children: [
+                                        TextButton.icon(
+                                          onPressed: _busy || _leaving
+                                              ? null
+                                              : _writeInPreview,
+                                          icon: const Icon(Icons.add, size: 17),
+                                          label: const Text('Write Markdown'),
+                                        ),
+                                        TextButton.icon(
+                                          onPressed: _busy || _leaving
+                                              ? null
+                                              : _togglePreviewEditing,
+                                          icon: const Icon(
+                                            Icons.edit_outlined,
+                                            size: 17,
+                                          ),
+                                          label: Text(
+                                            _editingPreview
+                                                ? 'Done editing'
+                                                : 'Edit in preview',
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                               ],
@@ -1609,6 +1623,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                               key: _previewKey,
                               zoom: _readingZoom,
                               document: _session.document,
+                              shortcuts: widget.tabController?.shortcuts,
                               scrollController: _scroll,
                               onFollow: _follow,
                               onEdit: _editingPreview

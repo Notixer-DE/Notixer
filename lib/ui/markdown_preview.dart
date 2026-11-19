@@ -1,14 +1,15 @@
 import 'dart:convert';
 import 'dart:isolate';
-import 'dart:typed_data';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:markdown/markdown.dart' as md;
 
 import '../data/markdown_document.dart';
+import '../data/keyboard_shortcuts.dart';
 import 'markdown_style.dart';
 
 class _PreviewBlock {
@@ -24,6 +25,7 @@ typedef _BlockEdit = ({
   MarkdownPreviewRange range,
   String label,
   String prefix,
+  String previewPrefix,
 });
 
 Object _nodeKey(md.Node node) => node is md.Element
@@ -86,6 +88,9 @@ List<_PreviewBlock> _parsePreview(String source, bool editable) {
                 range: range,
                 label: slugs.isEmpty ? 'Paragraph' : 'Heading',
                 prefix: '',
+                previewPrefix: slugs.isNotEmpty && node is md.Element
+                    ? '${'#' * int.parse(node.tag.substring(1))} '
+                    : '',
               )
             : (editable && tasks.isNotEmpty
                   ? _taskEdit(source, node, tasks.first)
@@ -120,6 +125,7 @@ _BlockEdit? _taskEdit(String source, md.Node node, int checkbox) {
     range: (start: start, end: end, singleLine: true),
     label: 'Checklist item',
     prefix: start == labelStart ? ' ' : '',
+    previewPrefix: '- [${source[checkbox]}] ',
   );
 }
 
@@ -140,6 +146,7 @@ class MarkdownPreview extends StatefulWidget {
     required this.onToggle,
     required this.onFollow,
     this.onEdit,
+    this.shortcuts,
   });
   final MarkdownDocument document;
   final double zoom;
@@ -147,6 +154,7 @@ class MarkdownPreview extends StatefulWidget {
   final void Function(int offset, bool checked) onToggle;
   final void Function(String href) onFollow;
   final void Function(int start, int end, String text)? onEdit;
+  final KeyboardShortcuts? shortcuts;
   @override
   State<MarkdownPreview> createState() => MarkdownPreviewState();
 }
@@ -161,6 +169,7 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
   int _generation = 0, _navigation = 0;
   String? _pendingSource, _error;
   final _draft = TextEditingController();
+  final _appendKey = GlobalKey();
   ({String? key, _BlockEdit edit})? _editing;
   int debugParses = 0, debugBlockBuilds = 0;
   int get debugCachedBlocks => _widgets.length;
@@ -235,7 +244,9 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
     final indices = {for (var i = 0; i < blocks.length; i++) blocks[i].key: i};
     _delegate = SliverChildBuilderDelegate(
       (context, index) {
-        if (index == blocks.length) return _appendControls();
+        if (index == blocks.length) {
+          return KeyedSubtree(key: _appendKey, child: _appendControls());
+        }
         final block = blocks[index];
         final compactTaskSpacing =
             block.offsets.isNotEmpty &&
@@ -291,8 +302,11 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
       },
       childCount: blocks.length + (widget.onEdit == null ? 0 : 1),
       addAutomaticKeepAlives: false,
-      findChildIndexCallback: (key) =>
-          key is ValueKey<String> ? indices[key.value] : null,
+      findChildIndexCallback: (key) => key == _appendKey
+          ? blocks.length
+          : key is ValueKey<String>
+          ? indices[key.value]
+          : null,
     );
   }
 
@@ -320,7 +334,7 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
               ? () => _append(task: false)
               : null,
           icon: const Icon(Icons.add),
-          label: const Text('Add paragraph'),
+          label: const Text('Continue writing'),
         ),
         OutlinedButton.icon(
           onPressed: _editing == null && _pendingSource == null
@@ -348,7 +362,33 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
       range: (start: source.length, end: source.length, singleLine: task),
       label: task ? 'Checklist item' : 'Paragraph',
       prefix: '$separator${task ? '- [ ] ' : ''}',
+      previewPrefix: task ? '- [ ] ' : '',
     ));
+  }
+
+  Future<void> startWriting() async {
+    await ready;
+    if (!mounted || widget.onEdit == null || _blocks == null) return;
+    if (_editing?.key != null) {
+      finishEditing();
+      await WidgetsBinding.instance.endOfFrame;
+      await ready;
+    }
+    final scroll = widget.scrollController;
+    if (!mounted || widget.onEdit == null || !scroll.hasClients) return;
+    if (_editing == null) _append(task: false);
+    await WidgetsBinding.instance.endOfFrame;
+    while (mounted && _editing != null && scroll.hasClients) {
+      final target = _appendKey.currentContext;
+      if (target != null && target.mounted) {
+        await Scrollable.ensureVisible(target);
+        return;
+      }
+      final position = scroll.position;
+      if (position.pixels >= position.maxScrollExtent) return;
+      scroll.jumpTo(position.maxScrollExtent);
+      await WidgetsBinding.instance.endOfFrame;
+    }
   }
 
   void finishEditing({bool apply = true}) {
@@ -370,37 +410,93 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
     }
   }
 
-  Widget _blockEditor(_BlockEdit edit) => Padding(
-    padding: const EdgeInsets.only(bottom: 12),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        TextField(
-          key: const ValueKey('markdown-preview-edit'),
-          autofocus: true,
-          controller: _draft,
-          minLines: edit.range.singleLine ? 1 : 2,
-          maxLines: edit.range.singleLine ? 1 : 8,
-          decoration: InputDecoration(labelText: edit.label),
-          onSubmitted: edit.range.singleLine ? (_) => finishEditing() : null,
-        ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: Wrap(
-            spacing: 8,
-            children: [
-              TextButton(
-                onPressed: () => finishEditing(apply: false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: finishEditing,
-                child: const Text('Apply'),
-              ),
-            ],
+  Widget _blockEditor(_BlockEdit edit) => CallbackShortcuts(
+    bindings: {
+      if (widget.shortcuts == null) ...{
+        AppShortcut.markdownApplyDraft.defaultBinding: finishEditing,
+        const SingleActivator(
+          LogicalKeyboardKey.enter,
+          shift: true,
+          meta: true,
+        ): finishEditing,
+      },
+    },
+    child: Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            key: const ValueKey('markdown-preview-edit'),
+            autofocus: true,
+            controller: _draft,
+            minLines: edit.range.singleLine ? 1 : 2,
+            maxLines: edit.range.singleLine ? 1 : 8,
+            decoration: InputDecoration(
+              labelText: edit.label,
+              hintText: edit.range.singleLine
+                  ? null
+                  : '# Heading, **bold**, - list',
+            ),
+            onSubmitted: edit.range.singleLine ? (_) => finishEditing() : null,
           ),
-        ),
-      ],
+          Align(
+            alignment: Alignment.centerRight,
+            child: Wrap(
+              spacing: 8,
+              children: [
+                TextButton(
+                  onPressed: () => finishEditing(apply: false),
+                  child: const Text('Cancel'),
+                ),
+                Tooltip(
+                  message:
+                      widget.shortcuts?.tooltip(
+                        'Apply',
+                        AppShortcut.markdownApplyDraft,
+                      ) ??
+                      'Apply (${AppShortcut.markdownApplyDraft.defaultBinding.label})',
+                  child: FilledButton(
+                    onPressed: finishEditing,
+                    child: const Text('Apply'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _draft,
+            builder: (context, draft, _) {
+              if (draft.text.trim().isEmpty) return const SizedBox.shrink();
+              final source = '${edit.previewPrefix}${draft.text}';
+              final nodes = parseMarkdownForPreview(source);
+              return IgnorePointer(
+                child: Column(
+                  key: const ValueKey('markdown-draft-preview'),
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Divider(),
+                    for (final node in nodes)
+                      _MarkdownBlock(
+                        node: node,
+                        zoom: widget.zoom,
+                        offsets: const [],
+                        compactTaskSpacing: false,
+                        headingKeys: [
+                          for (final _ in markdownHeadingsFromNodes([node]))
+                            GlobalKey(),
+                        ],
+                        assets: widget.document.assets,
+                        onToggle: (_, _) {},
+                        onFollow: (_) {},
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
     ),
   );
 

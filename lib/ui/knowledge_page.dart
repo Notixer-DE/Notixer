@@ -8,6 +8,7 @@ import '../data/keyboard_shortcuts.dart';
 import '../data/library_backup.dart';
 import '../data/notebook.dart';
 import 'noter_theme.dart';
+import 'quick_todo_dialog.dart';
 import 'workspace_chrome.dart';
 
 class KnowledgePage extends StatefulWidget {
@@ -20,6 +21,7 @@ class KnowledgePage extends StatefulWidget {
     this.autofocusSearch = false,
     this.shortcuts,
     this.onImportFile,
+    this.onQuickTodo,
   });
   final LocalNotebookRepository repository;
   final String initialSection;
@@ -28,6 +30,7 @@ class KnowledgePage extends StatefulWidget {
   final bool autofocusSearch;
   final KeyboardShortcuts? shortcuts;
   final Future<void> Function(VoidCallback onImported)? onImportFile;
+  final Future<bool> Function()? onQuickTodo;
   @override
   State<KnowledgePage> createState() => _KnowledgePageState();
 }
@@ -51,6 +54,9 @@ class _KnowledgePageState extends State<KnowledgePage> {
   List<Notebook> _notes = [];
   List<File> _backups = [];
   DateTime _date = DateTime.now();
+  bool get _taskSection => _section == 'Tasks' || _section == unsortedTodos;
+  bool get _fixedTag => _section == 'Inbox' || _section == unsortedTodos;
+  bool get _autoSearch => _taskSection || _section == 'Inbox';
   @override
   void initState() {
     super.initState();
@@ -61,9 +67,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
       if (widget.sharedText != null) {
         await _capture(widget.sharedText!);
       }
-      if (mounted &&
-          ModalRoute.of(context)?.isCurrent == true &&
-          (_section == 'Tasks' || _section == 'Inbox')) {
+      if (mounted && ModalRoute.of(context)?.isCurrent == true && _autoSearch) {
         await _search();
       }
     });
@@ -120,8 +124,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
   });
 
   Future<void> _reload() async {
-    final refreshResults =
-        _scan != null || _section == 'Tasks' || _section == 'Inbox';
+    final refreshResults = _scan != null || _autoSearch;
     await _load();
     if (mounted && _error == null && refreshResults) await _search();
   }
@@ -129,10 +132,10 @@ class _KnowledgePageState extends State<KnowledgePage> {
   KnowledgeView get _view => KnowledgeView(
     '',
     query: _query.text.trim(),
-    tag: _section == 'Inbox' ? 'Inbox' : _tag,
+    tag: _fixedTag ? _section : _tag,
     folder: _folder,
     kind: _kind,
-    openTasks: _section == 'Tasks' || (_section == 'Search' && _onlyTasks),
+    openTasks: _taskSection || (_section == 'Search' && _onlyTasks),
   );
   Future<void> _search() async {
     if (_busy) return;
@@ -376,13 +379,20 @@ class _KnowledgePageState extends State<KnowledgePage> {
     if (_error == null && mounted) await _search();
   }
 
+  Future<void> _quickTodo() async {
+    final added =
+        await (widget.onQuickTodo?.call() ??
+            showQuickTodoDialog(context, widget.repository));
+    if (mounted && added) _selectSection(unsortedTodos);
+  }
+
   Widget _results() {
     final scan = _scan;
     final filtersVisible =
         _filtersExpanded ?? NoterTheme.desktopControls(context);
     final activeFilters = [
       _kind != 'all',
-      _section != 'Inbox' && _tag.isNotEmpty,
+      !_fixedTag && _tag.isNotEmpty,
       _folder.isNotEmpty,
       _section == 'Search' && _onlyTasks,
     ].where((value) => value).length;
@@ -406,6 +416,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
                         labelText: switch (_section) {
                           'Tasks' => 'Find an open task or file',
                           'Inbox' => 'Search the inbox',
+                          unsortedTodos => 'Find a to-do',
                           _ => 'Search Markdown and PDFs',
                         },
                         suffixIcon: Row(
@@ -467,7 +478,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
                                 ? null
                                 : (v) => setState(() => _kind = v!),
                           ),
-                          if (_section != 'Inbox')
+                          if (!_fixedTag)
                             DropdownButton<String>(
                               value: _tag,
                               items: [
@@ -586,6 +597,8 @@ class _KnowledgePageState extends State<KnowledgePage> {
                     ? (_section == 'Tasks'
                           ? 'Search to collect open checkboxes from every Markdown file.'
                           : 'Enter text, or leave it empty to list all matching files.')
+                    : _section == unsortedTodos && _view.query.isEmpty
+                    ? 'No open unsorted to-dos.'
                     : 'No matches.',
               ),
             ),
@@ -614,13 +627,16 @@ class _KnowledgePageState extends State<KnowledgePage> {
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                 ),
-                subtitle: Text(
-                  '${hit.note.title}${hit.anchor.startsWith('line=')
-                      ? ' · Line ${hit.anchor.substring(5)}'
-                      : hit.anchor.startsWith('page=')
-                      ? ' · Page ${hit.anchor.substring(5)}'
-                      : ''}',
-                ),
+                subtitle:
+                    _section == unsortedTodos && hit.note.title == hit.snippet
+                    ? null
+                    : Text(
+                        '${hit.note.title}${hit.anchor.startsWith('line=')
+                            ? ' · Line ${hit.anchor.substring(5)}'
+                            : hit.anchor.startsWith('page=')
+                            ? ' · Page ${hit.anchor.substring(5)}'
+                            : ''}',
+                      ),
                 onTap: _busy ? null : () => _open(hit.note, hit.anchor),
               );
             },
@@ -1026,14 +1042,14 @@ class _KnowledgePageState extends State<KnowledgePage> {
     setState(() {
       _section = section;
       _scan = null;
-      if (section == 'Tasks' || section == 'Inbox') {
+      if (_autoSearch) {
         _kind = 'all';
         _query.clear();
         _folder = '';
         _tag = '';
       }
     });
-    if (section == 'Tasks' || section == 'Inbox') unawaited(_search());
+    if (_autoSearch) unawaited(_search());
   }
 
   KeyEventResult _handleShortcut(FocusNode node, KeyEvent event) {
@@ -1054,8 +1070,10 @@ class _KnowledgePageState extends State<KnowledgePage> {
         _selectSection('Backups');
       case AppShortcut.knowledgeCapture:
         unawaited(_capture());
+      case AppShortcut.quickTodo:
+        unawaited(_quickTodo());
       case AppShortcut.knowledgeSubmit:
-        if (!['Search', 'Tasks', 'Inbox'].contains(_section)) {
+        if (_section != 'Search' && !_autoSearch) {
           return KeyEventResult.ignored;
         }
         unawaited(_search());
@@ -1087,6 +1105,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
     ('Journal', Icons.calendar_today_outlined),
   ];
   static const _otherSections = [
+    (unsortedTodos, Icons.playlist_add_check),
     ('Inbox', Icons.inbox_outlined),
     ('Tags', Icons.sell_outlined),
     ('Views', Icons.bookmark_border),
@@ -1187,7 +1206,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
           key: const ValueKey('knowledge-more-sections'),
           enabled: !_busy,
           icon: const Icon(Icons.more_horiz),
-          label: index == -1 ? _section : 'More',
+          label: index == -1 && _section != unsortedTodos ? _section : 'More',
           tooltip: 'More sections',
         ),
       ],
@@ -1198,9 +1217,18 @@ class _KnowledgePageState extends State<KnowledgePage> {
     final desktop = NoterTheme.desktopControls(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Knowledge hub'),
+        title: Text(
+          _section == unsortedTodos ? unsortedTodos : 'Knowledge hub',
+        ),
         toolbarHeight: NoterTheme.headerHeight(context),
         actions: [
+          IconButton(
+            tooltip:
+                widget.shortcuts?.tooltip('Add to-do', AppShortcut.quickTodo) ??
+                'Add to-do',
+            onPressed: _busy ? null : _quickTodo,
+            icon: const Icon(Icons.playlist_add),
+          ),
           IconButton(
             tooltip: 'Quick capture',
             onPressed: _busy ? null : _capture,
