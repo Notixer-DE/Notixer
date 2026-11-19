@@ -17,6 +17,7 @@ import 'editor.dart';
 import 'library.dart';
 import 'keyboard_settings.dart';
 import 'markdown_editor.dart';
+import 'todo_list_page.dart';
 
 class _OpenDocument {
   _OpenDocument(this.note, this.bytes, this.anchor, KeyboardShortcuts shortcuts)
@@ -440,6 +441,15 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                                           format: _tabs[i].note.mediaFormat!,
                                           note: _tabs[i].note,
                                           repository: widget.repository,
+                                          tabController: _tabs[i].controller,
+                                          onLibrary: showLibrary,
+                                        )
+                                      : _tabs[i].note.isTodoList
+                                      ? TodoListPage(
+                                          note: _tabs[i].note,
+                                          bytes: _tabs[i].bytes,
+                                          repository: widget.repository,
+                                          initialAnchor: _tabs[i].anchor,
                                           tabController: _tabs[i].controller,
                                           onLibrary: showLibrary,
                                         )

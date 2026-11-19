@@ -10,6 +10,7 @@ Notixer is an offline-first notes and knowledge management app for Android, Linu
 ## Library and workspace
 
 - Create multipage notebooks with blank, ruled or grid paper; import PDFs; create Markdown text notes and checklists.
+- Select **To-do list** when creating a note to open a dedicated task editor. Type a task and press Enter or tap **Add task**. Check off tasks in the list or in Knowledge Hub. Export the list as a `.noter` file to reopen it as a to-do list.
 - Organize notes with folders and tags. Combine title, type, folder and tag filters, and switch between list and grid layouts.
 - Keep several documents open in tabs. Hide or show the tab strip without closing documents or losing their state. Use the restore button or **Ctrl+Alt+T** (**Cmd+Alt+T** on macOS).
 - Open two views side by side or stacked, including two views of the same note. Each view keeps its own navigation position.

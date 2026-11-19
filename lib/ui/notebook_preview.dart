@@ -225,7 +225,7 @@ class _MarkdownPreviewState extends State<_MarkdownPreview> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'MARKDOWN',
+            widget.note.isTodoList ? 'TO-DO LIST' : 'MARKDOWN',
             style: Theme.of(
               context,
             ).textTheme.labelSmall?.copyWith(color: NoterTheme.muted),
@@ -233,14 +233,15 @@ class _MarkdownPreviewState extends State<_MarkdownPreview> {
           const SizedBox(height: 6),
           Expanded(
             child: Text(
-              snapshot.data?.$1 ?? 'Text note',
+              snapshot.data?.$1 ??
+                  (widget.note.isTodoList ? 'To-do list' : 'Text note'),
               overflow: TextOverflow.fade,
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
           if (snapshot.data != null && snapshot.data!.$3 > 0)
             Text(
-              '${snapshot.data!.$2} / ${snapshot.data!.$3} erledigt',
+              '${snapshot.data!.$2} / ${snapshot.data!.$3} completed',
               style: Theme.of(context).textTheme.labelSmall,
             ),
         ],

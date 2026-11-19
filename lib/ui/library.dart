@@ -23,7 +23,9 @@ import 'noter_theme.dart';
 import 'library_navigation.dart';
 import 'study_page.dart';
 import '../data/markdown_library.dart';
+import '../data/todo_list.dart';
 import 'markdown_editor.dart';
+import 'todo_list_page.dart';
 import 'template_library.dart';
 import 'workspace_chrome.dart';
 import 'sync_button.dart';
@@ -380,6 +382,12 @@ class _LibraryPageState extends State<LibraryPage> {
                 note: note,
                 repository: widget.repository,
               )
+            : note.isTodoList
+            ? TodoListPage(
+                note: note,
+                bytes: bytes,
+                repository: widget.repository,
+              )
             : note.isMarkdown
             ? MarkdownEditorPage(
                 note: note,
@@ -447,18 +455,21 @@ class _LibraryPageState extends State<LibraryPage> {
           : await widget.repository.templates.instantiateEditable(
               choice.$3!.id,
             );
-      var note =
-          choice.$3 == null && ['markdown', 'checklist'].contains(choice.$2)
-          ? await MarkdownLibrary(
-              widget.repository,
-            ).create(choice.$1, checklist: choice.$2 == 'checklist')
-          : await widget.repository.create(
-              choice.$1,
-              template?.bytes ??
-                  await createPaper(choice.$2, lineColor: choice.$4),
-              paper: choice.$3 == null ? choice.$2 : 'pdf',
-              lineColor: choice.$4,
-            );
+      var note = switch (choice.$2) {
+        'markdown' when template == null => await MarkdownLibrary(
+          widget.repository,
+        ).create(choice.$1),
+        'todo' when template == null => await createTodoList(
+          widget.repository,
+          choice.$1,
+        ),
+        _ => await widget.repository.create(
+          choice.$1,
+          template?.bytes ?? await createPaper(choice.$2, lineColor: choice.$4),
+          paper: choice.$3 == null ? choice.$2 : 'pdf',
+          lineColor: choice.$4,
+        ),
+      };
       if (template != null && template.ink.strokes.isNotEmpty) {
         note = await widget.repository.saveWithInk(
           note,
@@ -628,6 +639,13 @@ class _LibraryPageState extends State<LibraryPage> {
                 note: destination.note,
                 repository: widget.repository,
               )
+            : destination.note.isTodoList
+            ? TodoListPage(
+                note: destination.note,
+                bytes: bytes,
+                repository: widget.repository,
+                initialAnchor: destination.anchor,
+              )
             : destination.note.isMarkdown
             ? MarkdownEditorPage(
                 note: destination.note,
@@ -725,7 +743,9 @@ class _LibraryPageState extends State<LibraryPage> {
   Future<void> _exportFile(Notebook note) => _perform(() async {
     final repository = widget.repository;
     final Uint8List bytes;
-    if (note.isPdf) {
+    if (note.isTodoList) {
+      bytes = await repository.exportArchive(note);
+    } else if (note.isPdf) {
       final pdf = await repository.loadPdf(note.id);
       bytes = await exportPdfBytesAsync(pdf);
     } else {
@@ -737,8 +757,15 @@ class _LibraryPageState extends State<LibraryPage> {
     if (!mounted) return;
     final mime =
         note.mediaFormat?.mime ??
-        (note.isPdf ? 'application/pdf' : 'text/markdown');
-    final name = FileGateway.exportName(note.title, note.extension);
+        (note.isTodoList
+            ? 'application/zip'
+            : note.isPdf
+            ? 'application/pdf'
+            : 'text/markdown');
+    final name = FileGateway.exportName(
+      note.title,
+      note.isTodoList ? 'noter' : note.extension,
+    );
     if (await FileGateway().save(name, bytes, mime) && mounted) {
       ScaffoldMessenger.of(
         context,
@@ -835,7 +862,8 @@ class _LibraryPageState extends State<LibraryPage> {
         .where(
           (n) =>
               _kind == 'all' ||
-              (_kind == 'markdown' && n.isMarkdown) ||
+              (_kind == 'markdown' && n.isMarkdown && !n.isTodoList) ||
+              (_kind == 'todo' && n.isTodoList) ||
               (_kind == 'pdf' && n.paper == 'pdf') ||
               (_kind == 'notes' && n.isPdf && n.paper != 'pdf') ||
               (_kind == 'media' && n.isMedia),
@@ -1163,6 +1191,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                       for (final (id, label) in [
                                         ('all', 'All'),
                                         ('markdown', 'Text'),
+                                        ('todo', 'To-do lists'),
                                         ('notes', 'Notebooks'),
                                         ('pdf', 'PDFs'),
                                         ('media', 'Media'),
@@ -1469,6 +1498,8 @@ class _LibraryPageState extends State<LibraryPage> {
     ].join(' · ');
     final type = note.isMedia
         ? note.mediaFormat!.kind
+        : note.isTodoList
+        ? 'To-do list'
         : note.isMarkdown
         ? 'Markdown'
         : note.paper == 'pdf'
@@ -1503,6 +1534,8 @@ class _LibraryPageState extends State<LibraryPage> {
                 child: Icon(
                   note.isMedia
                       ? mediaIcon(note.mediaFormat!)
+                      : note.isTodoList
+                      ? Icons.checklist
                       : note.isMarkdown
                       ? Icons.description_outlined
                       : Icons.picture_as_pdf_outlined,
@@ -1692,7 +1725,7 @@ class _NewNoteDialogState extends State<_NewNoteDialog> {
                   value: 'markdown',
                   child: Text('Text note (Markdown)'),
                 ),
-                DropdownMenuItem(value: 'checklist', child: Text('Checklist')),
+                DropdownMenuItem(value: 'todo', child: Text('To-do list')),
                 DropdownMenuItem(value: 'blank', child: Text('Blank')),
                 DropdownMenuItem(value: 'lined', child: Text('Ruled')),
                 DropdownMenuItem(value: 'grid', child: Text('Grid')),

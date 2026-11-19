@@ -12,6 +12,7 @@ import 'package:noter/ui/editor_pane.dart';
 import 'package:noter/main.dart';
 import 'package:noter/ui/markdown_editor.dart';
 import 'package:noter/ui/markdown_preview.dart';
+import 'package:noter/ui/todo_list_page.dart';
 import 'package:noter/ui/wiki_link_suggestions.dart';
 import 'package:noter/ui/noter_theme.dart';
 
@@ -721,7 +722,9 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('new note dialog creates and opens a checklist', (tester) async {
+  testWidgets('new to-do list has its own editor and preserves task changes', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -733,22 +736,59 @@ void main() {
     );
     await tester.tap(find.byTooltip('New note'));
     await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Title'), 'Errands');
     await tester.tap(find.byType(DropdownButtonFormField<String>));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Checklist').last);
+    await tester.tap(find.text('To-do list').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Create'));
     await markdownIo(
       tester,
-      () => find.byKey(const ValueKey('markdown-source')).evaluate().isNotEmpty,
+      () => find.text('No tasks yet.').evaluate().isNotEmpty,
     );
-    expect(
-      tester
-          .widget<TextField>(find.byKey(const ValueKey('markdown-source')))
-          .controller!
-          .text,
-      '- [ ] First task\n',
+    expect(find.byType(TodoListPage), findsOneWidget);
+    expect(find.byType(MarkdownEditorPage), findsNothing);
+    final input = find.widgetWithText(TextField, 'New task');
+    await tester.enterText(input, 'Buy [tea]');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    expect(find.text('Buy [tea]'), findsOneWidget);
+    expect(tester.widget<TextField>(input).controller!.text, isEmpty);
+    await tester.enterText(input, 'Collect a parcel');
+    await tester.pump();
+    await tester.tap(find.byTooltip('Add task'));
+    await tester.pump();
+    final second = find.widgetWithText(ListTile, 'Collect a parcel');
+    await tester.tap(
+      find.descendant(of: second, matching: find.byTooltip('Edit task')),
     );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Task'),
+      'Collect both parcels',
+    );
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+    final checkbox = find.descendant(
+      of: find.widgetWithText(ListTile, 'Buy [tea]'),
+      matching: find.byType(Checkbox),
+    );
+    await tester.tap(checkbox);
+    await tester.pump();
+    expect(tester.widget<Checkbox>(checkbox).value, isTrue);
+
+    await tester.tap(find.byTooltip('Close tab: Errands'));
+    await markdownIo(
+      tester,
+      () => find.byType(TodoListPage).evaluate().isEmpty,
+    );
+    await tester.tap(find.text('Errands'));
+    await markdownIo(
+      tester,
+      () => find.text('Collect both parcels').evaluate().isNotEmpty,
+    );
+    expect(tester.widget<Checkbox>(checkbox).value, isTrue);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
