@@ -128,11 +128,15 @@ sudo apt install ./dist/noter_1.3.0_amd64.deb
 
 ### Windows (x64)
 
+Generate the Windows runner from a clean checkout.
+
 ```powershell
-flutter create --platforms=windows --project-name noter .
+./tools/generate-windows-runner.ps1
 flutter pub get --enforce-lockfile
 flutter build windows --release --no-pub
 ```
+
+The runner builds `build/windows/x64/runner/Release/notixer.exe`.
 
 ### Performance probes
 

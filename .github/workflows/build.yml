@@ -134,7 +134,7 @@ jobs:
           cache: true
       - name: Generate Windows Flutter runner
         shell: pwsh
-        run: flutter create --platforms=windows --project-name noter .
+        run: ./tools/generate-windows-runner.ps1
       - name: Resolve dependencies
         shell: pwsh
         run: flutter pub get --enforce-lockfile
@@ -149,8 +149,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force release-assets | Out-Null
           $bundle = "build/windows/x64/runner/Release"
-          if (-not (Test-Path "$bundle/noter.exe")) { throw "Missing Windows executable" }
-          Compress-Archive -Path "$bundle/*" -DestinationPath "release-assets/noter_${env:APP_VERSION}_build-${env:BUILD_NUMBER}_windows-x64.zip"
+          $executable = Get-Item -LiteralPath "$bundle/notixer.exe" -ErrorAction Stop
+          if ($executable.VersionInfo.ProductName -ne 'noter') { throw 'Windows storage identity changed' }
+          if ($executable.VersionInfo.OriginalFilename -ne 'notixer.exe') { throw 'Unexpected Windows executable name in version info' }
+          Compress-Archive -Path "$bundle/*" -DestinationPath "release-assets/notixer_${env:APP_VERSION}_build-${env:BUILD_NUMBER}_windows-x64.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: windows-package
@@ -214,6 +216,7 @@ jobs:
           test "$(find . -maxdepth 1 -name '*.apk' | wc -l)" -eq 1
           test "$(find . -maxdepth 1 -name '*.deb' | wc -l)" -eq 1
           test "$(find . -maxdepth 1 -name '*.zip' | wc -l)" -eq 1
+          test -f "notixer_${APP_VERSION}_build-${BUILD_NUMBER}_windows-x64.zip"
           sha256sum -- *.apk *.deb *.zip > SHA256SUMS
           notes="$RUNNER_TEMP/release-notes.md"
           cat > "$notes" <<NOTES
@@ -221,7 +224,7 @@ jobs:
 
           - Android: installable release APK signed with the existing preview key, version code $BUILD_NUMBER.
           - Debian: package for Debian 13, amd64.
-          - Windows: x64 ZIP containing noter.exe and all required runtime files. Extract the entire archive before running noter.exe.
+          - Windows: x64 ZIP containing notixer.exe and all required runtime files. Extract the entire archive before running notixer.exe.
           - Optional end-to-end encrypted sync through the self-hosted Notixer server. See docs/sync-server.md.
           - Google Drive support has been removed. Back up existing cloud copies locally; they are not imported or deleted automatically.
           - The sync server is an initial functional release. Large-scale load testing, automatic storage cleanup and key rotation remain future work.
