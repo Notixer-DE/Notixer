@@ -83,6 +83,8 @@ class _LibraryPageState extends State<LibraryPage> {
   List<String> _recoverableCaptures = [];
   final _scaffold = GlobalKey<ScaffoldState>();
   final _searchFocus = FocusNode();
+  final _selectedNotes = <String>{};
+  bool _selecting = false;
   String? _error;
   bool _loading = true, _actionBusy = false;
   bool get _busy => _actionBusy || _sync.busy;
@@ -250,6 +252,8 @@ class _LibraryPageState extends State<LibraryPage> {
       if (mounted) {
         setState(() {
           _notes = notes;
+          final available = {for (final note in notes) note.id};
+          _selectedNotes.removeWhere((id) => !available.contains(id));
           _recoverableCaptures = captures;
           _showNavigation = widget.repository.catalog.displayPreferences.flag(
             'librarySidebar',
@@ -819,36 +823,139 @@ class _LibraryPageState extends State<LibraryPage> {
         }
       });
 
+  Future<bool> _confirmDelete({Notebook? note, required int count}) async {
+    final subject = note == null
+        ? '$count ${count == 1 ? 'note' : 'notes'}'
+        : '“${note.title}”';
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            scrollable: true,
+            title: Text(
+              note == null ? 'Move selected notes to trash?' : 'Delete note?',
+            ),
+            content: Text(
+              '$subject will be moved to the local trash. '
+              '${_sync.enabled ? 'The deletion will reach other devices on the next server sync.' : 'Items in the trash can be restored as copies.'}',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
   Future<void> _delete(Notebook note) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        scrollable: true,
-        title: const Text('Delete note?'),
-        content: Text(
-          _sync.enabled
-              ? '“${note.title}” will be moved to the local trash. The deletion will be synced to other devices on the next server sync.'
-              : '“${note.title}” will be moved to the trash and can later be restored as a new copy.',
+    if (!await _confirmDelete(note: note, count: 1) || !mounted) return;
+    await _perform(() async {
+      await widget.repository.delete(note.id);
+      await _refresh();
+    });
+  }
+
+  void _closeSelection() => setState(() {
+    _selecting = false;
+    _selectedNotes.clear();
+  });
+
+  void _toggleSelection(Notebook note) {
+    if (_busy || _isOpen(note)) return;
+    setState(() {
+      _selecting = true;
+      if (!_selectedNotes.add(note.id)) _selectedNotes.remove(note.id);
+    });
+  }
+
+  List<Notebook> get _selection =>
+      _notes.where((note) => _selectedNotes.contains(note.id)).toList();
+
+  Future<void> _moveSelected() async {
+    final selection = _selection;
+    if (_busy || selection.isEmpty) return;
+    final folder = await pickMoveFolder(
+      context,
+      widget.repository.catalog.folders,
+    );
+    if (folder == null || !mounted) return;
+    final repository = widget.repository;
+    final name = repository.catalog.folderName(folder);
+    if (folder.isNotEmpty && name == null) return;
+    await _applySelection(selection, 'moved', (id) async {
+      final snapshot = await repository.snapshotForSync(id);
+      if (snapshot == null) {
+        throw const FormatException('The note was removed.');
+      }
+      final (note, bytes, ink) =
+          await LocalNotebookRepository.decodeInkValidated(snapshot.archive);
+      if (note.folderId == (folder.isEmpty ? null : folder)) return;
+      final moved = await LocalNotebookRepository.encodeAsync(
+        note.copy(
+          folderId: folder.isEmpty ? null : folder,
+          folderName: name,
+          clearFolder: folder.isEmpty,
+          modified: DateTime.now(),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
+        bytes,
+        ink: ink,
+      );
+      await repository.applySync(id, snapshot.raw, moved);
+    });
+  }
+
+  Future<void> _deleteSelected() async {
+    final selection = _selection;
+    if (_busy ||
+        selection.isEmpty ||
+        !await _confirmDelete(count: selection.length) ||
+        !mounted) {
+      return;
+    }
+    await _applySelection(
+      selection,
+      'moved to trash',
+      widget.repository.delete,
+    );
+  }
+
+  Future<void> _applySelection(
+    List<Notebook> selection,
+    String result,
+    Future<void> Function(String id) action,
+  ) => _perform(() async {
+    final failures = <String>[];
+    var completed = 0;
+    for (final note in selection) {
+      try {
+        if (_isOpen(note)) {
+          throw const FormatException('Close the note before changing it.');
+        }
+        await action(note.id);
+        _selectedNotes.remove(note.id);
+        completed++;
+      } catch (error) {
+        failures.add('${note.title}: $error');
+      }
+    }
+    await _refresh();
+    if (!mounted) return;
+    if (_selectedNotes.isEmpty) _closeSelection();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '$completed ${completed == 1 ? 'note' : 'notes'} $result.'
+          '${failures.isEmpty ? '' : '\nCould not change ${failures.length}. ${failures.join('. ')}'}',
+        ),
       ),
     );
-    if (confirmed == true) {
-      await _perform(() async {
-        await widget.repository.delete(note.id);
-        await _refresh();
-      });
-    }
-  }
+  });
 
   Future<void> _recovery({Notebook? note}) => _perform(() async {
     final restored = await Navigator.of(context).push<Notebook>(
@@ -889,6 +996,9 @@ class _LibraryPageState extends State<LibraryPage> {
               (_kind == 'media' && n.isMedia),
         )
         .toList();
+    final hiddenSelection =
+        _selectedNotes.length -
+        visible.where((note) => _selectedNotes.contains(note.id)).length;
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = NoterTheme.desktopControls(context);
@@ -899,67 +1009,85 @@ class _LibraryPageState extends State<LibraryPage> {
           appBar: AppBar(
             leadingWidth: DocumentTabsChrome.leadingWidth(context),
             leading: DocumentNavigation(
-              child: IconButton(
-                tooltip: wide && _showNavigation
-                    ? 'Hide folders'
-                    : 'Show folders',
-                icon: Icon(
-                  wide && _showNavigation
-                      ? Icons.folder_open_outlined
-                      : Icons.folder_outlined,
-                ),
-                onPressed: () {
-                  if (!wide) {
-                    _scaffold.currentState?.openDrawer();
-                    return;
-                  }
-                  setState(() => _showNavigation = !_showNavigation);
-                  widget.repository.catalog.displayPreferences
-                      .set('librarySidebar', _showNavigation)
-                      .catchError((Object _) {});
-                },
-              ),
+              child: _selecting
+                  ? IconButton(
+                      tooltip: 'Close selection',
+                      onPressed: _busy ? null : _closeSelection,
+                      icon: const Icon(Icons.close),
+                    )
+                  : IconButton(
+                      tooltip: wide && _showNavigation
+                          ? 'Hide folders'
+                          : 'Show folders',
+                      icon: Icon(
+                        wide && _showNavigation
+                            ? Icons.folder_open_outlined
+                            : Icons.folder_outlined,
+                      ),
+                      onPressed: () {
+                        if (!wide) {
+                          _scaffold.currentState?.openDrawer();
+                          return;
+                        }
+                        setState(() => _showNavigation = !_showNavigation);
+                        widget.repository.catalog.displayPreferences
+                            .set('librarySidebar', _showNavigation)
+                            .catchError((Object _) {});
+                      },
+                    ),
             ),
             toolbarHeight: NoterTheme.headerHeight(context),
-            title: const Row(
-              children: [
-                Icon(Icons.draw_outlined, color: NoterTheme.accent, size: 20),
-                SizedBox(width: 8),
-                Flexible(
-                  child: Text('Notixer', overflow: TextOverflow.ellipsis),
-                ),
-              ],
-            ),
-            actions: [
-              IconButton(
-                tooltip:
-                    widget.shortcuts?.tooltip(
-                      'Add to-do',
-                      AppShortcut.quickTodo,
-                    ) ??
-                    'Add to-do',
-                onPressed: _busy ? null : _quickTodo,
-                icon: const Icon(Icons.playlist_add),
-              ),
-              if (!_hasOpenDocuments)
-                SyncButton(
-                  controller: _sync,
-                  disabled: _busy,
-                  onSynchronized: _refresh,
-                  onOpenDetails: _syncSettings,
-                ),
-              IconButton(
-                tooltip:
-                    widget.shortcuts?.tooltip(
-                      'Knowledge hub',
-                      AppShortcut.knowledgeSearch,
-                    ) ??
-                    'Knowledge hub',
-                onPressed: _busy ? null : _knowledge,
-                icon: const Icon(Icons.manage_search),
-              ),
-              _libraryActions(),
-            ],
+            titleSpacing: _selecting ? 4 : null,
+            title: _selecting
+                ? Text(
+                    '${_selectedNotes.length} selected',
+                    overflow: TextOverflow.ellipsis,
+                  )
+                : const Row(
+                    children: [
+                      Icon(
+                        Icons.draw_outlined,
+                        color: NoterTheme.accent,
+                        size: 20,
+                      ),
+                      SizedBox(width: 8),
+                      Flexible(
+                        child: Text('Notixer', overflow: TextOverflow.ellipsis),
+                      ),
+                    ],
+                  ),
+            actions: _selecting
+                ? _selectionActions(visible)
+                : [
+                    IconButton(
+                      tooltip:
+                          widget.shortcuts?.tooltip(
+                            'Add to-do',
+                            AppShortcut.quickTodo,
+                          ) ??
+                          'Add to-do',
+                      onPressed: _busy ? null : _quickTodo,
+                      icon: const Icon(Icons.playlist_add),
+                    ),
+                    if (!_hasOpenDocuments)
+                      SyncButton(
+                        controller: _sync,
+                        disabled: _busy,
+                        onSynchronized: _refresh,
+                        onOpenDetails: _syncSettings,
+                      ),
+                    IconButton(
+                      tooltip:
+                          widget.shortcuts?.tooltip(
+                            'Knowledge hub',
+                            AppShortcut.knowledgeSearch,
+                          ) ??
+                          'Knowledge hub',
+                      onPressed: _busy ? null : _knowledge,
+                      icon: const Icon(Icons.manage_search),
+                    ),
+                    _libraryActions(),
+                  ],
           ),
           body: SafeArea(
             child: Row(
@@ -995,6 +1123,17 @@ class _LibraryPageState extends State<LibraryPage> {
                                               setState(() => _query = value),
                                         ),
                                       ),
+                                      if (!_selecting)
+                                        IconButton(
+                                          tooltip: 'Select notes',
+                                          onPressed:
+                                              _busy || visible.every(_isOpen)
+                                              ? null
+                                              : () => setState(
+                                                  () => _selecting = true,
+                                                ),
+                                          icon: const Icon(Icons.checklist),
+                                        ),
                                       IconButton(
                                         tooltip: _grid
                                             ? 'List view'
@@ -1048,6 +1187,16 @@ class _LibraryPageState extends State<LibraryPage> {
                                         ),
                                     ],
                                   ),
+                                  if (hiddenSelection > 0)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 8),
+                                      child: Text(
+                                        '$hiddenSelection selected outside the current filters.',
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall,
+                                      ),
+                                    ),
                                   ListenableBuilder(
                                     listenable: _sync,
                                     builder: (context, _) =>
@@ -1211,6 +1360,40 @@ class _LibraryPageState extends State<LibraryPage> {
         );
       },
     );
+  }
+
+  List<Widget> _selectionActions(List<Notebook> visible) {
+    final ids = visible.where((note) => !_isOpen(note)).map((note) => note.id);
+    final allSelected = ids.every(_selectedNotes.contains);
+    return [
+      IconButton(
+        tooltip: allSelected && ids.isNotEmpty
+            ? 'Deselect visible notes'
+            : 'Select all visible notes',
+        onPressed: _busy || ids.isEmpty
+            ? null
+            : () => setState(() {
+                if (allSelected) {
+                  _selectedNotes.removeAll(ids);
+                } else {
+                  _selectedNotes.addAll(ids);
+                }
+              }),
+        icon: Icon(
+          allSelected && ids.isNotEmpty ? Icons.deselect : Icons.select_all,
+        ),
+      ),
+      IconButton(
+        tooltip: 'Move selected notes',
+        onPressed: _busy || _selectedNotes.isEmpty ? null : _moveSelected,
+        icon: const Icon(Icons.drive_file_move_outline),
+      ),
+      IconButton(
+        tooltip: 'Move selected notes to trash',
+        onPressed: _busy || _selectedNotes.isEmpty ? null : _deleteSelected,
+        icon: const Icon(Icons.delete_outline),
+      ),
+    ];
   }
 
   Widget _libraryHeading(BuildContext context, int count) {
@@ -1380,6 +1563,23 @@ class _LibraryPageState extends State<LibraryPage> {
     ],
   );
 
+  Widget _noteControl(Notebook note) {
+    if (!_selecting) return _noteActions(note);
+    return Checkbox(
+      semanticLabel: _isOpen(note)
+          ? 'Close the open note to select it'
+          : 'Select ${note.title}',
+      value: _selectedNotes.contains(note.id),
+      onChanged: _busy || _isOpen(note) ? null : (_) => _toggleSelection(note),
+    );
+  }
+
+  VoidCallback? _noteTap(Notebook note) => _busy
+      ? null
+      : _selecting
+      ? (_isOpen(note) ? null : () => _toggleSelection(note))
+      : () => _perform(() => _open(note));
+
   Widget _noteRow(Notebook note, {required bool compact}) {
     final date = note.modified.toLocal();
     final organization = [
@@ -1402,9 +1602,13 @@ class _LibraryPageState extends State<LibraryPage> {
         : 'Blank';
     return Card(
       key: ValueKey('library-row-${note.id}'),
+      color: _selectedNotes.contains(note.id) ? NoterTheme.active : null,
       shape: const RoundedRectangleBorder(),
       child: InkWell(
-        onTap: _busy ? null : () => _perform(() => _open(note)),
+        onTap: _noteTap(note),
+        onLongPress: _busy || _isOpen(note)
+            ? null
+            : () => _toggleSelection(note),
         hoverColor: NoterTheme.workspace,
         focusColor: NoterTheme.active,
         child: Container(
@@ -1484,7 +1688,7 @@ class _LibraryPageState extends State<LibraryPage> {
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
-              _noteActions(note),
+              _noteControl(note),
             ],
           ),
         ),
@@ -1495,9 +1699,13 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget _noteCard(Notebook note, {required bool compact}) {
     final date = note.modified.toLocal();
     return Card(
+      color: _selectedNotes.contains(note.id) ? NoterTheme.active : null,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: _busy ? null : () => _perform(() => _open(note)),
+        onTap: _noteTap(note),
+        onLongPress: _busy || _isOpen(note)
+            ? null
+            : () => _toggleSelection(note),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -1509,7 +1717,17 @@ class _LibraryPageState extends State<LibraryPage> {
                   cache: _previews,
                   height: compact ? 116 : 176,
                 ),
-                Positioned(top: 4, right: 4, child: _noteActions(note)),
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: _selecting
+                      ? Material(
+                          color: NoterTheme.background,
+                          borderRadius: BorderRadius.circular(6),
+                          child: _noteControl(note),
+                        )
+                      : _noteControl(note),
+                ),
               ],
             ),
             Expanded(

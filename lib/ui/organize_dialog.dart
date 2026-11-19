@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../data/catalog.dart';
 import '../data/notebook.dart';
 
 class OrganizeDialog extends StatefulWidget {
@@ -34,25 +35,12 @@ class _OrganizeDialogState extends State<OrganizeDialog> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          DropdownButtonFormField<String>(
-            isExpanded: true,
-            initialValue: widget.repository.catalog.folderName(folder) == null
+          _FolderField(
+            folders: widget.repository.catalog.folders,
+            initial: widget.repository.catalog.folderName(folder) == null
                 ? ''
                 : folder,
-            decoration: const InputDecoration(labelText: 'Folder'),
-            items: [
-              const DropdownMenuItem(value: '', child: Text('Unfiled')),
-              for (final f in widget.repository.catalog.folders)
-                DropdownMenuItem(
-                  value: f.id,
-                  child: Text(
-                    f.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-            ],
-            onChanged: (v) => folder = v!,
+            onChanged: (value) => folder = value!,
           ),
           const SizedBox(height: 16),
           TextField(
@@ -93,6 +81,70 @@ class _OrganizeDialogState extends State<OrganizeDialog> {
         child: const Text('Save'),
       ),
     ],
+  );
+}
+
+Future<String?> pickMoveFolder(BuildContext context, List<NoteFolder> folders) {
+  String? target;
+  return showDialog<String>(
+    context: context,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        scrollable: true,
+        title: const Text('Move selected notes'),
+        content: SizedBox(
+          width: 380,
+          child: _FolderField(
+            folders: folders,
+            onChanged: (value) => setState(() => target = value),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: target == null
+                ? null
+                : () => Navigator.pop(context, target),
+            child: const Text('Move'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _FolderField extends StatelessWidget {
+  const _FolderField({
+    required this.folders,
+    required this.onChanged,
+    this.initial,
+  });
+
+  final List<NoteFolder> folders;
+  final ValueChanged<String?> onChanged;
+  final String? initial;
+
+  @override
+  Widget build(BuildContext context) => DropdownButtonFormField<String>(
+    isExpanded: true,
+    initialValue: initial,
+    decoration: const InputDecoration(labelText: 'Folder'),
+    items: [
+      const DropdownMenuItem(value: '', child: Text('Unfiled')),
+      for (final folder in folders)
+        DropdownMenuItem(
+          value: folder.id,
+          child: Text(
+            folder.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+    ],
+    onChanged: onChanged,
   );
 }
 
