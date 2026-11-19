@@ -485,8 +485,9 @@ class _KnowledgePageState extends State<KnowledgePage> {
               : (_) {
                   if (view == _taskView) return;
                   setState(() => _taskView = view);
-                  if (view == _TaskView.all && _scannedQuickTodosOnly)
+                  if (view == _TaskView.all && _scannedQuickTodosOnly) {
                     unawaited(_search());
+                  }
                 },
         ),
     ],
