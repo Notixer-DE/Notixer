@@ -30,6 +30,7 @@ import 'sync_button.dart';
 import 'document_tab.dart';
 import 'library_graph_page.dart';
 import 'knowledge_page.dart';
+import 'quick_todo_dialog.dart';
 import '../data/knowledge.dart';
 import '../data/markdown_document.dart';
 import '../editor/operations.dart' show exportPdfBytesAsync;
@@ -94,6 +95,7 @@ class _LibraryPageState extends State<LibraryPage> {
         AppShortcut.knowledgeSearch: () => _knowledge(autofocusSearch: true),
         AppShortcut.importFile: _import,
         AppShortcut.newNote: _create,
+        AppShortcut.quickTodo: _quickTodo,
         AppShortcut.searchLibrary: _focusSearch,
         AppShortcut.graph: _graphView,
         AppShortcut.study: _study,
@@ -588,6 +590,7 @@ class _LibraryPageState extends State<LibraryPage> {
           autofocusSearch: autofocusSearch,
           shortcuts: widget.shortcuts,
           onImportFile: (onImported) => _import(onImported: onImported),
+          onQuickTodo: _quickTodo,
         ),
       ),
     );
@@ -634,6 +637,26 @@ class _LibraryPageState extends State<LibraryPage> {
       ),
     );
     await _refresh();
+  }
+
+  Future<bool> _quickTodo() async {
+    var added = false;
+    await _perform(() async {
+      added = await showQuickTodoDialog(context, widget.repository);
+      if (added && mounted) await _refresh();
+    });
+    if (added && mounted && ModalRoute.of(context)?.isCurrent == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('To-do added.'),
+          action: SnackBarAction(
+            label: 'View to-dos',
+            onPressed: () => _knowledge(section: unsortedTodos),
+          ),
+        ),
+      );
+    }
+    return added;
   }
 
   Future<void> _graphView() async {
@@ -855,6 +878,16 @@ class _LibraryPageState extends State<LibraryPage> {
               ],
             ),
             actions: [
+              IconButton(
+                tooltip:
+                    widget.shortcuts?.tooltip(
+                      'Add to-do',
+                      AppShortcut.quickTodo,
+                    ) ??
+                    'Add to-do',
+                onPressed: _busy ? null : _quickTodo,
+                icon: const Icon(Icons.playlist_add),
+              ),
               SyncButton(
                 controller: _sync,
                 disabled: _busy || _hasOpenDocuments,

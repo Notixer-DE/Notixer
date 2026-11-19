@@ -64,6 +64,70 @@ void main() {
   tearDown(() async {
     await directory.delete(recursive: true);
   });
+  testWidgets('library quick to-do saves directly to unsorted tasks', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: NoterTheme.light,
+        home: LibraryPage(repository: repository),
+      ),
+    );
+    await waitKnowledge(
+      tester,
+      () => find.text('Source note').evaluate().isNotEmpty,
+    );
+    await tester.tap(find.byTooltip('Add to-do'));
+    final dialog = find.widgetWithText(AlertDialog, 'Add to-do');
+    for (var i = 0; i < 100 && dialog.evaluate().isEmpty; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    expect(dialog, findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.enterText(
+      find.descendant(of: dialog, matching: find.byType(TextField)),
+      'Send the meeting notes',
+    );
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Add'));
+    await waitKnowledge(
+      tester,
+      () => find.text('View to-dos').evaluate().isNotEmpty,
+    );
+    await tester.tap(find.text('View to-dos'));
+    await waitKnowledge(
+      tester,
+      () => find.byType(Checkbox).evaluate().isNotEmpty,
+    );
+    expect(find.text(unsortedTodos), findsWidgets);
+    expect(find.text('Send the meeting notes'), findsOneWidget);
+    expect(find.text('Read the chapter'), findsNothing);
+    await tester.tap(find.byType(Checkbox));
+    await waitKnowledge(
+      tester,
+      () => find.text('No open unsorted to-dos.').evaluate().isNotEmpty,
+    );
+    (Notebook, MarkdownDocument)? savedTodo;
+    final read = repository.list().then((notes) async {
+      final saved = notes.singleWhere(
+        (note) => note.tags.contains(unsortedTodos),
+      );
+      savedTodo = (
+        saved,
+        MarkdownDocument.decode(await repository.load(saved.id)),
+      );
+    });
+    await waitKnowledge(tester, () => savedTodo != null);
+    await read;
+    final (saved, document) = savedTodo!;
+    expect(saved.title, 'Send the meeting notes');
+    expect(document.source, '- [x] Send the meeting notes\n');
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('shared text survives a failed save and capture can be retried', (
     tester,
   ) async {

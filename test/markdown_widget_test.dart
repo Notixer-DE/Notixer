@@ -140,6 +140,46 @@ void main() {
     timeout: const Timeout(Duration(seconds: 35)),
   );
 
+  testWidgets('write Markdown previews a heading before inserting it', (
+    tester,
+  ) async {
+    await open(tester, const Size(390, 844));
+    await tester.tap(find.text('Write Markdown'));
+    await tester.pumpAndSettle();
+    final field = find.byKey(const ValueKey('markdown-preview-edit'));
+    expect(field, findsOneWidget);
+    await tester.enterText(field, '# Hallo\n\n- One item');
+    await tester.pumpAndSettle();
+    final draft = find.byKey(const ValueKey('markdown-draft-preview'));
+    expect(
+      find.descendant(of: draft, matching: find.text('Hallo')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: draft, matching: find.text('One item')),
+      findsOneWidget,
+    );
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    expect(field, findsNothing);
+    expect(draft, findsNothing);
+    expect(find.text('Hallo'), findsOneWidget);
+    await tester.tap(find.byTooltip('Save'));
+    await markdownIo(
+      tester,
+      () => find.byTooltip('Saved locally').evaluate().isNotEmpty,
+    );
+    final bytes = await tester.runAsync(() => repository.load(a.id));
+    expect(
+      MarkdownDocument.decode(bytes!).source,
+      endsWith('# Hallo\n\n- One item'),
+    );
+  });
+
   testWidgets(
     'formatted Markdown zoom rebuilds blocks without reparsing source',
     (tester) async {

@@ -1,6 +1,6 @@
 # Notixer
 
-Notixer is an offline-first note-taking and knowledge management app for Android, Linux and Windows. Bring handwritten notebooks, PDF annotations, Markdown notes, tasks and study tools together in one workspace—without requiring an account or an internet connection. For use across devices, Notixer also offers optional end-to-end encrypted sync through a self-hosted server.
+Notixer is an offline-first notes and knowledge management app for Android, Linux and Windows. It combines handwriting, PDF annotations, Markdown, quick to-dos and study tools, with optional self-hosted end-to-end encrypted sync.
 
 **Platforms:** Android 8 or later (API 26), Debian 13 (amd64), and Windows (x64).
 
@@ -31,6 +31,7 @@ Open **Settings → Keyboard shortcuts** to change tool and navigation bindings.
 ## Markdown
 
 - Switch between editable CommonMark/GFM source and a formatted reading view with interactive checklists.
+- Choose **Write Markdown** in the formatted view to append text. Headings, lists and inline formatting appear live below the input. Select **Apply** or press **Ctrl+Shift+Enter** to insert the text.
 - **Tab** inserts four spaces, or indents all selected lines. **Shift+Tab** removes one indentation level. Selection direction and existing line endings are preserved.
 - In both source and formatted Markdown views, **Ctrl+Plus**, **Ctrl+Minus**, and **Ctrl+0** enlarge, reduce or reset the font. Number-pad equivalents and Cmd shortcuts are supported. Toolbar controls offer the same actions. The formatted view also supports two-finger pinch zoom. Each view retains its own zoom level; zoom does not change note contents.
 - Insert inline code or fenced code blocks. The code-block action safely wraps selections that already contain backticks.
@@ -45,6 +46,7 @@ Open **Knowledge hub** from the library sidebar, the phone's library-actions men
 
 - **Search** searches Markdown content and PDF text with snippets. Results open at the matching source line or PDF page. Combine text, file type, folder, tag and open-task filters; save combinations in **Views**. Searches run file by file with background text/PDF processing and can be cancelled after the current file finishes. PDF matches are limited to 50 per file with an explicit warning. Image-only scans require an existing PDF text layer; this is not OCR.
 - **Tasks** collects all unchecked Markdown list checkboxes, including journal entries. Code examples and completed tasks are excluded. Tap a task to edit its source line, or check it off directly. A revision check rejects stale edits; open tabs receive the change without losing other content.
+- Use **Add to-do** in the library or Knowledge Hub to capture a task in one step. Find it under **Unsorted to-dos** or **Tasks** and check it off there. The default shortcut is **Ctrl+Alt+N**.
 - **Journal** provides one Markdown note per local calendar date, with Today, previous/next day and a date picker. Open an existing day or create it using the selected default template. Choose that template using **Journal template** beside the day actions. Entries are ordinary portable Markdown notes and participate in search, links, tags, backlinks and the graph. Applying a new default never replaces existing journal content.
 - **Templates** creates, edits and deletes reusable Markdown text templates. Supported placeholders are `{{date}}` (YYYY-MM-DD), `{{weekday}}`, `{{year}}` and `{{title}}`. A Markdown note's menu can save its source as a template or insert a rendered template at the cursor. Journal templates are chosen from the same collection; image attachments are not copied into text templates.
 - **Inbox** lists quick captures. Use **Quick capture** to save text or Markdown before organizing it with folders and tags. Android's Share sheet accepts shared text and URLs into the same capture dialog.

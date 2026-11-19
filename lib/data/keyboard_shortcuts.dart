@@ -66,6 +66,12 @@ enum AppShortcut {
   ),
 
   newNote(ShortcutSection.library, 'Create a note', LogicalKeyboardKey.keyN),
+  quickTodo(
+    ShortcutSection.library,
+    'Add to-do',
+    LogicalKeyboardKey.keyN,
+    alt: true,
+  ),
   searchLibrary(
     ShortcutSection.library,
     'Search note titles',
@@ -206,6 +212,12 @@ enum AppShortcut {
     'Edit the formatted preview',
     LogicalKeyboardKey.enter,
     alt: true,
+  ),
+  markdownApplyDraft(
+    ShortcutSection.markdown,
+    'Apply the Markdown draft',
+    LogicalKeyboardKey.enter,
+    shift: true,
   ),
   markdownBold(ShortcutSection.markdown, 'Bold', LogicalKeyboardKey.keyB),
   markdownItalic(ShortcutSection.markdown, 'Italic', LogicalKeyboardKey.keyI),
