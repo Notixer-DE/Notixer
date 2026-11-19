@@ -48,6 +48,16 @@ class FileGateway {
   }
 
   static const _channel = MethodChannel('de.noter/files');
+
+  static String exportName(String title, String extension) {
+    final safeTitle = title
+        .replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1F]'), '_')
+        .trim();
+    final suffix = '.$extension';
+    if (safeTitle.toLowerCase().endsWith(suffix)) return safeTitle;
+    return '${safeTitle.isEmpty ? 'Notixer' : safeTitle}$suffix';
+  }
+
   Future<bool> save(String name, Uint8List bytes, String mime) async {
     if (Platform.isAndroid) {
       return await _channel.invokeMethod<bool>('save', {

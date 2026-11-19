@@ -8,6 +8,7 @@ import 'package:pdf_document/pdf_document.dart'
     show PdfRect, PdfGoToAction, PdfNamedAction, PdfAnnotationEditing;
 import '../data/document_session.dart';
 import '../data/file_gateway.dart';
+import '../data/keyboard_shortcuts.dart';
 import '../data/knowledge.dart';
 import '../data/notebook.dart';
 import 'markdown_editor.dart';
@@ -46,8 +47,10 @@ class EditorPane extends StatefulWidget {
     this.initialTapeId,
     this.onReviewRated,
     this.onOpenSourceNote,
+    this.shortcuts,
   });
   final DocumentSession session;
+  final KeyboardShortcuts? shortcuts;
   final bool active, split, showChrome, useDefaultSaveShortcut;
   final int? initialPage;
   final String initialQuery;
@@ -520,7 +523,12 @@ class EditorPaneState extends State<EditorPane> {
   }
 
   Widget _navigationBar(bool pagesVisible, bool compact) => ListenableBuilder(
-    listenable: Listenable.merge([viewer, navigation, widget.session]),
+    listenable: Listenable.merge([
+      viewer,
+      navigation,
+      widget.session,
+      widget.shortcuts,
+    ]),
     builder: (context, _) => WorkspaceToolbar(
       child: Row(
         children: [
@@ -555,7 +563,12 @@ class EditorPaneState extends State<EditorPane> {
                     icon: const Icon(Icons.bookmarks_outlined),
                   ),
                   IconButton(
-                    tooltip: 'Previous page',
+                    tooltip:
+                        widget.shortcuts?.tooltip(
+                          'Previous page',
+                          AppShortcut.pdfPreviousPage,
+                        ) ??
+                        'Previous page',
                     onPressed: viewer.currentPage > 0
                         ? () => navigation.jumpToPage(viewer.currentPage - 1)
                         : null,
@@ -568,7 +581,12 @@ class EditorPaneState extends State<EditorPane> {
                     ),
                   ),
                   IconButton(
-                    tooltip: 'Next page',
+                    tooltip:
+                        widget.shortcuts?.tooltip(
+                          'Next page',
+                          AppShortcut.pdfNextPage,
+                        ) ??
+                        'Next page',
                     onPressed:
                         viewer.currentPage < editing.document.pageCount - 1
                         ? () => navigation.jumpToPage(viewer.currentPage + 1)

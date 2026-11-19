@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/catalog.dart';
 import '../data/document_session.dart';
 import '../data/drawing_preferences.dart';
+import '../data/keyboard_shortcuts.dart';
 import 'noter_theme.dart';
 import 'workspace_chrome.dart';
 
@@ -40,6 +41,7 @@ class EditorToolbar extends StatelessWidget {
     this.tapeActive = false,
     this.learningActive = false,
     this.preferredPreset,
+    this.shortcuts,
   });
 
   final DocumentSession session;
@@ -50,6 +52,7 @@ class EditorToolbar extends StatelessWidget {
   final ValueChanged<int> onEditPreset;
   final bool lassoActive, tapeActive, learningActive;
   final PenPreset? preferredPreset;
+  final KeyboardShortcuts? shortcuts;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -58,6 +61,7 @@ class EditorToolbar extends StatelessWidget {
       session.preferences,
       catalog,
       catalog.drawingPreferences,
+      shortcuts,
     ]),
     builder: (context, _) {
       final editing = session.editing;
@@ -86,8 +90,11 @@ class EditorToolbar extends StatelessWidget {
         IconData icon,
         VoidCallback? action, {
         bool selected = false,
+        AppShortcut? shortcut,
       }) => IconButton(
-        tooltip: label,
+        tooltip: shortcut == null
+            ? label
+            : shortcuts?.tooltip(label, shortcut) ?? label,
         isSelected: selected,
         onPressed: session.toolsReady ? action : null,
         style: IconButton.styleFrom(
@@ -116,18 +123,21 @@ class EditorToolbar extends StatelessWidget {
                       'Select text',
                       Icons.text_fields,
                       onTextSelection,
+                      shortcut: AppShortcut.pdfSelectText,
                       selected: normal && editing.tool == null,
                     ),
                     tool(
                       'Pen',
                       Icons.edit_outlined,
                       () => onTool(PdfEditTool.ink),
+                      shortcut: AppShortcut.pdfPen,
                       selected: normal && editing.tool == PdfEditTool.ink,
                     ),
                     tool(
                       'Highlighter',
                       Icons.highlight_outlined,
                       () => onTool(PdfEditTool.highlight),
+                      shortcut: AppShortcut.pdfHighlighter,
                       selected: normal && editing.tool == PdfEditTool.highlight,
                     ),
                     tool(
@@ -153,12 +163,14 @@ class EditorToolbar extends StatelessWidget {
                       'Eraser',
                       Icons.auto_fix_normal,
                       () => onTool(PdfEditTool.eraser),
+                      shortcut: AppShortcut.pdfEraser,
                       selected: editing.tool == PdfEditTool.eraser,
                     ),
                     tool(
                       'Lasso selection',
                       Icons.gesture,
                       onLasso,
+                      shortcut: AppShortcut.pdfLasso,
                       selected:
                           lassoActive && editing.tool == PdfEditTool.select,
                     ),
@@ -166,6 +178,7 @@ class EditorToolbar extends StatelessWidget {
                       'Select',
                       Icons.near_me_outlined,
                       () => onTool(PdfEditTool.select),
+                      shortcut: AppShortcut.pdfSelect,
                       selected: normal && editing.tool == PdfEditTool.select,
                     ),
                     const ToolbarSeparator(),
@@ -227,6 +240,7 @@ class EditorToolbar extends StatelessWidget {
                       'Insert text',
                       Icons.text_fields_outlined,
                       () => onTool(PdfEditTool.freeText),
+                      shortcut: AppShortcut.pdfInsertText,
                       selected: normal && editing.tool == PdfEditTool.freeText,
                     ),
                     tool('Insert image', Icons.image_outlined, onImage),

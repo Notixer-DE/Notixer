@@ -74,7 +74,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
   }
 
   Future<void> _refreshOpenDocuments() async {
-    for (final tab in _tabs) {
+    for (final tab in _tabs.toList()) {
       await tab.controller.refreshMetadata?.call();
     }
   }
@@ -405,37 +405,24 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                       child: IndexedStack(
                         index: _selected + 1,
                         children: [
-                          LibraryPage(
-                            key: const ValueKey('workspace-library'),
-                            repository: widget.repository,
-                            syncController: _sync,
-                            workspaceController: _library,
-                            onSettings: _openSettings,
-                            shortcuts: _shortcuts,
-                            hasOpenDocuments: () => _tabs.isNotEmpty,
-                            isNotebookOpen: (id) =>
-                                _pdfSessions.contains(id) ||
-                                _tabs.any((tab) => tab.note.id == id),
-                            onOpenNotebook: (note) => openNotebook(note),
-                            onOpenDestination: openNotebook,
-                            onCompleteTask: (task) async {
-                              final tabs = _tabs.where(
-                                (tab) => tab.note.id == task.note.id,
-                              );
-                              if (tabs.isNotEmpty &&
-                                  tabs.first.controller.completeTask != null) {
-                                await tabs.first.controller.completeTask!(task);
-                              } else {
-                                await KnowledgeStore(
-                                  widget.repository,
-                                ).completeTask(task);
-                              }
-                            },
-                            onRefreshDocuments: () async {
-                              for (final tab in _tabs) {
-                                await tab.controller.refreshMetadata?.call();
-                              }
-                            },
+                          ExcludeFocus(
+                            excluding: _selected >= 0,
+                            child: LibraryPage(
+                              key: const ValueKey('workspace-library'),
+                              repository: widget.repository,
+                              syncController: _sync,
+                              workspaceController: _library,
+                              onSettings: _openSettings,
+                              shortcuts: _shortcuts,
+                              hasOpenDocuments: () => _tabs.isNotEmpty,
+                              isNotebookOpen: (id) =>
+                                  _pdfSessions.contains(id) ||
+                                  _tabs.any((tab) => tab.note.id == id),
+                              onOpenNotebook: (note) => openNotebook(note),
+                              onOpenDestination: openNotebook,
+                              onCompleteTask: _completeKnowledgeTask,
+                              onRefreshDocuments: _refreshOpenDocuments,
+                            ),
                           ),
                           for (var i = 0; i < _tabs.length; i++)
                             KeyedSubtree(

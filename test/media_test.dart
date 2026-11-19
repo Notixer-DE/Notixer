@@ -138,6 +138,8 @@ void main() {
         MediaGateway.consumeCapture(file.path, limit: 1),
         throwsFormatException,
       );
+      expect(await file.readAsBytes(), samplePng);
+      await MediaGateway.discardCapture(file.path);
       expect(await file.exists(), false);
     },
   );

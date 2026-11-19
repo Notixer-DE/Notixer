@@ -102,8 +102,7 @@ class MediaGateway {
         temporaryPath: path,
       );
     } catch (_) {
-      final file = File(path);
-      if (await file.exists()) await file.delete();
+      recoveredCapture.value = path;
       rethrow;
     }
   }

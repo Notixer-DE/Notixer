@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:ui' show AppExitResponse, PointerDeviceKind;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
@@ -30,6 +31,7 @@ class EditorPage extends StatefulWidget {
     this.initialQuery = '',
     this.initialTapeId,
     this.tabController,
+    this.shortcuts,
     this.workspaceSessions,
     this.onLibrary,
     this.onReviewRated,
@@ -41,6 +43,7 @@ class EditorPage extends StatefulWidget {
   final String initialQuery;
   final String? initialTapeId;
   final DocumentTabController? tabController;
+  final KeyboardShortcuts? shortcuts;
   final WorkspacePdfSessions? workspaceSessions;
   final Future<void> Function()? onLibrary;
   final VoidCallback? onReviewRated;
@@ -67,6 +70,8 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
   double _fraction = 0.5;
   _Pane get active => _panes[_active];
   DocumentSession get session => active.session;
+  KeyboardShortcuts? get _shortcuts =>
+      widget.tabController?.shortcuts ?? widget.shortcuts;
   Future<bool> Function()? _previousClose;
   StylusEraser? Function(PointerEvent)? _previousResolver;
   bool Function(PointerEvent)? _previousInterceptor;
@@ -387,12 +392,12 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     final bytes = archive
         ? await widget.repository.exportArchive(target.note)
         : await target.exportSnapshot(withTapes: withTapes);
-    final name = target.note.title.replaceAll(
-      RegExp(r'[/\\:*?"<>|\x00-\x1F]'),
-      '_',
+    final name = FileGateway.exportName(
+      target.note.title,
+      archive ? 'noter' : 'pdf',
     );
     if (await FileGateway().save(
-          '$name.${archive ? 'noter' : 'pdf'}',
+          name,
           bytes,
           archive ? 'application/octet-stream' : 'application/pdf',
         ) &&
@@ -557,6 +562,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
   }
 
   void _selectPdfTool(PdfEditTool tool) {
+    if (!session.toolsReady) return;
     active.key.currentState?.normalTool();
     session.eraser.setBaseTool(tool);
   }
@@ -588,9 +594,39 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         pane.viewer.currentPage - 1,
       ),
       AppShortcut.pdfPen => () => _selectPdfTool(PdfEditTool.ink),
+      AppShortcut.pdfHighlighter => () => _selectPdfTool(PdfEditTool.highlight),
       AppShortcut.pdfEraser => () => _selectPdfTool(PdfEditTool.eraser),
+      AppShortcut.pdfLasso when session.toolsReady => pane.toggleLasso,
+      AppShortcut.pdfSelect => () => _selectPdfTool(PdfEditTool.select),
+      AppShortcut.pdfSelectText when session.toolsReady => pane.selectText,
+      AppShortcut.pdfInsertText => () => _selectPdfTool(PdfEditTool.freeText),
       _ => null,
     };
+  }
+
+  KeyEventResult _handleShortcut(FocusNode node, KeyEvent event) {
+    if (widget.tabController != null ||
+        ModalRoute.of(context)?.isCurrent != true ||
+        _busy ||
+        _leaving) {
+      return KeyEventResult.ignored;
+    }
+    final action = _shortcuts?.match(event);
+    if (action == null) return KeyEventResult.ignored;
+    final command = action == AppShortcut.save
+        ? () async {
+            await _saveAll();
+          }
+        : _commandFor(action);
+    if (command == null) return KeyEventResult.ignored;
+    unawaited(
+      Future<void>.sync(command).catchError((Object error) {
+        if (mounted) {
+          _message('Could not run ${action.label.toLowerCase()}: $error');
+        }
+      }),
+    );
+    return KeyEventResult.handled;
   }
 
   Future<void> _action(String action) async {
@@ -667,7 +703,8 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         key: pane.key,
         session: pane.session,
         onSaveAll: _saveAll,
-        useDefaultSaveShortcut: widget.tabController?.shortcuts == null,
+        shortcuts: _shortcuts,
+        useDefaultSaveShortcut: _shortcuts == null,
         onOpenSourceNote: widget.tabController == null
             ? null
             : (note) async {
@@ -784,7 +821,13 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
   }
 
   @override
-  Widget build(BuildContext context) => PopScope(
+  Widget build(BuildContext context) => Focus(
+    autofocus: widget.tabController == null && _shortcuts != null,
+    onKeyEvent: _handleShortcut,
+    child: _buildEditor(context),
+  );
+
+  Widget _buildEditor(BuildContext context) => PopScope(
     canPop: widget.tabController != null || _allowPop,
     onPopInvokedWithResult: (popped, _) {
       if (!popped && widget.tabController == null) _leave();
@@ -926,6 +969,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                   EditorToolbar(
                     session: session,
                     catalog: widget.repository.catalog,
+                    shortcuts: _shortcuts,
                     lassoActive: active.key.currentState?.lassoActive ?? false,
                     tapeActive: active.key.currentState?.tapeActive ?? false,
                     learningActive:

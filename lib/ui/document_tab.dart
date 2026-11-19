@@ -72,6 +72,9 @@ class DocumentTabController extends ChangeNotifier {
     _pause = null;
     resolveEraser = null;
     interceptEvent = null;
+    revealAnchor = null;
+    completeTask = null;
+    refreshMetadata = null;
     commandFor = null;
     super.dispose();
   }

@@ -1088,7 +1088,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     final saved = await FileGateway().save(
       kind == 'bundle'
           ? '${_session.note.id}-markdown.zip'
-          : p.posix.basename(_session.note.documentPath),
+          : FileGateway.exportName(_session.note.title, 'md'),
       bytes,
       kind == 'bundle' ? 'application/zip' : 'text/markdown',
     );
@@ -1142,7 +1142,8 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   });
 
   String _shortcutTooltip(String label, AppShortcut action, String fallback) =>
-      '$label (${widget.tabController?.shortcuts?[action].label ?? fallback})';
+      widget.tabController?.shortcuts?.tooltip(label, action) ??
+      '$label ($fallback)';
 
   Widget _toolbarContents() {
     final undo = _titleFocus.hasFocus ? _titleUndo : _undo;
@@ -1454,7 +1455,9 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
         child: LayoutBuilder(
           builder: (context, constraints) {
             final phone = NoterTheme.mobileLayout(constraints.maxWidth);
-            final desktop = !phone && constraints.maxWidth >= 1000;
+            final desktop =
+                constraints.maxWidth >= 1000 &&
+                NoterTheme.desktopControls(context);
             final inset = phone ? 18.0 : 36.0;
             final paper = Padding(
               padding: EdgeInsets.fromLTRB(
