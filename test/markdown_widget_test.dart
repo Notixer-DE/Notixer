@@ -246,6 +246,12 @@ void main() {
   testWidgets(
     'desktop list toggles; source, formatting and checks share one saved document',
     (tester) async {
+      Future<void> saveEditor() async {
+        var saved = false;
+        FileGateway.beforeClose!().then((result) => saved = result);
+        await markdownIo(tester, () => saved);
+      }
+
       await open(tester, const Size(1440, 1000));
       expect(find.text('My notes'), findsNothing);
       final folders = find.byTooltip('Hide folders');
@@ -287,7 +293,7 @@ void main() {
       expect(find.byType(Checkbox), findsNWidgets(2));
       await tester.tap(find.byType(Checkbox).first);
       await tester.pumpAndSettle();
-      await tester.runAsync(() => FileGateway.beforeClose!());
+      await saveEditor();
       var saved = await tester.runAsync(() => repository.load(a.id));
       expect(
         MarkdownDocument.decode(saved!).source,
@@ -320,13 +326,14 @@ void main() {
         () => find.byTooltip('Saved locally').evaluate().isNotEmpty,
       );
       expect(tester.takeException(), isNull);
-      await tester.runAsync(() => FileGateway.beforeClose!());
+      await saveEditor();
       saved = await tester.runAsync(() => repository.load(a.id));
       expect(MarkdownDocument.decode(saved!).source, contains('**Text**'));
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
     },
     variant: TargetPlatformVariant.only(TargetPlatform.linux),
+    timeout: const Timeout(Duration(seconds: 35)),
   );
 
   testWidgets(
