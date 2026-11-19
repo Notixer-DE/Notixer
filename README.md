@@ -11,7 +11,7 @@ Notixer is an offline-first notes and knowledge management app for Android, Linu
 
 - Create multipage notebooks with blank, ruled or grid paper; import PDFs; create Markdown text notes and checklists.
 - Select **To-do list** when creating a note to open a dedicated task editor. Type a task and press Enter or tap **Add task**. Check off tasks in the list or in Knowledge Hub. Export the list as a `.noter` file to reopen it as a to-do list.
-- Organize notes with folders and tags. Combine title, type, folder and tag filters, and switch between list and grid layouts.
+- Use **New note** or **Import file** above the library list. Open **Show folders** to browse folders, filter by tag or manage folders. The list/grid toggle is next to the title search. Find **Search PDFs**, **Study today**, **Trash** and **Sync settings** under **Library actions**.
 - Keep several documents open in tabs. Hide or show the tab strip without closing documents or losing their state. Use the restore button or **Ctrl+Alt+T** (**Cmd+Alt+T** on macOS).
 - Open two views side by side or stacked, including two views of the same note. Each view keeps its own navigation position.
 - Android starts with editor toolbars hidden. The toolbar toggle remains available to return to the full workspace.
@@ -43,11 +43,11 @@ Open **Settings → Keyboard shortcuts** to change tool and navigation bindings.
 
 ## Knowledge hub, journals and tasks
 
-Open **Knowledge hub** from the library sidebar, the phone's library-actions menu, or a Markdown note's **Note actions** menu.
+Open **Knowledge hub** from the library toolbar or a Markdown note's **Note actions** menu.
 
 - **Search** searches Markdown content and PDF text with snippets. Results open at the matching source line or PDF page. Combine text, file type, folder, tag and open-task filters; save combinations in **Views**. Searches run file by file with background text/PDF processing and can be cancelled after the current file finishes. PDF matches are limited to 50 per file with an explicit warning. Image-only scans require an existing PDF text layer; this is not OCR.
 - **Tasks** collects all unchecked Markdown list checkboxes, including journal entries. Code examples and completed tasks are excluded. Tap a task to edit its source line, or check it off directly. A revision check rejects stale edits; open tabs receive the change without losing other content.
-- Use **Add to-do** in the library or Knowledge Hub to capture a task in one step. Find it under **Unsorted to-dos** or **Tasks** and check it off there. The default shortcut is **Ctrl+Alt+N**.
+- Use **Add to-do** in the library or Knowledge Hub to capture a task in one step. Find it under **Tasks → Unsorted** and check it off there. The default shortcut is **Ctrl+Alt+N**.
 - In **Tasks**, use **Today**, **Unsorted**, **Projects**, or **All tasks**. Open **Plan to-do** on a quick to-do to choose or create a project folder and set or clear a due date. **Today** shows open to-dos due today or overdue, with the oldest due dates first. Checklists in other notes appear in **All tasks**.
 - **Journal** provides one Markdown note per local calendar date, with Today, previous/next day and a date picker. Open an existing day or create it using the selected default template. Choose that template using **Journal template** beside the day actions. Entries are ordinary portable Markdown notes and participate in search, links, tags, backlinks and the graph. Applying a new default never replaces existing journal content.
 - **Templates** creates, edits and deletes reusable Markdown text templates. Supported placeholders are `{{date}}` (YYYY-MM-DD), `{{weekday}}`, `{{year}}` and `{{title}}`. A Markdown note's menu can save its source as a template or insert a rendered template at the cursor. Journal templates are chosen from the same collection; image attachments are not copied into text templates.
@@ -163,7 +163,7 @@ Desktop library and Markdown navigation sidebars can be hidden and restored usin
 
 ### Media library
 
-Use **Add media** to add images, videos or audio to the current folder (and tag filter). Existing files can be imported on Android, Windows and Linux. Android additionally provides **Take photo**, **Record video** and **Record voice message**. Microphone access is requested only when recording starts. Cancel discards the recording; **Stop and add** stores it. Recording stops when the app enters the background, and is limited to ten minutes. Failed saves retain the pending import with a retry action. **Recover captured media** exposes captures left unfinished by a camera/app restart; imports can be retried or discarded.
+Choose **New note → Add media** to add images, videos or audio to the current folder and tag filter. Existing files can be imported on Android, Windows and Linux. Android additionally provides **Take photo**, **Record video** and **Record voice message**. Microphone access is requested only when recording starts. Cancel discards the recording; **Stop and add** stores it. Recording stops when the app enters the background, and is limited to ten minutes. Failed saves retain the pending import with a retry action. **Recover captured media** exposes captures left unfinished by a camera/app restart; imports can be retried or discarded.
 
 Images open in a zoomable viewer. Android plays voice/audio in the app with pause and seek controls and opens video in an in-app system player. Windows/Linux use the installed default media player. Format and codec support are device-dependent. Supported containers are PNG/JPEG/WebP/GIF, MP4/MOV/WebM, and M4A/MP3/WAV/Ogg/AAC/FLAC. Library media is limited to 128 MB per file; Markdown attachments are limited to 32 MB each and 64 MB per note. Markdown uses portable image syntax and ordinary audio/video attachment links; clicking an attachment opens its viewer/player. ZIP collection export includes referenced attachments and linked standalone media.
 

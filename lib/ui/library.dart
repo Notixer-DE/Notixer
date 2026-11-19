@@ -878,33 +878,28 @@ class _LibraryPageState extends State<LibraryPage> {
           drawer: wide ? null : Drawer(child: SafeArea(child: _navigation())),
           appBar: AppBar(
             leadingWidth: DocumentTabsChrome.leadingWidth(context),
-            leading: wide
-                ? DocumentNavigation(
-                    child: IconButton(
-                      tooltip: _showNavigation
-                          ? 'Hide sidebar'
-                          : 'Show sidebar',
-                      icon: const Icon(Icons.view_sidebar_outlined),
-                      onPressed: () {
-                        setState(() => _showNavigation = !_showNavigation);
-                        widget.repository.catalog.displayPreferences
-                            .set('librarySidebar', _showNavigation)
-                            .catchError((Object _) {});
-                      },
-                    ),
-                  )
-                : DocumentTabsChrome.action(context) == null
-                ? null
-                : DocumentNavigation(
-                    child: wide
-                        ? const SizedBox()
-                        : IconButton(
-                            tooltip: 'Open navigation menu',
-                            icon: const Icon(Icons.menu),
-                            onPressed: () =>
-                                _scaffold.currentState?.openDrawer(),
-                          ),
-                  ),
+            leading: DocumentNavigation(
+              child: IconButton(
+                tooltip: wide && _showNavigation
+                    ? 'Hide folders'
+                    : 'Show folders',
+                icon: Icon(
+                  wide && _showNavigation
+                      ? Icons.folder_open_outlined
+                      : Icons.folder_outlined,
+                ),
+                onPressed: () {
+                  if (!wide) {
+                    _scaffold.currentState?.openDrawer();
+                    return;
+                  }
+                  setState(() => _showNavigation = !_showNavigation);
+                  widget.repository.catalog.displayPreferences
+                      .set('librarySidebar', _showNavigation)
+                      .catchError((Object _) {});
+                },
+              ),
+            ),
             toolbarHeight: NoterTheme.headerHeight(context),
             title: const Row(
               children: [
@@ -926,172 +921,24 @@ class _LibraryPageState extends State<LibraryPage> {
                 onPressed: _busy ? null : _quickTodo,
                 icon: const Icon(Icons.playlist_add),
               ),
-              SyncButton(
-                controller: _sync,
-                disabled: _busy || _hasOpenDocuments,
-                onSynchronized: _refresh,
-                onOpenDetails: _syncSettings,
+              if (!_hasOpenDocuments)
+                SyncButton(
+                  controller: _sync,
+                  disabled: _busy,
+                  onSynchronized: _refresh,
+                  onOpenDetails: _syncSettings,
+                ),
+              IconButton(
+                tooltip:
+                    widget.shortcuts?.tooltip(
+                      'Knowledge hub',
+                      AppShortcut.knowledgeSearch,
+                    ) ??
+                    'Knowledge hub',
+                onPressed: _busy ? null : _knowledge,
+                icon: const Icon(Icons.manage_search),
               ),
-              if (!phone) ...[
-                if (_recoverableCaptures.isNotEmpty)
-                  IconButton(
-                    tooltip: 'Recover captured media',
-                    onPressed: _busy ? null : _recoverCapture,
-                    icon: const Icon(Icons.restore),
-                  ),
-                IconButton(
-                  tooltip: 'Add media',
-                  onPressed: _busy ? null : _addMedia,
-                  icon: const Icon(Icons.add_photo_alternate_outlined),
-                ),
-                IconButton(
-                  tooltip: 'Knowledge hub',
-                  onPressed: _busy ? null : _knowledge,
-                  icon: const Icon(Icons.manage_search),
-                ),
-                IconButton(
-                  tooltip: 'Graph view',
-                  icon: const Icon(Icons.hub_outlined),
-                  onPressed: _busy ? null : _graphView,
-                ),
-                IconButton(
-                  tooltip: _grid ? 'List view' : 'Grid view',
-                  onPressed: () => setState(() => _grid = !_grid),
-                  icon: Icon(
-                    _grid ? Icons.view_list_outlined : Icons.grid_view_outlined,
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Trash',
-                  onPressed: _busy ? null : () => _recovery(),
-                  icon: const Icon(Icons.delete_outline),
-                ),
-                IconButton(
-                  tooltip: 'Search PDFs',
-                  onPressed: _busy || !_notes.any((n) => n.isPdf)
-                      ? null
-                      : _searchPdfs,
-                  icon: const Icon(Icons.find_in_page_outlined),
-                ),
-                IconButton(
-                  tooltip: _hasOpenDocuments
-                      ? 'Close open tabs before syncing'
-                      : 'Sync settings',
-                  onPressed: _busy || _hasOpenDocuments ? null : _syncSettings,
-                  icon: const Icon(Icons.cloud_sync_outlined),
-                ),
-                IconButton(
-                  tooltip: 'Manage folders',
-                  onPressed: _busy ? null : _folders,
-                  icon: const Icon(Icons.folder_outlined),
-                ),
-                IconButton(
-                  tooltip: 'Reload notes',
-                  onPressed: _busy ? null : _refresh,
-                  icon: const Icon(Icons.refresh),
-                ),
-                if (widget.onSettings != null)
-                  IconButton(
-                    tooltip: 'Settings',
-                    onPressed: _busy ? null : widget.onSettings,
-                    icon: const Icon(Icons.settings_outlined),
-                  ),
-                const SizedBox(width: 12),
-              ] else
-                PopupMenuButton<String>(
-                  tooltip: 'Library actions',
-                  onSelected: (value) {
-                    if (value == 'recover-media') _recoverCapture();
-                    if (value == 'media') _addMedia();
-                    if (value == 'knowledge') _knowledge();
-                    if (value == 'journal') _knowledge(section: 'Journal');
-                    if (value == 'tasks') _knowledge(section: 'Tasks');
-                    if (value == 'capture') {
-                      _knowledge(section: 'Inbox', sharedText: '');
-                    }
-                    if (value == 'graph') _graphView();
-                    if (value == 'import') _import();
-                    if (value == 'pdf') _searchPdfs();
-                    if (value == 'trash') _recovery();
-                    if (value == 'refresh') _refresh();
-                    if (value == 'templates') _templates();
-                    if (value == 'settings') widget.onSettings?.call();
-                    if (value == 'view') setState(() => _grid = !_grid);
-                  },
-                  itemBuilder: (_) => [
-                    if (widget.onSettings != null)
-                      PopupMenuItem(
-                        value: 'settings',
-                        enabled: !_busy,
-                        child: const Text('Settings'),
-                      ),
-                    if (_recoverableCaptures.isNotEmpty)
-                      PopupMenuItem(
-                        value: 'recover-media',
-                        enabled: !_busy,
-                        child: const Text('Recover captured media'),
-                      ),
-                    PopupMenuItem(
-                      value: 'media',
-                      enabled: !_busy,
-                      child: const Text('Add media'),
-                    ),
-                    PopupMenuItem(
-                      value: 'knowledge',
-                      enabled: !_busy,
-                      child: const Text('Knowledge hub'),
-                    ),
-                    PopupMenuItem(
-                      value: 'journal',
-                      enabled: !_busy,
-                      child: const Text('Journal'),
-                    ),
-                    PopupMenuItem(
-                      value: 'tasks',
-                      enabled: !_busy,
-                      child: const Text('All open tasks'),
-                    ),
-                    PopupMenuItem(
-                      value: 'capture',
-                      enabled: !_busy,
-                      child: const Text('Quick capture'),
-                    ),
-                    PopupMenuItem(
-                      value: 'graph',
-                      enabled: !_busy,
-                      child: const Text('Graph view'),
-                    ),
-                    PopupMenuItem(
-                      value: 'view',
-                      child: Text(_grid ? 'List view' : 'Grid view'),
-                    ),
-                    PopupMenuItem(
-                      value: 'import',
-                      enabled: !_busy,
-                      child: const Text('Import file'),
-                    ),
-                    PopupMenuItem(
-                      value: 'pdf',
-                      enabled: !_busy && _notes.isNotEmpty,
-                      child: const Text('Search PDFs'),
-                    ),
-                    PopupMenuItem(
-                      value: 'trash',
-                      enabled: !_busy,
-                      child: const Text('Trash'),
-                    ),
-                    PopupMenuItem(
-                      value: 'templates',
-                      enabled: !_busy,
-                      child: const Text('Templates'),
-                    ),
-                    PopupMenuItem(
-                      value: 'refresh',
-                      enabled: !_busy,
-                      child: const Text('Reload notes'),
-                    ),
-                  ],
-                ),
+              _libraryActions(),
             ],
           ),
           body: SafeArea(
@@ -1113,75 +960,34 @@ class _LibraryPageState extends State<LibraryPage> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Wrap(
-                                    spacing: 16,
-                                    runSpacing: 12,
-                                    crossAxisAlignment:
-                                        WrapCrossAlignment.center,
-                                    children: [
-                                      Text(
-                                        _folderFilter == null
-                                            ? 'My notes'
-                                            : _folderFilter == ''
-                                            ? 'Unfiled'
-                                            : widget.repository.catalog
-                                                      .folderName(
-                                                        _folderFilter,
-                                                      ) ??
-                                                  'My notes',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .headlineSmall
-                                            ?.copyWith(
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                      ),
-                                      if (!phone) ...[
-                                        OutlinedButton.icon(
-                                          onPressed: _busy ? null : _import,
-                                          icon: const Icon(
-                                            Icons.file_open_outlined,
-                                          ),
-                                          label: const Text('Import file'),
-                                        ),
-                                        FilledButton.icon(
-                                          onPressed: _busy ? null : _create,
-                                          icon: const Icon(Icons.add),
-                                          label: const Text('New note'),
-                                        ),
-                                      ],
-                                      OutlinedButton.icon(
-                                        onPressed: _busy ? null : _study,
-                                        icon: const Icon(Icons.school_outlined),
-                                        label: const Text('Study today'),
-                                      ),
-                                      if (!phone)
-                                        OutlinedButton.icon(
-                                          onPressed: _busy ? null : _templates,
-                                          icon: const Icon(
-                                            Icons.dashboard_customize_outlined,
-                                          ),
-                                          label: const Text('Templates'),
-                                        ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '${visible.length} ${visible.length == 1 ? 'note' : 'notes'}'
-                                    ' · Most recently modified first',
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.bodySmall,
-                                  ),
+                                  _libraryHeading(context, visible.length),
                                   const SizedBox(height: 16),
-                                  TextField(
-                                    focusNode: _searchFocus,
-                                    decoration: const InputDecoration(
-                                      hintText: 'Search notes',
-                                      prefixIcon: Icon(Icons.search),
-                                    ),
-                                    onChanged: (value) =>
-                                        setState(() => _query = value),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: TextField(
+                                          focusNode: _searchFocus,
+                                          decoration: const InputDecoration(
+                                            hintText: 'Search note titles',
+                                            prefixIcon: Icon(Icons.search),
+                                          ),
+                                          onChanged: (value) =>
+                                              setState(() => _query = value),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: _grid
+                                            ? 'List view'
+                                            : 'Grid view',
+                                        onPressed: () =>
+                                            setState(() => _grid = !_grid),
+                                        icon: Icon(
+                                          _grid
+                                              ? Icons.view_list_outlined
+                                              : Icons.grid_view_outlined,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                   const SizedBox(height: 12),
                                   Wrap(
@@ -1202,8 +1008,15 @@ class _LibraryPageState extends State<LibraryPage> {
                                           onSelected: (_) =>
                                               setState(() => _kind = id),
                                         ),
+                                      if (_tagFilter != null)
+                                        InputChip(
+                                          label: Text('#$_tagFilter'),
+                                          deleteButtonTooltipMessage:
+                                              'Clear tag filter',
+                                          onDeleted: () =>
+                                              setState(() => _tagFilter = null),
+                                        ),
                                       if (_folderFilter != null ||
-                                          _tagFilter != null ||
                                           _kind != 'all')
                                         ActionChip(
                                           label: const Text('Reset filters'),
@@ -1375,51 +1188,118 @@ class _LibraryPageState extends State<LibraryPage> {
               ],
             ),
           ),
-          floatingActionButton: phone
-              ? FloatingActionButton(
-                  tooltip: 'New note',
-                  onPressed: _busy ? null : _create,
-                  child: const Icon(Icons.add),
-                )
-              : null,
-          bottomNavigationBar: phone
-              ? NavigationBar(
-                  selectedIndex: 0,
-                  onDestinationSelected: (index) {
-                    if (index == 0) {
-                      setState(() {
-                        _folderFilter = null;
-                        _tagFilter = null;
-                      });
-                    }
-                    if (index == 1) _scaffold.currentState?.openDrawer();
-                    if (index == 2) _searchFocus.requestFocus();
-                    if (index == 3 && !_busy) _syncSettings();
-                  },
-                  destinations: const [
-                    NavigationDestination(
-                      icon: Icon(Icons.grid_view_outlined),
-                      label: 'Notes',
-                    ),
-                    NavigationDestination(
-                      icon: Icon(Icons.folder_outlined),
-                      label: 'Folder',
-                    ),
-                    NavigationDestination(
-                      icon: Icon(Icons.search),
-                      label: 'Search',
-                    ),
-                    NavigationDestination(
-                      icon: Icon(Icons.cloud_sync_outlined),
-                      label: 'Sync',
-                    ),
-                  ],
-                )
-              : null,
         );
       },
     );
   }
+
+  Widget _libraryHeading(BuildContext context, int count) {
+    final theme = Theme.of(context);
+    final folder = _folderFilter == ''
+        ? 'Unfiled'
+        : widget.repository.catalog.folderName(_folderFilter) ?? 'My notes';
+    return Wrap(
+      spacing: 20,
+      runSpacing: 12,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              folder,
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '$count ${count == 1 ? 'note' : 'notes'}'
+              ' · Most recently modified first',
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilledButton.icon(
+              onPressed: _busy ? null : _create,
+              icon: const Icon(Icons.add),
+              label: const Text('New note'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : _import,
+              icon: const Icon(Icons.file_open_outlined),
+              label: const Text('Import file'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _libraryActions() => PopupMenuButton<VoidCallback>(
+    tooltip: 'Library actions',
+    onSelected: (action) => action(),
+    itemBuilder: (_) => [
+      PopupMenuItem(
+        value: _searchPdfs,
+        enabled: !_busy && _notes.any((n) => n.isPdf),
+        child: const Text('Search PDFs'),
+      ),
+      PopupMenuItem(
+        value: _graphView,
+        enabled: !_busy,
+        child: const Text('Graph view'),
+      ),
+      PopupMenuItem(
+        value: _study,
+        enabled: !_busy,
+        child: const Text('Study today'),
+      ),
+      PopupMenuItem(
+        value: _templates,
+        enabled: !_busy,
+        child: const Text('Notebook templates'),
+      ),
+      const PopupMenuDivider(),
+      if (_recoverableCaptures.isNotEmpty)
+        PopupMenuItem(
+          value: _recoverCapture,
+          enabled: !_busy,
+          child: const Text('Recover captured media'),
+        ),
+      PopupMenuItem(
+        value: _recovery,
+        enabled: !_busy,
+        child: const Text('Trash'),
+      ),
+      PopupMenuItem(
+        value: _refresh,
+        enabled: !_busy,
+        child: const Text('Reload notes'),
+      ),
+      const PopupMenuDivider(),
+      PopupMenuItem(
+        value: _syncSettings,
+        enabled: !_busy && !_hasOpenDocuments,
+        child: Text(
+          _hasOpenDocuments
+              ? 'Sync settings (close open tabs)'
+              : 'Sync settings',
+        ),
+      ),
+      if (widget.onSettings != null)
+        PopupMenuItem(
+          value: widget.onSettings,
+          enabled: !_busy,
+          child: const Text('Settings'),
+        ),
+    ],
+  );
 
   Widget _navigation() => LibraryNavigation(
     notes: _notes,
@@ -1435,18 +1315,9 @@ class _LibraryPageState extends State<LibraryPage> {
       setState(() => _tagFilter = value);
       _scaffold.currentState?.closeDrawer();
     },
-    onKnowledge: () => _knowledge(),
-    onJournal: () => _knowledge(section: 'Journal'),
-    onTasks: () => _knowledge(section: 'Tasks'),
-    onCapture: () => _knowledge(section: 'Inbox', sharedText: ''),
-    onManage: _folders,
-    onTrash: () {
+    onManage: () {
       _scaffold.currentState?.closeDrawer();
-      _recovery();
-    },
-    onSync: () {
-      _scaffold.currentState?.closeDrawer();
-      _syncSettings();
+      _folders();
     },
   );
 

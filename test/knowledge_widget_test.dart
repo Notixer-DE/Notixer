@@ -43,7 +43,7 @@ Future<void> openSection(WidgetTester tester, String section) async {
   }
   await tester.ensureVisible(destination);
   await tester.tap(destination);
-  await tester.pumpAndSettle();
+  await waitKnowledge(tester, () => true);
 }
 
 void main() {
@@ -336,6 +336,11 @@ void main() {
           platform == TargetPlatform.linux ? findsNothing : findsOneWidget,
         );
         expect(find.text('Finished'), findsNothing);
+        expect(find.byTooltip('Quick capture'), findsNothing);
+        expect(
+          find.byKey(ValueKey('knowledge-section-$unsortedTodos')),
+          findsNothing,
+        );
         await tester.tap(find.byType(Checkbox).first);
         await waitKnowledge(
           tester,
@@ -351,9 +356,14 @@ void main() {
           'Tags',
           'Views',
           'Backups',
+          'Inbox',
           'Search',
         ]) {
           await openSection(tester, section);
+          expect(
+            find.byTooltip('Quick capture'),
+            section == 'Inbox' ? findsOneWidget : findsNothing,
+          );
           expect(tester.takeException(), isNull);
         }
         await tester.pumpWidget(const SizedBox());
