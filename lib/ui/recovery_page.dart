@@ -95,6 +95,26 @@ class _RecoveryPageState extends State<RecoveryPage> {
     });
   }
 
+  Future<void> _emptyTrash() async {
+    final ids = _entries.map((entry) => entry.note.id).toList();
+    if (ids.isEmpty ||
+        !await _confirm(
+          'Empty trash?',
+          'Permanently delete ${ids.length} ${ids.length == 1 ? 'item' : 'items'} '
+              'from this device’s trash, including their local version history?',
+        ) ||
+        !mounted) {
+      return;
+    }
+    await _run(() async {
+      try {
+        await widget.repository.purgeTrashItems(ids);
+      } finally {
+        await _refresh();
+      }
+    });
+  }
+
   Future<void> _clearHistory() async {
     if (!await _confirm(
           'Clear version history?',
@@ -144,12 +164,15 @@ class _RecoveryPageState extends State<RecoveryPage> {
         appBar: AppBar(
           title: Text(history ? 'Version history' : 'Trash'),
           actions: [
-            if (history)
-              IconButton(
-                tooltip: 'Clear version history',
-                onPressed: _busy || _entries.isEmpty ? null : _clearHistory,
-                icon: const Icon(Icons.delete_sweep_outlined),
-              ),
+            IconButton(
+              tooltip: history ? 'Clear version history' : 'Empty trash',
+              onPressed: _busy || _entries.isEmpty
+                  ? null
+                  : history
+                  ? _clearHistory
+                  : _emptyTrash,
+              icon: const Icon(Icons.delete_sweep_outlined),
+            ),
             IconButton(
               tooltip: 'Reload',
               onPressed: _busy ? null : () => _run(_refresh),

@@ -86,7 +86,7 @@ Save a page or an entire notebook as a local template. Cornell notes, Meeting an
 
 - Changes are saved atomically. **Ctrl+S** saves manually; **Ctrl+Z** and **Ctrl+Shift+Z** undo and redo.
 - Export PDFs with or without study covers. Export complete `.noter` backups containing the document, handwriting, images, covers, tags, folder name and study history.
-- Deleted notes first go to local trash. Previous versions are kept in bounded local history (at most 20 versions / 512 MiB per note). Restoring creates a new note. Trash and local history do not replace external backups.
+- Deleted notes first go to local trash. Use **Empty trash** to permanently remove the listed entries and their local version histories after confirming. Previous versions are kept in bounded local history (at most 20 versions / 512 MiB per note). Restoring creates a new note. Trash and local history do not replace external backups.
 - Linux app data stays at `~/.local/share/de.noter.noter/notebooks/`. Android uses private app storage. Export `.noter` backups before uninstalling or changing devices.
 - Limits: document import 256 MB; image import 32 MB; Markdown source 4 MiB; text notes with attachments 64 MiB; ZIP import/export 128 MiB / 1,000 files. Password-protected PDFs, OCR and handwriting recognition are not supported.
 - The English-language update preserves existing storage paths, JSON keys, archive versions and legacy PDF study-cover identifiers. Existing note titles, folder names, tags, saved preset names and note contents are user data and are not translated automatically.

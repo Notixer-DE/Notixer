@@ -85,6 +85,68 @@ void main() {
     },
   );
 
+  testWidgets('empty trash requires confirmation and preserves live notes', (
+    tester,
+  ) async {
+    final (other, live) = (await tester.runAsync(() async {
+      final bytes = await repository.load(note.id);
+      final other = await repository.create('Other deleted note', bytes);
+      final live = await repository.create('Live note', bytes);
+      await repository.save(note.copy(title: 'Deleted note'), bytes);
+      await repository.save(live.copy(title: 'Current live note'), bytes);
+      await repository.delete(note.id);
+      await repository.delete(other.id);
+      return (other, live);
+    }))!;
+    expect(
+      await tester.runAsync(() => repository.recovery(id: note.id)),
+      isNotEmpty,
+    );
+    final liveHistory = (await tester.runAsync(
+      () => repository.recovery(id: live.id),
+    ))!.length;
+    expect(liveHistory, greaterThan(0));
+
+    await tester.pumpWidget(
+      MaterialApp(home: RecoveryPage(repository: repository)),
+    );
+    await settleFileIo(
+      tester,
+      () => find.text('Other deleted note').evaluate().isNotEmpty,
+    );
+    final empty = find.byTooltip('Empty trash');
+    await tester.tap(empty);
+    await tester.pumpAndSettle();
+    expect(find.text('Empty trash?'), findsOneWidget);
+    expect(find.textContaining('delete 2 items'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(await tester.runAsync(repository.recovery), hasLength(2));
+
+    await tester.tap(empty);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete permanently'));
+    await settleFileIo(
+      tester,
+      () => find.text('The trash is empty.').evaluate().isNotEmpty,
+    );
+    expect(tester.widget<IconButton>(empty).onPressed, isNull);
+    final snapshots = await tester.runAsync(
+      () async => (
+        await repository.recovery(),
+        await repository.recovery(id: note.id),
+        await repository.recovery(id: other.id),
+        await repository.recovery(id: live.id),
+        await repository.list(),
+      ),
+    );
+    expect(snapshots!.$1, isEmpty);
+    expect(snapshots.$2, isEmpty);
+    expect(snapshots.$3, isEmpty);
+    expect(snapshots.$4, hasLength(liveHistory));
+    expect(snapshots.$5.single.id, live.id);
+  });
+
   testWidgets(
     'history preview is read-only and restore returns an independent copy',
     (tester) async {
