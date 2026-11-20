@@ -1,9 +1,83 @@
+import 'dart:io';
+
+import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:noter/data/notebook.dart';
 import 'package:noter/live/live_canvas.dart';
+import 'package:noter/live/live_host_page.dart';
+import 'package:noter/sync/sync_controller.dart';
 import 'package:noter/live/live_channel.dart';
 import 'package:noter/sync/sync_crypto.dart';
 
 void main() {
+  testWidgets('stylus pressure and the momentary eraser work on Live Canvas', (
+    tester,
+  ) async {
+    final root = Directory.systemTemp.createTempSync('notixer-live-stylus-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final repository = LocalNotebookRepository(root);
+    final sync = SyncController(repository);
+    addTearDown(sync.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LiveHostPage(repository: repository, sync: sync),
+      ),
+    );
+    final surface = find.byType(LiveCanvasSurface);
+    final model = tester.widget<LiveCanvasSurface>(surface).model;
+    final center = tester.getCenter(surface);
+    final finger = TestPointer(1, PointerDeviceKind.touch);
+    await tester.sendEventToBinding(finger.down(center));
+    await tester.sendEventToBinding(finger.up());
+    expect(model.ink.index.strokes, isEmpty);
+
+    final pen = TestPointer(2, PointerDeviceKind.stylus);
+    await tester.sendEventToBinding(pen.down(center));
+    final move = pen.move(center + const Offset(12, 0));
+    await tester.sendEventToBinding(
+      PointerMoveEvent(
+        viewId: move.viewId,
+        pointer: move.pointer,
+        device: move.device,
+        kind: move.kind,
+        position: move.position,
+        delta: move.delta,
+        buttons: move.buttons,
+        pressure: .25,
+        pressureMin: 0,
+        pressureMax: 1,
+      ),
+    );
+    await tester.sendEventToBinding(pen.up());
+    expect(model.ink.index.strokes.single.points.last, .25);
+
+    await tester.sendEventToBinding(
+      pen.down(center, buttons: kPrimaryStylusButton),
+    );
+    expect(model.ink.index.strokes, isEmpty);
+    await tester.sendEventToBinding(
+      pen.move(center + const Offset(12, 0), buttons: kPrimaryButton),
+    );
+    await tester.sendEventToBinding(pen.up());
+    expect(model.ink.index.strokes, hasLength(1));
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  test(
+    'devices derive the same live key without sharing the vault key',
+    () async {
+      final recovery = await SyncCrypto.generateRecoveryKey();
+      final host = await SyncCrypto.create(recovery, 'account');
+      final viewer = await SyncCrypto.create(recovery, 'account');
+      final foreign = await SyncCrypto.create(recovery, 'another-account');
+      expect(host.liveRoomKey('room'), viewer.liveRoomKey('room'));
+      expect(host.liveRoomKey('room'), isNot(foreign.liveRoomKey('room')));
+      expect(host.liveRoomKey('room'), isNot(host.liveRoomKey('other-room')));
+      expect(host.liveRoomKey('room'), isNot(recovery));
+    },
+  );
+
   test('a spectator sees in-flight ink and catches up from a snapshot', () {
     final host = LiveCanvasModel();
     final viewer = LiveCanvasModel();

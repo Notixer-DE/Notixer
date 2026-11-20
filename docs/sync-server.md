@@ -89,11 +89,17 @@ The browser keeps the credentials in the open tab. Enter them again after closin
 
 ### Share a Live Canvas
 
-Install a server and Web build that include Live Canvas. Serve Notixer Web on the same HTTPS origin as the sync API using the reverse-proxy example above. The proxy must pass WebSocket upgrades on `/api/v1/live/*`. Caddy's `reverse_proxy` handles the upgrade automatically. Route creation and session termination through the same server instance as the WebSocket connections.
+Update the sync server and the Android, Linux or Windows app. Connect each device to the same sync account with its own device token and the same recovery key.
 
-On Android, connect the sync server, then open **Library actions → Live Canvas → Share live**. Copy the viewer link and open it in a browser. A session can have up to 12 viewers and expires after two hours. **Stop sharing** revokes the invitation and disconnects the viewers. Use **Save to library** to keep the drawing as a regular notebook.
+1. On Android, open **Library actions → Live Canvas → Share live**.
+2. On Linux or Windows, select **Watch live** in the banner above the workspace. The banner appears within a few seconds, including while a document is open. Use **Presentation mode** to give the drawing the full app window.
+3. On Android, select **Stop sharing** to disconnect the viewers. Use **Save to library** to keep the drawing as a regular notebook.
 
-The link grants access to the drawing for that session. Share it with the intended viewers only. The server relays encrypted drawing messages and holds the session in memory. The saved notebook uses the ordinary Notixer library and sync.
+Live Canvas uses stylus pressure from the drawing preferences. The stylus side button and eraser end temporarily erase. Enable finger drawing with the touch button if you want to draw with your finger.
+
+The proxy must forward `/api/v1/live` and WebSocket upgrades on `/api/v1/live/*`. Caddy's `reverse_proxy` handles upgrades automatically. Send all Live Canvas traffic to the same sync server instance. Sessions are kept in memory, expire after two hours and allow up to 12 viewers. The sync server relays encrypted drawing messages.
+
+For browser invitations, serve the full Notixer Web build on the sync API's origin using the reverse-proxy example above. The copied link opens the web app at that origin. An API-only origin returns 404 for this link. The link grants access to the drawing for the session. Share it with the intended viewers only.
 
 #### Verify Live Canvas latency
 

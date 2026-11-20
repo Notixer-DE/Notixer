@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:path/path.dart' as p;
 
-enum TodoTimerAction { start, pause, stop }
+enum TodoTimerAction { start, pause, stop, reset }
 
 class QuickTodo {
   const QuickTodo({
@@ -14,6 +14,7 @@ class QuickTodo {
     required this.created,
     required this.modified,
     this.done = false,
+    this.deleted = false,
     this.project,
     this.due,
     this.completedAt,
@@ -24,7 +25,7 @@ class QuickTodo {
 
   final String id, text;
   final DateTime created, modified;
-  final bool done;
+  final bool done, deleted;
   // The collection stores a local folder ID. Sync serializes the folder name.
   final String? project, due;
 
@@ -50,6 +51,7 @@ class QuickTodo {
     created: created,
     modified: modified,
     done: done,
+    deleted: deleted,
     project: project,
     due: due,
     completedAt: completedAt,
@@ -58,6 +60,18 @@ class QuickTodo {
     timerPaused: timerPaused,
   );
 
+  QuickTodo delete(DateTime now) => QuickTodo(
+    id: id,
+    text: 'Deleted to-do',
+    created: created,
+    modified: _nextModified(now),
+    deleted: true,
+  );
+
+  DateTime _nextModified(DateTime now) => now.isAfter(modified)
+      ? now
+      : modified.add(const Duration(microseconds: 1));
+
   QuickTodo update(
     DateTime now, {
     String? text,
@@ -65,27 +79,35 @@ class QuickTodo {
     required String? due,
     bool? done,
     TodoTimerAction? timer,
+    Duration? workTime,
   }) {
     final checked = done ?? this.done;
-    final stop = checked || timer == TodoTimerAction.stop;
+    if (workTime != null &&
+        (workTime.isNegative || workTime.inMilliseconds > 9007199254740991)) {
+      throw const FormatException('Enter a valid work time.');
+    }
+    final reset = timer == TodoTimerAction.reset;
+    final stop = checked || timer == TodoTimerAction.stop || reset;
     final settle = stop || timer == TodoTimerAction.pause;
     return QuickTodo(
       id: id,
       text: text ?? this.text,
       created: created,
-      modified: now.isAfter(modified)
-          ? now
-          : modified.add(const Duration(microseconds: 1)),
+      modified: _nextModified(now),
       done: checked,
       project: project,
       due: due,
       completedAt: checked ? completionTime ?? now : null,
       timerStartedAt: settle
           ? null
-          : timerStartedAt ?? (timer == TodoTimerAction.start ? now : null),
-      workMilliseconds: settle
-          ? workTimeAt(now).inMilliseconds
-          : workMilliseconds,
+          : ((timer == TodoTimerAction.start && timerStartedAt == null) ||
+                    (workTime != null && timerStartedAt != null)
+                ? now
+                : timerStartedAt),
+      workMilliseconds: reset
+          ? 0
+          : workTime?.inMilliseconds ??
+                (settle ? workTimeAt(now).inMilliseconds : workMilliseconds),
       timerPaused:
           !stop &&
           (timer == TodoTimerAction.pause || (timer == null && timerPaused)),
@@ -97,6 +119,7 @@ class QuickTodo {
     'created': created.toUtc().toIso8601String(),
     'modified': modified.toUtc().toIso8601String(),
     'done': done,
+    if (deleted) 'deleted': true,
     'project': project,
     'due': due,
     if (completedAt != null)
@@ -115,6 +138,7 @@ class QuickTodo {
     final created = DateTime.tryParse(value['created']?.toString() ?? '');
     final modified = DateTime.tryParse(value['modified']?.toString() ?? '');
     final done = value['done'];
+    final deleted = value['deleted'] ?? false;
     final project = value['project'];
     final due = value['due'];
     final completed = DateTime.tryParse(value['completedAt']?.toString() ?? '');
@@ -130,6 +154,7 @@ class QuickTodo {
         created == null ||
         modified == null ||
         done is! bool ||
+        deleted is! bool ||
         (value['completedAt'] != null && (completed == null || !done)) ||
         (value['timerStartedAt'] != null && (started == null || done)) ||
         work is! int ||
@@ -150,6 +175,7 @@ class QuickTodo {
       created: created,
       modified: modified,
       done: done,
+      deleted: deleted,
       project: project as String?,
       due: due as String?,
       completedAt: completed,
@@ -170,6 +196,8 @@ class QuickTodo {
   String get revision => jsonEncode(toJson());
 
   bool supersedes(QuickTodo other) {
+    // A stale device must not bring back a task with the same ID.
+    if (deleted != other.deleted) return deleted;
     final order = modified.compareTo(other.modified);
     if (order != 0) return order > 0;
     if (done != other.done) return done;
@@ -204,7 +232,8 @@ class QuickTodoStore {
   Future<Uint8List?> snapshot() async =>
       await file.exists() ? file.readAsBytes() : null;
 
-  Future<Map<String, QuickTodo>> read() async => decode(await snapshot());
+  Future<Map<String, QuickTodo>> read() async =>
+      decode(await snapshot())..removeWhere((_, todo) => todo.deleted);
 
   Future<T> _serialize<T>(Future<T> Function() action) {
     final result = (_queues[file.path] ?? Future<void>.value()).then(

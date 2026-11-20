@@ -14,7 +14,7 @@ class WebQuickTodos {
   final BrowserLibrary library;
   static const _kind = 'quick-todo';
 
-  Future<List<QuickTodo>> read() async {
+  Future<List<QuickTodo>> read({bool includeDeleted = false}) async {
     final extras = library.extras;
     final tasks = <String, QuickTodo>{};
     for (final id in await extras.syncIds()) {
@@ -32,7 +32,9 @@ class WebQuickTodos {
       final previous = tasks[taskId];
       if (previous == null || todo.supersedes(previous)) tasks[taskId] = todo;
     }
-    return tasks.values.toList()
+    return tasks.values
+        .where((todo) => includeDeleted || !todo.deleted)
+        .toList()
       ..sort((a, b) => a.created.compareTo(b.created));
   }
 
@@ -102,7 +104,7 @@ class WebQuickTodos {
   }
 
   Future<List<WebNote>> backup() async => [
-    for (final todo in await read())
+    for (final todo in await read(includeDeleted: true))
       WebNote(
         'quick-${todo.id}',
         WebNoteKind.quickTask,

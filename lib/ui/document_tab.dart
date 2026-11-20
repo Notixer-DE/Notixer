@@ -22,7 +22,7 @@ class DocumentTabController extends ChangeNotifier {
   StylusEraser? Function(PointerEvent)? resolveEraser;
   bool Function(PointerEvent)? interceptEvent;
   Future<void> Function(String)? revealAnchor;
-  Future<void> Function(KnowledgeTask)? completeTask;
+  Future<void> Function(KnowledgeTask)? changeTask;
   Future<void> Function()? refreshMetadata;
   ShortcutAction? Function(AppShortcut)? commandFor;
 
@@ -50,7 +50,7 @@ class DocumentTabController extends ChangeNotifier {
     resolveEraser = null;
     interceptEvent = null;
     revealAnchor = null;
-    completeTask = null;
+    changeTask = null;
     refreshMetadata = null;
     commandFor = null;
   }
@@ -73,7 +73,7 @@ class DocumentTabController extends ChangeNotifier {
     resolveEraser = null;
     interceptEvent = null;
     revealAnchor = null;
-    completeTask = null;
+    changeTask = null;
     refreshMetadata = null;
     commandFor = null;
     super.dispose();

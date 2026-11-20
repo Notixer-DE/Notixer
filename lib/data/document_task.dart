@@ -49,11 +49,23 @@ QuickTodo documentTask(
   );
 }
 
+String deleteDocumentTaskLine(String source, int offset) {
+  final start = source.lastIndexOf('\n', offset - 1) + 1;
+  final newline = source.indexOf('\n', offset);
+  return source.replaceRange(
+    start,
+    newline < 0 ? source.length : newline + 1,
+    '',
+  );
+}
+
 String updateDocumentTask(
   String source,
   int offset, {
   bool? done,
   TodoTimerAction? timer,
+  Duration? workTime,
+  DateTime? previousModified,
   DateTime? now,
 }) {
   final instant = now ?? DateTime.now();
@@ -63,7 +75,7 @@ String updateDocumentTask(
     source,
     offset,
     line.substring(2),
-    fallback: instant,
+    fallback: previousModified ?? instant,
   );
   final updated = original.update(
     instant,
@@ -71,6 +83,7 @@ String updateDocumentTask(
     due: null,
     done: done,
     timer: timer,
+    workTime: workTime,
   );
   final metadata = updated.toJson()
     ..removeWhere(

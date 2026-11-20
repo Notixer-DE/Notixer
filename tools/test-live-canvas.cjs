@@ -3,13 +3,15 @@ const assert = require('node:assert/strict');
 const origin = process.env.NOTIXER_LIVE_ORIGIN;
 const hostToken = process.env.NOTIXER_LIVE_HOST;
 const otherToken = process.env.NOTIXER_LIVE_OTHER;
+const desktopToken = process.env.NOTIXER_LIVE_DESKTOP;
 const sockets = [];
 
-async function request(method, path, token) {
+async function request(method, path, token, data) {
   return fetch(origin + path, {
     method,
     redirect: 'error',
-    headers: {Authorization: `Bearer ${token}`},
+    headers: {Authorization: `Bearer ${token}`, ...(data && {'Content-Type': 'application/json'})},
+    body: data && JSON.stringify(data),
     signal: AbortSignal.timeout(5000),
   });
 }
@@ -74,6 +76,8 @@ async function main() {
   assert.deepEqual(JSON.parse(await host.next()), {viewers: 0});
   assert.equal(await socketFor(path, 'host', otherToken).next(), 'denied');
   assert.equal(await socketFor(path, 'viewer', '0'.repeat(64)).next(), 'denied');
+  assert.equal(await socketFor(path, 'account-viewer', desktopToken).next(), 'denied');
+  assert.deepEqual(await (await request('GET', '/api/v1/live', desktopToken)).json(), []);
 
   const viewer = socketFor(path, 'viewer', invite);
   assert.equal(await viewer.next(), 'joined');
@@ -106,6 +110,37 @@ async function main() {
   assert.equal(await host.next(), 'ended');
   assert.equal(await socketFor(path, 'viewer', invite).next(), null);
   console.log('PASS: live session roles, frame relay, reconnect and revocation');
+
+  assert.equal((await request('GET', '/api/v1/live', 'invalid')).status, 401);
+  const created = await request('POST', '/api/v1/live', hostToken, {account_viewers: true});
+  assert.equal(created.status, 200);
+  const broadcast = await created.json();
+  assert.equal(broadcast.account_viewers, true);
+  assert.deepEqual(await (await request('GET', '/api/v1/live', desktopToken)).json(), []);
+  const broadcastPath = '/api/v1/live/' + broadcast.id;
+  host = socketFor(broadcastPath, 'host', hostToken);
+  assert.deepEqual(JSON.parse(await host.next()), {viewers: 0});
+  const discovered = await request('GET', '/api/v1/live', desktopToken);
+  assert.equal(discovered.headers.get('Cache-Control'), 'no-store');
+  const [session, ...others] = await discovered.json();
+  assert.equal(others.length, 0);
+  assert.deepEqual(Object.keys(session).sort(), ['host_device', 'id']);
+  assert.equal(session.id, broadcast.id);
+  assert.deepEqual(await (await request('GET', '/api/v1/live', hostToken)).json(), []);
+  assert.deepEqual(await (await request('GET', '/api/v1/live', otherToken)).json(), []);
+  assert.equal(await socketFor(broadcastPath, 'account-viewer', otherToken).next(), 'denied');
+  assert.equal(await socketFor(broadcastPath, 'host', desktopToken).next(), 'denied');
+  assert.equal((await request('DELETE', broadcastPath, desktopToken)).status, 404);
+
+  const desktop = socketFor(broadcastPath, 'account-viewer', desktopToken);
+  assert.equal(await desktop.next(), 'joined');
+  assert.deepEqual(JSON.parse(await host.next()), {viewers: 1});
+  host.socket.send(frame);
+  assert.deepEqual(new Uint8Array(await desktop.next()), frame);
+  assert.equal((await request('DELETE', broadcastPath, hostToken)).status, 204);
+  assert.equal(await desktop.next(), 'ended');
+  assert.deepEqual(await (await request('GET', '/api/v1/live', desktopToken)).json(), []);
+  console.log('PASS: account broadcast discovery, isolation, viewer access and termination');
 }
 
 main().catch(error => {

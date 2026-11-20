@@ -132,7 +132,7 @@ void main() {
         'Quick task',
         'Document task',
       ]);
-      await store.completeTask(
+      await store.changeTask(
         first.tasks.singleWhere((task) => task.quickTodo == null),
       );
       final second = await store.scan(view, completedTasks: true);

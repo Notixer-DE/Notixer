@@ -28,6 +28,7 @@ import 'single_page_view.dart';
 import 'eraser_cursor.dart';
 import 'selection_transform_overlay.dart';
 import '../input/stylus_eraser.dart';
+import '../input/stylus_input.dart';
 
 enum _Mode { normal, lasso, tape }
 
@@ -1707,17 +1708,8 @@ class EditorPaneState extends State<EditorPane> {
     return null;
   }
 
-  double _pressure(PointerEvent event) {
-    if (!_pressureSensitive) return .5;
-    if (event.kind != PointerDeviceKind.stylus &&
-        event.kind != PointerDeviceKind.invertedStylus) {
-      return .5;
-    }
-    final range = event.pressureMax - event.pressureMin;
-    return range > 0
-        ? ((event.pressure - event.pressureMin) / range).clamp(0.0, 1.0)
-        : .5;
-  }
+  double _pressure(PointerEvent event) =>
+      drawingPressure(event, sensitive: _pressureSensitive);
 
   void _updateEraserContact(Offset globalPosition) {
     final box = _pdfKey.currentContext?.findRenderObject();

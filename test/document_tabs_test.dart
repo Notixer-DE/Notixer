@@ -226,7 +226,7 @@ void main() {
           markdownRevision(controller.text),
         );
         var taskSaved = false;
-        FileGateway.completeKnowledgeTask!(task).then((_) => taskSaved = true);
+        FileGateway.changeKnowledgeTask!(task).then((_) => taskSaved = true);
         await io(() => taskSaved);
         expect(taskSaved, isTrue);
         expect(controller.text, contains('- [x] A task in an open tab'));

@@ -107,7 +107,7 @@ pub(crate) fn valid_id(s: &str) -> bool {
 }
 
 pub(crate) struct Identity {
-    account: String,
+    pub(crate) account: String,
     pub(crate) device: String,
 }
 pub(crate) async fn authenticate(
@@ -165,7 +165,7 @@ pub(crate) fn routes() -> DocumentedRoutes {
         .add(routes!(commit))
         .add(routes!(changes))
         .add(routes!(crate::pairing::redeem))
-        .add(routes!(crate::live::create))
+        .add(routes!(crate::live::create, crate::live::list))
         .add(routes!(crate::live::connect, crate::live::end))
         .add(routes!(crate::openapi::json))
 }

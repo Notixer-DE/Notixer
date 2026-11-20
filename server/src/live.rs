@@ -48,6 +48,7 @@ impl Default for LiveRooms {
 
 struct Room {
     owner: String,
+    account: Option<String>,
     invite: [u8; 32],
     expires: Instant,
     publisher: watch::Sender<Option<Uuid>>,
@@ -76,19 +77,68 @@ fn active(room: &Room) -> bool {
 pub(crate) struct LiveInvitation {
     id: String,
     invite: String,
+    account_viewers: bool,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct LiveSessionOptions {
+    account_viewers: bool,
+}
+
+#[derive(Serialize, ToSchema)]
+pub(crate) struct LiveSession {
+    id: String,
+    host_device: String,
+}
+
+fn private_headers() -> [(header::HeaderName, HeaderValue); 1] {
+    [(header::CACHE_CONTROL, HeaderValue::from_static("no-store"))]
+}
+
+#[utoipa::path(
+    get, path = "/api/v1/live", tag = "Live Canvas",
+    summary = "List active Live Canvas broadcasts for this account",
+    security(("device_token" = [])),
+    responses((status = 200, body = Vec<LiveSession>), (status = 401, body = crate::openapi::ErrorBody))
+)]
+pub(crate) async fn list(
+    State(ctx): State<AppContext>,
+    headers: HeaderMap,
+) -> Result<impl axum::response::IntoResponse, ApiError> {
+    let who = authenticate(&ctx.db, &headers).await?;
+    let store = store(&ctx)?;
+    let rooms = store.rooms.lock().await;
+    let sessions = rooms
+        .iter()
+        .filter(|(_, room)| {
+            room.account.as_ref() == Some(&who.account)
+                && room.owner != who.device
+                && active(room)
+                && room.publisher.borrow().is_some()
+        })
+        .map(|(id, room)| LiveSession {
+            id: id.clone(),
+            host_device: room.owner.clone(),
+        })
+        .collect::<Vec<_>>();
+    Ok((private_headers(), Json(sessions)))
 }
 
 #[utoipa::path(
     post, path = "/api/v1/live", tag = "Live Canvas",
     summary = "Create a Live Canvas session",
     operation_id = "createLiveSession", security(("device_token" = [])),
+    request_body = Option<LiveSessionOptions>,
     responses((status = 200, body = LiveInvitation), (status = 401, body = crate::openapi::ErrorBody), (status = 429, description = "Session limit reached", body = crate::openapi::ErrorBody))
 )]
 pub(crate) async fn create(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
-) -> Result<(HeaderMap, Json<LiveInvitation>), ApiError> {
-    let owner = authenticate(&ctx.db, &headers).await?.device;
+    options: Option<Json<LiveSessionOptions>>,
+) -> Result<impl axum::response::IntoResponse, ApiError> {
+    let who = authenticate(&ctx.db, &headers).await?;
+    let owner = who.device;
+    let account_viewers = options.is_some_and(|options| options.account_viewers);
     let store = store(&ctx)?;
     let mut rooms = store.rooms.lock().await;
     if rooms.len() >= 32 || rooms.values().filter(|room| room.owner == owner).count() >= 2 {
@@ -98,6 +148,7 @@ pub(crate) async fn create(
     let invite = random_id();
     let room = Arc::new(Room {
         owner,
+        account: account_viewers.then_some(who.account),
         invite: Sha256::digest(invite.as_bytes()).into(),
         expires: Instant::now() + SESSION_AGE,
         publisher: watch::channel(None).0,
@@ -114,10 +165,14 @@ pub(crate) async fn create(
             room.ended.send_replace(true);
         }
     });
-    let headers = [(header::CACHE_CONTROL, HeaderValue::from_static("no-store"))]
-        .into_iter()
-        .collect();
-    Ok((headers, Json(LiveInvitation { id, invite })))
+    Ok((
+        private_headers(),
+        Json(LiveInvitation {
+            id,
+            invite,
+            account_viewers,
+        }),
+    ))
 }
 
 #[utoipa::path(
@@ -148,7 +203,7 @@ pub(crate) async fn end(
     get, path = "/api/v1/live/{id}", tag = "Live Canvas",
     summary = "Upgrade to a Live Canvas WebSocket",
     params(("id" = String, Path, description = "Live Canvas session ID")),
-    description = "After upgrading, send a JSON message with role and token. The host uses a device token and the viewer uses the session invitation. Drawing frames are encrypted binary messages.",
+    description = "After upgrading, send a JSON message with role and token. The host and account-viewer roles use device tokens. The viewer role uses the session invitation. Drawing frames are encrypted binary messages.",
     responses((status = 101, description = "WebSocket upgrade"), (status = 400, description = "Invalid WebSocket handshake"), (status = 404, body = crate::openapi::ErrorBody), (status = 503, description = "Relay unavailable"))
 )]
 pub(crate) async fn connect(
@@ -195,18 +250,38 @@ async fn serve(mut socket: WebSocket, ctx: AppContext, room: Arc<Room>) {
     let Ok(join) = serde_json::from_str::<Join>(first.as_str()) else {
         return;
     };
-    let admitted = active(&room);
-    if admitted
-        && join.role == "host"
-        && let Ok(token) = HeaderValue::from_str(&format!("Bearer {}", join.token))
-    {
-        let mut headers = HeaderMap::new();
-        headers.insert(header::AUTHORIZATION, token);
-        if timeout(IO_TIMEOUT, authenticate(&ctx.db, &headers))
-            .await
-            .is_ok_and(|result| result.is_ok_and(|identity| identity.device == room.owner))
-            && active(&room)
-        {
+    if !active(&room) {
+        send(&mut socket, Message::Text("denied".into())).await;
+        return;
+    }
+    let authorized = match join.role.as_str() {
+        "viewer" => {
+            join.token.len() == 64 && {
+                let hash: [u8; 32] = Sha256::digest(join.token.as_bytes()).into();
+                hash == room.invite
+            }
+        }
+        "host" | "account-viewer" => {
+            let mut headers = HeaderMap::new();
+            if let Ok(token) = HeaderValue::from_str(&format!("Bearer {}", join.token)) {
+                headers.insert(header::AUTHORIZATION, token);
+            }
+            timeout(IO_TIMEOUT, authenticate(&ctx.db, &headers))
+                .await
+                .is_ok_and(|result| {
+                    result.is_ok_and(|who| {
+                        if join.role == "host" {
+                            who.device == room.owner
+                        } else {
+                            room.account.as_ref() == Some(&who.account) && who.device != room.owner
+                        }
+                    })
+                })
+        }
+        _ => false,
+    };
+    if authorized && active(&room) {
+        if join.role == "host" {
             let owner = Uuid::new_v4();
             room.publisher.send_replace(Some(owner));
             host(&mut socket, &room, owner).await;
@@ -219,21 +294,18 @@ async fn serve(mut socket: WebSocket, ctx: AppContext, room: Arc<Room>) {
             });
             return;
         }
-    } else if admitted && join.role == "viewer" && join.token.len() == 64 {
-        let hash: [u8; 32] = Sha256::digest(join.token.as_bytes()).into();
-        if hash == room.invite {
-            let events = room.frames.subscribe();
-            if room.viewers.send_if_modified(|count| {
-                if *count >= MAX_SPECTATORS {
-                    return false;
-                }
-                *count += 1;
-                true
-            }) {
-                viewer(&mut socket, &room, events).await;
-                room.viewers.send_modify(|count| *count -= 1);
-                return;
+
+        let events = room.frames.subscribe();
+        if room.viewers.send_if_modified(|count| {
+            if *count >= MAX_SPECTATORS {
+                return false;
             }
+            *count += 1;
+            true
+        }) {
+            viewer(&mut socket, &room, events).await;
+            room.viewers.send_modify(|count| *count -= 1);
+            return;
         }
     }
     send(&mut socket, Message::Text("denied".into())).await;

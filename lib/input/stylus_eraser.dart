@@ -2,6 +2,8 @@ import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 
+import 'stylus_input.dart';
+
 /// Runs before the viewer receives pointer events, including its first down.
 /// An outer Listener would run after the page's own Listener and miss that down.
 class NoterBinding extends WidgetsFlutterBinding {
@@ -51,8 +53,7 @@ class NoterBinding extends WidgetsFlutterBinding {
     }
     eventKind = event.kind;
     if ((event is PointerDownEvent || event is PointerHoverEvent) &&
-        (event.kind == PointerDeviceKind.stylus ||
-            event.kind == PointerDeviceKind.invertedStylus)) {
+        isStylus(event)) {
       _stylusContacts.add(event.pointer);
     }
     final resolved = event is PointerDownEvent || event is PointerHoverEvent
@@ -149,8 +150,7 @@ class StylusEraser {
   }
 
   void handle(PointerEvent event, void Function(PointerEvent) forward) {
-    if (event.kind != PointerDeviceKind.stylus &&
-        event.kind != PointerDeviceKind.invertedStylus) {
+    if (!isStylus(event)) {
       forward(event);
       return;
     }
@@ -172,9 +172,7 @@ class StylusEraser {
       }
       return;
     }
-    final held =
-        event.kind == PointerDeviceKind.invertedStylus ||
-        event.buttons & (kPrimaryStylusButton | kSecondaryStylusButton) != 0;
+    final held = usesStylusEraser(event);
     if (event is PointerMoveEvent &&
         _contacts.containsKey(event.pointer) &&
         held != _held) {

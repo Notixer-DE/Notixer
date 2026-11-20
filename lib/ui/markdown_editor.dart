@@ -303,7 +303,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     _previousClose = FileGateway.beforeClose;
     if (widget.tabController case final tab?) {
       tab.attach(this, save: _saveBeforeClose, anchor: _anchor);
-      tab.completeTask = _applyTask;
+      tab.changeTask = _applyTask;
       tab.commandFor = _commandFor;
       tab.refreshMetadata = () async {
         final notes = await widget.repository.list();
@@ -727,13 +727,13 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
               _changed();
             }
           },
-          onCompleteTask: (task) async {
+          onChangeTask: (task) async {
             if (task.note.id == _session.note.id) {
               await _applyTask(task);
-            } else if (FileGateway.completeKnowledgeTask != null) {
-              await FileGateway.completeKnowledgeTask!(task);
+            } else if (FileGateway.changeKnowledgeTask != null) {
+              await FileGateway.changeKnowledgeTask!(task);
             } else {
-              await KnowledgeStore(widget.repository).completeTask(task);
+              await KnowledgeStore(widget.repository).changeTask(task);
             }
           },
         ),
