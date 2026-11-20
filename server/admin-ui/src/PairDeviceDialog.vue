@@ -78,7 +78,7 @@ async function generate() {
       <p v-if="error" class="error-msg" role="alert">{{ error }}</p>
       <template v-if="qr">
         <img class="pairing-qr" :src="qr" alt="One-time Notixer device pairing QR code">
-        <p class="modal-subtitle">The code expires in five minutes and can be scanned once. Keep it private.</p>
+        <p class="modal-subtitle">The code expires in five minutes and can pair one device. Keep it private.</p>
         <button class="btn btn-primary" @click="emit('close')">Done</button>
       </template>
       <form v-else @submit.prevent="generate">

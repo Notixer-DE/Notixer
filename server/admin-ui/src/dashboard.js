@@ -91,6 +91,8 @@ export function setupDashboard() {
     }
     authenticated.value = false;
     accounts.value = [];
+    createdDevice.value = null;
+    pairingAccount.value = null;
     showToast('Signed out successfully');
   }
 

@@ -285,9 +285,9 @@ export default {
       </div>
     </div>
     <PairDeviceDialog
-    v-if="pairingAccount"
-    :account="pairingAccount"
-    @close="closePairing"
-  />
+      v-if="authenticated && pairingAccount"
+      :account="pairingAccount"
+      @close="closePairing"
+    />
 </div>
 </template>

@@ -124,9 +124,10 @@ async fn me(
             "authenticated": true,
             "username": username
         }))),
-        Err(_) => Ok(Json(serde_json::json!({
+        Err(StatusCode::UNAUTHORIZED) => Ok(Json(serde_json::json!({
             "authenticated": false
         }))),
+        Err(error) => Err(error),
     }
 }
 
@@ -159,20 +160,33 @@ async fn login(
         .try_get("", "password_hash")
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    if !password_work(move || verify_password(&payload.password, &hash)).await? {
+    let verify_hash = hash.clone();
+    if !password_work(move || verify_password(&payload.password, &verify_hash)).await? {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
     let session_token = new_secret();
 
-    ctx.db
+    let session = ctx
+        .db
         .execute_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
-            "INSERT INTO admin_sessions(token, username, expires_at) VALUES($1, $2, now() + interval '7 days')",
-            vec![session_token.clone().into(), payload.username.clone().into()],
+            "WITH account AS (
+                SELECT username FROM admin_users WHERE username=$2 AND password_hash=$3 FOR UPDATE
+            )
+            INSERT INTO admin_sessions(token, username, expires_at)
+            SELECT $1, username, now() + interval '7 days' FROM account",
+            vec![
+                session_token.clone().into(),
+                payload.username.clone().into(),
+                hash.into(),
+            ],
         ))
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if session.rows_affected() != 1 {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
 
     let cookie_val = format!(
         "noter_admin_session={session_token}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age={}{}",
@@ -235,7 +249,8 @@ async fn change_password(
     let username = authenticate_admin(&ctx.db, &headers).await?;
 
     if payload.current_password.len() > 1024
-        || !(12..=1024).contains(&payload.new_password.trim().len())
+        || payload.new_password.len() > 1024
+        || payload.new_password.trim().len() < 12
     {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -404,7 +419,9 @@ async fn delete_account(
     Path(account_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let _ = authenticate_admin(&ctx.db, &headers).await?;
-    let _ = Uuid::parse_str(&account_id).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let account_id = Uuid::parse_str(&account_id)
+        .map_err(|_| StatusCode::BAD_REQUEST)?
+        .to_string();
 
     let tx = ctx
         .db
