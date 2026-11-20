@@ -282,6 +282,7 @@ class InkLayer extends StatelessWidget {
     required this.cache,
     this.live,
     this.rasterScale = 1,
+    this.continuous = false,
   });
   final InkController controller;
   final String page;
@@ -294,6 +295,10 @@ class InkLayer extends StatelessWidget {
 
   /// Scale applied outside the PDF page layout (pinch zoom).
   final double rasterScale;
+
+  /// Paint the visible ink together when independently clipped tiles would
+  /// meet at fractional viewport coordinates.
+  final bool continuous;
 
   @override
   Widget build(BuildContext context) => IgnorePointer(
@@ -319,6 +324,36 @@ class InkLayer extends StatelessWidget {
           region.top,
         );
         if (bounds.isEmpty || !bounds.isFinite) return const SizedBox.shrink();
+        final overlay = live == null
+            ? const SizedBox.shrink()
+            : Positioned.fill(
+                child: RepaintBoundary(
+                  child: CustomPaint(
+                    painter: _LivePainter(live!, geometry, page, cache),
+                  ),
+                ),
+              );
+        if (continuous) {
+          return Stack(
+            children: [
+              Positioned.fromRect(
+                rect: viewRect,
+                child: _InkTile(
+                  controller: controller,
+                  page: page,
+                  bounds: bounds,
+                  geometry: geometry,
+                  origin: viewRect.topLeft,
+                  viewSize: viewRect.size,
+                  cache: cache,
+                  pixelRatio: MediaQuery.devicePixelRatioOf(context),
+                  vectorOnly: true,
+                ),
+              ),
+              if (live != null) overlay,
+            ],
+          );
+        }
         final viewportLevel =
             (math.log(
                       math.max(bounds.width, bounds.height) /
@@ -373,14 +408,7 @@ class InkLayer extends StatelessWidget {
                           rasterScale *
                           .99,
                 ),
-            if (live != null)
-              Positioned.fill(
-                child: RepaintBoundary(
-                  child: CustomPaint(
-                    painter: _LivePainter(live!, geometry, page, cache),
-                  ),
-                ),
-              ),
+            if (live != null) overlay,
           ],
         );
       },
@@ -477,6 +505,7 @@ class _InkTileState extends State<_InkTile> {
   void didUpdateWidget(_InkTile old) {
     super.didUpdateWidget(old);
     if (old.controller != widget.controller ||
+        old.bounds != widget.bounds ||
         old.origin != widget.origin ||
         old.viewSize != widget.viewSize ||
         old.geometry.viewSize != widget.geometry.viewSize ||

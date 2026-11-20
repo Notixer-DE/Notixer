@@ -1,24 +1,24 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:math' as math;
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:pdf/pdf.dart' show PdfPageFormat;
 import 'package:pdf_document/pdf_document.dart' show PdfDocument;
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../data/ink.dart';
 import '../data/notebook.dart';
 import '../data/paper.dart';
-import '../input/stylus_eraser.dart';
+import '../editor/ink_gestures.dart';
 import '../input/stylus_input.dart';
 import '../sync/sync_controller.dart';
 import 'live_canvas.dart';
 import 'live_channel.dart';
 import 'live_sessions.dart';
 
-enum _CanvasTool { pen, marker, eraser }
+enum _CanvasTool { pen, marker, eraser, lasso }
 
 class LiveHostPage extends StatefulWidget {
   const LiveHostPage({super.key, required this.repository, required this.sync});
@@ -35,19 +35,36 @@ class _LiveHostPageState extends State<LiveHostPage> {
   Timer? _flush, _retry;
   WebSocketChannel? _socket;
   LiveChannel? _session;
-  Uri? _invite;
   LiveSessions? _sharing;
   String? _error;
   String _status = 'Drawing locally';
   int _sequence = 0, _viewers = 0, _attempts = 0;
   int? _pointer;
-  bool _touchContact = false, _fingerDrawing = false;
+  bool _fingerDrawing = false;
   bool _pressureSensitive = true;
   _CanvasTool? _contactTool;
   bool _sending = false, _busy = false, _leaving = false;
   int? _savedSequence;
   Notebook? _savedNote;
   _CanvasTool _tool = _CanvasTool.pen;
+  final _lasso = <Offset>[];
+  InkMoveGesture? _move;
+  Offset? _lassoStart;
+
+  Color _penColor = const Color(0xff17232c);
+  Color _markerColor = const Color(0xfff4ca22);
+
+  static const _colors = [
+    ('Black', Color(0xff17232c)),
+    ('Red', Color(0xffd94242)),
+    ('Orange', Color(0xffed8331)),
+    ('Yellow', Color(0xfff4ca22)),
+    ('Green', Color(0xff3bae67)),
+    ('Turquoise', Color(0xff28a9b0)),
+    ('Blue', Color(0xff3572db)),
+    ('Purple', Color(0xff8b5aca)),
+    ('Pink', Color(0xffe260a2)),
+  ];
 
   @override
   void initState() {
@@ -71,28 +88,23 @@ class _LiveHostPageState extends State<LiveHostPage> {
   }
 
   void _input(PointerEvent event, Offset point) {
-    final touch = event.kind == PointerDeviceKind.touch;
     if (event is PointerDownEvent) {
-      if (touch && (!_fingerDrawing || NoterBinding.stylusContactActive)) {
-        return;
-      }
-      if (_pointer != null) {
-        if (!_touchContact || !isStylus(event)) return;
-        _model.cancel();
-      }
+      if (_pointer != null) return;
       _pointer = event.pointer;
-      _touchContact = touch;
       _contactTool = null;
     }
     if (event.pointer != _pointer) return;
     if (event is PointerUpEvent || event is PointerCancelEvent) {
       _pointer = null;
-      _contactTool = null;
-      if (event is PointerCancelEvent) {
+      final cancel = event is PointerCancelEvent;
+      if (_contactTool == _CanvasTool.lasso) {
+        _finishLasso(cancel: cancel);
+      } else if (cancel) {
         _model.cancel();
       } else {
         _model.finish();
       }
+      _contactTool = null;
       setState(() {});
       return;
     }
@@ -100,21 +112,24 @@ class _LiveHostPageState extends State<LiveHostPage> {
 
     final tool = usesStylusEraser(event) ? _CanvasTool.eraser : _tool;
     if (_contactTool != tool) {
+      if (_contactTool == _CanvasTool.lasso) _finishLasso(cancel: true);
       _model.finish();
       _contactTool = tool;
       _pressureSensitive = widget.repository.catalog.drawingPreferences
           .pressureSensitive(tool == _CanvasTool.marker ? 'highlight' : 'ink');
       switch (tool) {
         case _CanvasTool.pen:
-          _model.begin(0xff17232c, 3);
+          _model.begin(_penColor.toARGB32(), 3);
         case _CanvasTool.marker:
-          _model.begin(0x75f4ca22, 15);
-        case _CanvasTool.eraser:
+          _model.begin(_markerColor.withAlpha(0x75).toARGB32(), 15);
+        case _CanvasTool.eraser || _CanvasTool.lasso:
           break;
       }
       setState(() {});
     }
-    if (tool == _CanvasTool.eraser) {
+    if (tool == _CanvasTool.lasso) {
+      _updateLasso(point);
+    } else if (tool == _CanvasTool.eraser) {
       _model.erase(point, 11);
     } else {
       _model.point(
@@ -128,6 +143,52 @@ class _LiveHostPageState extends State<LiveHostPage> {
       });
     }
   }
+
+  void _updateLasso(Offset point) {
+    final start = _lassoStart;
+    if (start == null) {
+      _lassoStart = point;
+      if (_model.selectionBounds?.inflate(4).contains(point) == true) {
+        _move = InkMoveGesture(_model.ink);
+      } else {
+        _model.ink.select([]);
+        _lasso.add(point);
+      }
+    } else if (_move case final move?) {
+      final bounds = _model.selectionBounds!;
+      final offset = point - start;
+      final delta = Offset(
+        offset.dx.clamp(
+          math.min(0.0, -bounds.left),
+          math.max(0.0, PdfPageFormat.a4.width - bounds.right),
+        ),
+        offset.dy.clamp(
+          math.min(0.0, -bounds.top),
+          math.max(0.0, PdfPageFormat.a4.height - bounds.bottom),
+        ),
+      );
+      if ((delta - move.delta).distance >= 1) move.update(delta);
+    } else if (_lasso.length < 512 && (point - _lasso.last).distance >= 2) {
+      _lasso.add(point);
+    }
+    setState(() {});
+  }
+
+  void _finishLasso({required bool cancel}) {
+    if (_move case final move?) {
+      _model.finishMove(move, cancel: cancel);
+    } else if (!cancel) {
+      _model.selectWithLasso(_lasso);
+    }
+    _move = null;
+    _lasso.clear();
+    _lassoStart = null;
+  }
+
+  void _selectTool(_CanvasTool tool) => setState(() {
+    _tool = tool;
+    if (tool != _CanvasTool.lasso) _model.ink.select([]);
+  });
 
   Future<void> _work(Future<void> Function() operation) async {
     if (_busy) return;
@@ -157,17 +218,16 @@ class _LiveHostPageState extends State<LiveHostPage> {
     }
     if (!mounted) return;
     final sharing = LiveSessions(credentials);
-    final result = await sharing.start();
+    final session = await sharing.start();
     if (!mounted) {
-      await sharing.end(result.channel.id);
+      await sharing.end(session.id);
       return;
     }
-    _session = result.channel;
+    _session = session;
     _sharing = sharing;
     _sequence = 0;
     _attempts = 0;
-    _invite = result.invitation;
-    await _connect(result.channel, credentials.token);
+    await _connect(session, credentials.token);
   });
 
   Future<void> _connect(LiveChannel session, String token) async {
@@ -265,7 +325,6 @@ class _LiveHostPageState extends State<LiveHostPage> {
     _session = null;
     _sharing = null;
     _viewers = 0;
-    _invite = null;
     if (socket != null) unawaited(socket.sink.close());
     if (mounted) setState(() => _status = status);
   }
@@ -277,17 +336,6 @@ class _LiveHostPageState extends State<LiveHostPage> {
     await sharing.end(session.id);
     if (_session == session) _clear('Sharing ended · Drawing locally');
   });
-
-  Future<void> _copyLink() async {
-    final invite = _invite;
-    if (invite == null) return;
-    await Clipboard.setData(ClipboardData(text: invite.toString()));
-    if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Viewer link copied')));
-    }
-  }
 
   Future<void> _save() => _work(() async {
     final now = DateTime.now();
@@ -345,6 +393,41 @@ class _LiveHostPageState extends State<LiveHostPage> {
     if (mounted) Navigator.pop(context);
   }
 
+  Widget _colorPicker() {
+    final marker = _tool == _CanvasTool.marker;
+    final current = marker ? _markerColor : _penColor;
+    return PopupMenuButton<Color>(
+      tooltip: marker ? 'Marker color' : 'Pen color',
+      enabled: _pointer == null,
+      initialValue: current,
+      onSelected: (color) => setState(() {
+        if (marker) {
+          _markerColor = color;
+        } else {
+          _penColor = color;
+        }
+      }),
+      icon: Icon(Icons.color_lens_outlined, color: current),
+      itemBuilder: (_) => [
+        for (final (label, color) in _colors)
+          PopupMenuItem(
+            value: color,
+            child: Row(
+              children: [
+                Icon(Icons.circle, color: color, size: 18),
+                const SizedBox(width: 12),
+                Text(label),
+                if (current == color) ...[
+                  const Spacer(),
+                  const Icon(Icons.check, size: 18),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: _leaving,
@@ -358,7 +441,10 @@ class _LiveHostPageState extends State<LiveHostPage> {
         actions: [
           IconButton(
             tooltip: 'Save to library',
-            onPressed: _busy || _model.ink.index.strokes.isEmpty ? null : _save,
+            onPressed:
+                _busy || _pointer != null || _model.ink.index.strokes.isEmpty
+                ? null
+                : _save,
             icon: const Icon(Icons.save_outlined),
           ),
         ],
@@ -376,17 +462,11 @@ class _LiveHostPageState extends State<LiveHostPage> {
                     icon: const Icon(Icons.cast),
                     label: const Text('Share live'),
                   )
-                else ...[
-                  OutlinedButton.icon(
-                    onPressed: _copyLink,
-                    icon: const Icon(Icons.link),
-                    label: const Text('Copy viewer link'),
-                  ),
+                else
                   TextButton(
                     onPressed: _busy ? null : _stop,
                     child: const Text('Stop sharing'),
                   ),
-                ],
                 Text(_status),
               ],
             ),
@@ -402,14 +482,26 @@ class _LiveHostPageState extends State<LiveHostPage> {
                   (_CanvasTool.pen, 'Pen', Icons.draw_outlined),
                   (_CanvasTool.marker, 'Marker', Icons.border_color_outlined),
                   (_CanvasTool.eraser, 'Eraser', Icons.auto_fix_off),
+                  (_CanvasTool.lasso, 'Lasso selection', Icons.gesture),
                 ])
                   IconButton(
                     tooltip: label,
                     isSelected: (_contactTool ?? _tool) == tool,
                     onPressed: _pointer != null
                         ? null
-                        : () => setState(() => _tool = tool),
+                        : () => _selectTool(tool),
                     icon: Icon(icon),
+                  ),
+                if (_tool == _CanvasTool.pen || _tool == _CanvasTool.marker)
+                  _colorPicker(),
+                if (_tool == _CanvasTool.lasso &&
+                    _model.ink.selected.isNotEmpty)
+                  IconButton(
+                    tooltip: 'Delete selection',
+                    onPressed: _pointer == null
+                        ? () => setState(_model.deleteSelection)
+                        : null,
+                    icon: const Icon(Icons.delete_outline),
                   ),
                 IconButton(
                   tooltip: _fingerDrawing
@@ -439,7 +531,15 @@ class _LiveHostPageState extends State<LiveHostPage> {
               ],
             ),
             Expanded(
-              child: LiveCanvasSurface(model: _model, input: _input),
+              child: LiveCanvasSurface(
+                model: _model,
+                input: _input,
+                fingerDrawing: _fingerDrawing,
+                lasso: List.of(_lasso),
+                selection: _model.selectionBounds?.shift(
+                  _move?.delta ?? Offset.zero,
+                ),
+              ),
             ),
           ],
         ),

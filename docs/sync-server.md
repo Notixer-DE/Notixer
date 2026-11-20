@@ -131,22 +131,20 @@ Update the sync server and the Android, Linux or Windows app. Connect each devic
 2. On Linux or Windows, select **Watch live** in the banner above the workspace. The banner appears within a few seconds, including while a document is open. Use **Presentation mode** to give the drawing the full app window.
 3. On Android, select **Stop sharing** to disconnect the viewers. Use **Save to library** to keep the drawing as a regular notebook.
 
-Live Canvas uses stylus pressure from the drawing preferences. The stylus side button and eraser end temporarily erase. Enable finger drawing with the touch button if you want to draw with your finger.
+Live Canvas uses stylus pressure from the drawing preferences. The stylus side button and eraser end temporarily erase. Pick colors separately for the pen and marker. Use the zoom controls, pinch or scroll to zoom. Drag with a finger in navigation mode, or with two fingers while finger drawing is enabled. On desktop, drag the page or use the trackpad. Use **Lasso selection** to circle strokes and then drag or delete the selection. The completed edit is streamed to viewers and can be undone.
 
-The proxy must forward `/api/v1/live` and WebSocket upgrades on `/api/v1/live/*`. Caddy's `reverse_proxy` handles upgrades automatically. Send all Live Canvas traffic to the same sync server instance. Sessions are kept in memory, expire after two hours and allow up to 12 viewers. The sync server relays encrypted drawing messages.
-
-For browser invitations, serve the full Notixer Web build on the sync API's origin using the reverse-proxy example above. The copied link opens the web app at that origin. An API-only origin returns 404 for this link. The link grants access to the drawing for the session. Share it with the intended viewers only.
+The proxy must forward `/api/v1/live` and WebSocket upgrades on `/api/v1/live/*`. Caddy's `reverse_proxy` handles upgrades automatically. Send all Live Canvas traffic to the same sync server instance. Sessions are kept in memory, expire after two hours and allow up to 12 viewers. The sync server relays encrypted drawing messages. Live Canvas connections require a native app and a device token for the host's sync account.
 
 #### Verify Live Canvas latency
 
-The Docker integration check measures WebSocket relay latency from frame send to receive in one process. This measures the relay and does not include Android input, encryption before send, or browser rendering.
+The Docker integration check measures WebSocket relay latency from frame send to receive in one process. This measures the relay and does not include Android input, encryption before send, or desktop rendering.
 
 To check the 150 ms end-to-end target from [issue #31](https://github.com/Notixer-DE/Notixer/issues/31):
 
-1. Open Live Canvas on an Android device and open its viewer link in Chromium. Put both displays in the same camera shot. Record at a known frame rate, preferably 120 fps or higher.
+1. Open Live Canvas on an Android device and select **Watch live** in the Linux or Windows app. Put both displays in the same camera shot. Record at a known frame rate, preferably 120 fps or higher.
 2. On the same Wi-Fi network and with the relay reachable on the LAN, draw 30 short strokes. Keep the stylus down for at least half a second each time.
-3. For each stroke, count frames from visible stylus contact to the first ink visible in Chromium. Convert the count to milliseconds with `1000 × frames / fps`. Sort the 30 samples and record the 29th value as p95. The target is p95 ≤ 150 ms, with every stroke visible before pointer-up.
-4. Repeat with a remote relay and record its p95 separately. Record the phone model, Android and Chromium versions, network topology, relay location, and recording frame rate alongside the measurements.
+3. For each stroke, count frames from visible stylus contact to the first ink visible in the desktop app. Convert the count to milliseconds with `1000 × frames / fps`. Sort the 30 samples and record the 29th value as p95. The target is p95 ≤ 150 ms, with every stroke visible before pointer-up.
+4. Repeat with a remote relay and record its p95 separately. Record the device models, OS versions and Notixer build numbers, network topology, relay location, and recording frame rate alongside the measurements.
 
 ### Revoke a lost device
 

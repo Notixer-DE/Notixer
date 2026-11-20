@@ -1,7 +1,9 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noter/data/notebook.dart';
 import 'package:noter/live/live_canvas.dart';
@@ -9,6 +11,8 @@ import 'package:noter/live/live_host_page.dart';
 import 'package:noter/sync/sync_controller.dart';
 import 'package:noter/live/live_channel.dart';
 import 'package:noter/sync/sync_crypto.dart';
+import 'package:noter/ui/ink_layer.dart';
+import 'package:pdf/pdf.dart' show PdfPageFormat;
 
 void main() {
   testWidgets('stylus pressure and the momentary eraser work on Live Canvas', (
@@ -63,6 +67,206 @@ void main() {
     expect(model.ink.index.strokes, hasLength(1));
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets(
+    'pinch and zoom controls keep ink input aligned and colors separate',
+    (tester) async {
+      final root = Directory.systemTemp.createTempSync('notixer-live-tools-');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final repository = LocalNotebookRepository(root);
+      final sync = SyncController(repository);
+      addTearDown(sync.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LiveHostPage(repository: repository, sync: sync),
+        ),
+      );
+      final surface = find.byType(LiveCanvasSurface);
+      final layer = find.byType(InkLayer);
+      final model = tester.widget<LiveCanvasSurface>(surface).model;
+      final pen = TestPointer(10, PointerDeviceKind.stylus);
+      final center = tester.getCenter(layer);
+      final initialWidth = tester.getSize(layer).width;
+      await tester.tap(find.byTooltip('Zoom in'));
+      await tester.pump();
+      expect(tester.getSize(layer).width, greaterThan(initialWidth));
+
+      await tester.tap(find.byTooltip('Pen color'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Blue'));
+      await tester.pumpAndSettle();
+      await tester.sendEventToBinding(pen.down(center));
+      await tester.sendEventToBinding(pen.up());
+      final stroke = model.ink.index.strokes.single;
+      expect(stroke.color, 0xff3572db);
+      expect(stroke.points[0], closeTo(PdfPageFormat.a4.width / 2, .1));
+      expect(stroke.points[1], closeTo(PdfPageFormat.a4.height / 2, .1));
+
+      await tester.tap(find.byTooltip('Fit page'));
+      await tester.pump();
+      expect(tester.getSize(layer).width, initialWidth);
+      await tester.tap(find.byTooltip('Enable finger drawing'));
+      await tester.pump();
+      final first = TestPointer(11, PointerDeviceKind.touch);
+      final second = TestPointer(12, PointerDeviceKind.touch);
+      await tester.sendEventToBinding(first.down(center - const Offset(28, 0)));
+      await tester.sendEventToBinding(
+        second.down(center + const Offset(28, 0)),
+      );
+      await tester.sendEventToBinding(
+        second.move(center + const Offset(70, 0)),
+      );
+      await tester.sendEventToBinding(first.up());
+      await tester.sendEventToBinding(second.up());
+      await tester.pump();
+      expect(tester.getSize(layer).width, greaterThan(initialWidth));
+      expect(model.ink.index.strokes, hasLength(1));
+
+      await tester.tap(find.byTooltip('Marker'));
+      await tester.pump();
+      await tester.tap(find.byTooltip('Marker color'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Green'));
+      await tester.pumpAndSettle();
+      await tester.sendEventToBinding(pen.down(center));
+      await tester.sendEventToBinding(pen.up());
+      expect(model.ink.index.strokes.map((ink) => ink.color), [
+        0xff3572db,
+        0x753bae67,
+      ]);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('the lasso moves and deletes selected ink on both devices', (
+    tester,
+  ) async {
+    final root = Directory.systemTemp.createTempSync('notixer-live-lasso-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final repository = LocalNotebookRepository(root);
+    final sync = SyncController(repository);
+    final viewer = LiveCanvasModel();
+    addTearDown(sync.dispose);
+    addTearDown(viewer.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LiveHostPage(repository: repository, sync: sync),
+      ),
+    );
+    final model = tester
+        .widget<LiveCanvasSurface>(find.byType(LiveCanvasSurface))
+        .model;
+    model.onEvent = viewer.receive;
+    final center = tester.getCenter(find.byType(InkLayer));
+    final pen = TestPointer(10, PointerDeviceKind.stylus);
+    Future<void> gesture(List<Offset> points) async {
+      await tester.sendEventToBinding(pen.down(points.first));
+      for (final point in points.skip(1)) {
+        await tester.sendEventToBinding(pen.move(point));
+      }
+      await tester.sendEventToBinding(pen.up());
+      await tester.pump();
+    }
+
+    await gesture([center, center + const Offset(20, 0)]);
+    final original = model.ink.index.strokes.single;
+    await tester.tap(find.byTooltip('Lasso selection'));
+    await tester.pump();
+    await gesture([
+      center - const Offset(20, 20),
+      center + const Offset(40, -20),
+      center + const Offset(40, 20),
+      center + const Offset(-20, 20),
+    ]);
+    expect(model.ink.selected, [original.id]);
+    await gesture([center, center + const Offset(36, 10)]);
+    final moved = model.ink.index.strokes.single;
+    expect(moved.points[0], greaterThan(original.points[0]));
+    expect(viewer.ink.index.strokes.single.points, moved.points);
+
+    await tester.tap(find.byTooltip('Delete selection'));
+    await tester.pump();
+    expect(model.ink.index.strokes, isEmpty);
+    expect(viewer.ink.index.strokes, isEmpty);
+    await tester.tap(find.byTooltip('Undo'));
+    await tester.pump();
+    expect(viewer.ink.index.strokes.single.points, moved.points);
+    await tester.tap(find.byTooltip('Undo'));
+    await tester.pump();
+    expect(viewer.ink.index.strokes.single.points, original.points);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'live and finished ink cross chunk boundaries at fractional zoom',
+    (tester) async {
+      tester.view.devicePixelRatio = 1.25;
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final model = LiveCanvasModel();
+      addTearDown(model.dispose);
+      final capture = GlobalKey();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Center(
+            child: RepaintBoundary(
+              key: capture,
+              child: SizedBox(
+                width: 531,
+                height: 359,
+                child: LiveCanvasSurface(model: model),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.byTooltip('Zoom in'));
+      await tester.pump();
+      final paper = tester.getRect(find.byType(InkLayer));
+      final boundary = tester.getRect(find.byKey(capture));
+      final y = ((paper.center.dy - boundary.top) * 1.25).round();
+      final left = ((paper.left - boundary.left) * 1.25).ceil() + 15;
+      final right = ((paper.right - boundary.left) * 1.25).floor() - 15;
+      Future<void> checkStroke() async {
+        await tester.pump();
+        final render =
+            capture.currentContext!.findRenderObject()!
+                as RenderRepaintBoundary;
+        await tester.runAsync(() async {
+          final image = await render.toImage(pixelRatio: 1.25);
+          final bytes = (await image.toByteData(
+            format: ui.ImageByteFormat.rawRgba,
+          ))!;
+          final expected = bytes.getUint32((y * image.width + left) * 4);
+          expect(expected, isNot(0xffffffff));
+          for (var x = left; x <= right; x++) {
+            expect(
+              bytes.getUint32((y * image.width + x) * 4),
+              expected,
+              reason: 'The stroke must stay uniform across pixel $x.',
+            );
+          }
+          image.dispose();
+        });
+      }
+
+      for (final color in [0xff234571, 0x75234571]) {
+        model.begin(color, 14);
+        for (var i = 0; i <= 144; i++) {
+          model.point(
+            PdfPageFormat.a4.width * i / 144,
+            PdfPageFormat.a4.height / 2,
+            .5,
+          );
+        }
+        await checkStroke();
+        model.finish();
+        await checkStroke();
+        model.undo();
+        await tester.pump();
+      }
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   test(
     'devices derive the same live key without sharing the vault key',
