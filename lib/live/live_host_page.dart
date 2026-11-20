@@ -14,6 +14,7 @@ import '../data/paper.dart';
 import '../editor/ink_gestures.dart';
 import '../input/stylus_input.dart';
 import '../sync/sync_controller.dart';
+import '../ui/selection_transform_overlay.dart';
 import 'live_canvas.dart';
 import 'live_channel.dart';
 import 'live_sessions.dart';
@@ -50,6 +51,8 @@ class _LiveHostPageState extends State<LiveHostPage> {
   final _lasso = <Offset>[];
   InkMoveGesture? _move;
   Offset? _lassoStart;
+  bool _transforming = false, _invalidTransform = false;
+  bool get _editingCanvas => _pointer != null || _transforming;
 
   Color _penColor = const Color(0xff17232c);
   Color _markerColor = const Color(0xfff4ca22);
@@ -93,7 +96,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
 
   void _input(PointerEvent event, Offset point) {
     if (event is PointerDownEvent) {
-      if (_pointer != null) return;
+      if (_editingCanvas) return;
       _pointer = event.pointer;
       _contactTool = null;
     }
@@ -191,6 +194,61 @@ class _LiveHostPageState extends State<LiveHostPage> {
     _lasso.clear();
     _lassoStart = null;
   }
+
+  Widget _selectionOverlay(
+    Rect bounds,
+    Offset Function(Offset) toLocal,
+    Offset Function(Offset) toPage,
+  ) => SelectionTransformOverlay(
+    bounds: bounds,
+    toLocal: toLocal,
+    toPage: toPage,
+    moveEnabled: false,
+    onStart: () {
+      if (_editingCanvas || _model.ink.selected.isEmpty) return;
+      setState(() {
+        _transforming = true;
+        _invalidTransform = false;
+        _move = InkMoveGesture(_model.ink);
+      });
+    },
+    onUpdate: (value) {
+      if (!_transforming) return;
+      try {
+        _move!.update(
+          value.delta,
+          origin: value.origin,
+          scaleX: value.scaleX,
+          scaleY: value.scaleY,
+          rotation: value.rotation,
+        );
+        _invalidTransform = false;
+      } on FormatException {
+        _invalidTransform = true;
+      } on ArgumentError {
+        _invalidTransform = true;
+      }
+    },
+    onFinish: (_, cancel) {
+      if (!_transforming) return;
+      final rejected = !cancel && _invalidTransform;
+      try {
+        _model.finishMove(_move!, cancel: cancel || rejected);
+      } finally {
+        setState(() {
+          _transforming = false;
+          _move = null;
+        });
+      }
+      if (rejected) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('This selection is too large to resize that far.'),
+          ),
+        );
+      }
+    },
+  );
 
   void _selectTool(_CanvasTool tool) => setState(() {
     _tool = tool;
@@ -371,7 +429,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
   });
 
   Future<void> _leave() async {
-    if (_busy || _leaving) return;
+    if (_busy || _leaving || _editingCanvas) return;
     if (_session != null ||
         (_model.ink.index.strokes.isNotEmpty &&
             _savedSequence != _model.ink.sequence)) {
@@ -405,7 +463,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
     final current = marker ? _markerColor : _penColor;
     return PopupMenuButton<Color>(
       tooltip: marker ? 'Marker color' : 'Pen color',
-      enabled: _pointer == null,
+      enabled: !_editingCanvas,
       initialValue: current,
       onSelected: (color) => setState(() {
         if (marker) {
@@ -507,7 +565,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
     return Tooltip(
       message: marker ? 'Marker width' : 'Pen width',
       child: TextButton.icon(
-        onPressed: _pointer == null
+        onPressed: !_editingCanvas
             ? () => _editWidth(marker: marker, current: value)
             : null,
         icon: const Icon(Icons.line_weight),
@@ -530,7 +588,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
           IconButton(
             tooltip: 'Save to library',
             onPressed:
-                _busy || _pointer != null || _model.ink.index.strokes.isEmpty
+                _busy || _editingCanvas || _model.ink.index.strokes.isEmpty
                 ? null
                 : _save,
             icon: const Icon(Icons.save_outlined),
@@ -575,9 +633,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
                   IconButton(
                     tooltip: label,
                     isSelected: (_contactTool ?? _tool) == tool,
-                    onPressed: _pointer != null
-                        ? null
-                        : () => _selectTool(tool),
+                    onPressed: _editingCanvas ? null : () => _selectTool(tool),
                     icon: Icon(icon),
                   ),
                 if (_tool == _CanvasTool.pen ||
@@ -589,7 +645,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
                     _model.ink.selected.isNotEmpty)
                   IconButton(
                     tooltip: 'Delete selection',
-                    onPressed: _pointer == null
+                    onPressed: !_editingCanvas
                         ? () => setState(_model.deleteSelection)
                         : null,
                     icon: const Icon(Icons.delete_outline),
@@ -599,7 +655,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
                       ? 'Disable finger drawing'
                       : 'Enable finger drawing',
                   isSelected: _fingerDrawing,
-                  onPressed: _pointer != null
+                  onPressed: _editingCanvas
                       ? null
                       : () => setState(() => _fingerDrawing = !_fingerDrawing),
                   icon: const Icon(Icons.touch_app_outlined),
@@ -607,14 +663,14 @@ class _LiveHostPageState extends State<LiveHostPage> {
                 const SizedBox(width: 8),
                 IconButton(
                   tooltip: 'Undo',
-                  onPressed: _pointer == null && _model.canUndo
+                  onPressed: !_editingCanvas && _model.canUndo
                       ? () => setState(_model.undo)
                       : null,
                   icon: const Icon(Icons.undo),
                 ),
                 IconButton(
                   tooltip: 'Redo',
-                  onPressed: _pointer == null && _model.canRedo
+                  onPressed: !_editingCanvas && _model.canRedo
                       ? () => setState(_model.redo)
                       : null,
                   icon: const Icon(Icons.redo),
@@ -627,6 +683,8 @@ class _LiveHostPageState extends State<LiveHostPage> {
                 input: _input,
                 fingerDrawing: _fingerDrawing,
                 lasso: List.of(_lasso),
+                selectionOverlay: _selectionOverlay,
+                transforming: _transforming,
                 selection: _model.selectionBounds?.shift(
                   _move?.delta ?? Offset.zero,
                 ),

@@ -163,25 +163,49 @@ class InkMoveGesture {
   final List<InkStroke> original;
   List<InkStroke> moved = [];
   Offset delta = Offset.zero;
-  void update(Offset value) {
+  bool _changed = false;
+
+  void update(
+    Offset value, {
+    Offset origin = Offset.zero,
+    double scaleX = 1,
+    double scaleY = 1,
+    double rotation = 0,
+  }) {
+    final changed =
+        value != Offset.zero || scaleX != 1 || scaleY != 1 || rotation != 0;
+    final next = changed
+        ? [
+            for (final stroke in original)
+              stroke.transform(
+                origin: origin,
+                delta: value,
+                scaleX: scaleX,
+                scaleY: scaleY,
+                rotation: rotation,
+              ),
+          ]
+        : original;
     delta = value;
+    _changed = changed;
     controller.clearPreview(moved.map((s) => s.id));
-    moved = value == Offset.zero
-        ? original
-        : [for (final s in original) s.transform(delta: value)];
+    moved = next;
     for (final s in moved) {
       controller.showPreview(s);
     }
   }
 
   void finish({bool cancel = false}) {
-    if (!cancel && delta != Offset.zero) {
-      controller.apply(InkEdit(add: moved, remove: original));
-      controller.select(moved.map((s) => s.id));
-    }
-    controller.clearPreview(moved.map((s) => s.id));
-    for (final s in original) {
-      controller.hide(s, false);
+    try {
+      if (!cancel && _changed) {
+        controller.apply(InkEdit(add: moved, remove: original));
+        controller.select(moved.map((s) => s.id));
+      }
+    } finally {
+      controller.clearPreview(moved.map((s) => s.id));
+      for (final s in original) {
+        controller.hide(s, false);
+      }
     }
   }
 }
