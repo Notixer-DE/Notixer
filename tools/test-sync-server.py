@@ -44,7 +44,7 @@ def main():
             return re.search(r"Device: ([0-9a-f-]+)", output)[1], re.search(r": ([0-9a-f]{64})", output)[1]
 
         def admin_users():
-            return run("exec", "-T", "postgres", "psql", "-U", "noter", "-d", "noter",
+            return run("exec", "-T", "postgres", "psql", "-U", "notixer", "-d", "notixer",
                        "-Atc", "SELECT username FROM admin_users ORDER BY username").splitlines()
 
         try:
@@ -174,7 +174,7 @@ def main():
             assert len(listed[pairing_owner]["devices"]) == 2
             assert listed[other]["needs_key"] is False
             expired_invite = create_pairing(pairing_owner)
-            run("exec", "-T", "postgres", "psql", "-U", "noter", "-d", "noter", "-c",
+            run("exec", "-T", "postgres", "psql", "-U", "notixer", "-d", "notixer", "-c",
                 "UPDATE pairing_codes SET expires_at = now() - interval '1 second'")
             redeem(expired_invite["code"], 401)
             print("PASS: pairing authority, one-time redemption, wrong key retry and expiry")
@@ -187,12 +187,12 @@ def main():
             request("PUT", "/blobs/" + "0" * 64, body=payload, status=400)
             request("PUT", "/blobs/" + blob, body=payload, status=201)
             request("PUT", "/blobs/" + blob, body=payload, status=204)
-            run("exec", "-T", "postgres", "psql", "-U", "noter", "-d", "noter",
+            run("exec", "-T", "postgres", "psql", "-U", "notixer", "-d", "notixer",
                 "-c", f"UPDATE accounts SET quota_bytes=8192 WHERE id='{owner}'")
             over_quota = secrets.token_bytes(32)
             request("PUT", "/blobs/" + hashlib.sha256(over_quota).hexdigest(),
                     body=over_quota, status=507)
-            run("exec", "-T", "postgres", "psql", "-U", "noter", "-d", "noter",
+            run("exec", "-T", "postgres", "psql", "-U", "notixer", "-d", "notixer",
                 "-c", f"UPDATE accounts SET quota_bytes=107374182400 WHERE id='{owner}'")
             assert request("GET", "/blobs/" + blob) == payload
             request("GET", "/blobs/" + blob, token=foreign, status=404)
@@ -246,7 +246,7 @@ def main():
                                 NOTER_TEST_TOKEN_A=live_a, NOTER_TEST_TOKEN_B=live_b)
                 subprocess.run([flutter, "test", "test/live_sync_test.dart"],
                                cwd=ROOT, env=live_env, check=True)
-                dump = run("exec", "-T", "postgres", "pg_dump", "-U", "noter", "-d", "noter", "--data-only")
+                dump = run("exec", "-T", "postgres", "pg_dump", "-U", "notixer", "-d", "notixer", "--data-only")
                 assert all(title not in dump for title in ["E2EE secret title", "Tablet secret", "Laptop secret"])
                 print("PASS: real Flutter E2EE and absence of plaintext titles in PostgreSQL dump")
             else:

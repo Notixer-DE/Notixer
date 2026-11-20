@@ -3,13 +3,13 @@ services:
     image: postgres:17-bookworm
     restart: unless-stopped
     environment:
-      POSTGRES_DB: noter
-      POSTGRES_USER: noter
+      POSTGRES_DB: notixer
+      POSTGRES_USER: notixer
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U noter -d noter"]
+      test: ["CMD-SHELL", "pg_isready -U notixer -d notixer"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -23,7 +23,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://noter:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/noter
+      DATABASE_URL: postgres://notixer:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/notixer
       BLOB_DIR: /app/data/blobs
     ports:
       - "0.0.0.0:5150:5150"
