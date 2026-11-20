@@ -1,8 +1,10 @@
 mod admin;
+mod admin_assets;
 mod api;
 mod app;
 mod live;
 mod migration;
+mod pairing;
 
 #[tokio::main]
 async fn main() -> loco_rs::Result<()> {

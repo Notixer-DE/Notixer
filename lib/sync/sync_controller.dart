@@ -1,4 +1,5 @@
 import 'library_extras_sync.dart';
+import 'device_pairing.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -130,7 +131,33 @@ class SyncController extends ChangeNotifier {
     String token,
     String recoveryKey, {
     bool allowHttp = false,
-  }) => _action(() async {
+  }) => _action(() => _connect(url, token, recoveryKey, allowHttp: allowHttp));
+
+  Future<void> pair(DevicePairing pairing, String recoveryKey) =>
+      _action(() async {
+        await load();
+        final SyncCrypto crypto;
+        try {
+          crypto = await SyncCrypto.create(recoveryKey, pairing.account);
+        } on FormatException {
+          throw const SyncFailure('Enter a valid recovery key.');
+        }
+        final token = await pairing.redeem(crypto.keyCheck);
+        await _connect(
+          pairing.server.origin,
+          token,
+          recoveryKey,
+          expectedAccount: pairing.account,
+        );
+      });
+
+  Future<void> _connect(
+    String url,
+    String token,
+    String recoveryKey, {
+    bool allowHttp = false,
+    String? expectedAccount,
+  }) async {
     await load();
     final server = validateServerUrl(url, allowInsecureHttp: allowHttp);
     if (!syncHashPattern.hasMatch(token.trim())) {
@@ -141,8 +168,11 @@ class SyncController extends ChangeNotifier {
       token.trim(),
       allowInsecureHttp: allowHttp,
     );
-    if (session['version'] != 1) {
+    if (session['version'] != 1 || session['account'] is! String) {
       throw const SyncFailure('Unknown server version.');
+    }
+    if (expectedAccount != null && expectedAccount != session['account']) {
+      throw const SyncFailure('The pairing token belongs to another account.');
     }
     final remote = await _makeRemote(
       server.toString(),
@@ -175,7 +205,7 @@ class SyncController extends ChangeNotifier {
     lastSyncedAt = null;
     await _save();
     status = 'Server connected. End-to-end encryption is active.';
-  });
+  }
 
   Future<void> disableHttp() => _action(() async {
     await load();

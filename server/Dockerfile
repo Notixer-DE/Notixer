@@ -1,8 +1,16 @@
+FROM node:24-bookworm-slim AS admin-ui
+WORKDIR /admin-ui
+COPY admin-ui/package.json admin-ui/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
+COPY admin-ui/ ./
+RUN npm run build
+
 FROM rust:1.99-bookworm AS builder
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY schema.sql ./
+COPY --from=admin-ui /admin-ui/dist ./admin-ui/dist
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/build/target \
     cargo build --release --locked \

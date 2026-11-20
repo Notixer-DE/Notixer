@@ -4,7 +4,11 @@ pub struct Migrator;
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        vec![Box::new(Initial), Box::new(AdminTables)]
+        vec![
+            Box::new(Initial),
+            Box::new(AdminTables),
+            Box::new(PairingCodes),
+        ]
     }
 }
 
@@ -58,6 +62,37 @@ impl MigrationTrait for AdminTables {
 
                 CREATE INDEX admin_sessions_expires_at_idx ON admin_sessions(expires_at);
                 "#,
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn down(&self, _manager: &SchemaManager) -> Result<(), DbErr> {
+        Err(DbErr::Custom(
+            "Destructive rollback is deliberately disabled".into(),
+        ))
+    }
+}
+
+struct PairingCodes;
+
+impl MigrationName for PairingCodes {
+    fn name(&self) -> &str {
+        "m20261120_000003_pairing_codes"
+    }
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for PairingCodes {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                "CREATE TABLE pairing_codes (
+                account_id uuid PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+                code_hash text NOT NULL UNIQUE,
+                expires_at timestamptz NOT NULL
+            )",
             )
             .await?;
         Ok(())

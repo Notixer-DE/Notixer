@@ -1,3 +1,4 @@
+use crate::api::new_secret;
 use argon2::{
     Argon2,
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
@@ -6,7 +7,7 @@ use axum::{
     Json,
     extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
-    response::{Html, IntoResponse, Response},
+    response::{IntoResponse, Response},
     routing::{delete, get, post},
 };
 use loco_rs::{app::AppContext, controller::Routes};
@@ -14,10 +15,35 @@ use rand::RngCore;
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement, TransactionTrait};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use tokio::sync::Semaphore;
 use uuid::Uuid;
 
-const HTML_CONTENT: &str = include_str!("assets/admin.html");
-const VUE_JS: &str = include_str!("assets/vue.global.prod.js");
+static PASSWORD_WORK: Semaphore = Semaphore::const_new(2);
+
+async fn password_work<T: Send + 'static>(
+    action: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, StatusCode> {
+    let permit = PASSWORD_WORK
+        .try_acquire()
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        action()
+    })
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+fn secure_cookie(headers: &HeaderMap) -> &'static str {
+    if headers
+        .get("x-forwarded-proto")
+        .is_some_and(|value| value == "https")
+    {
+        "; Secure"
+    } else {
+        ""
+    }
+}
 
 pub fn hash_password(password: &str) -> Result<String, String> {
     let argon2 = Argon2::default();
@@ -42,8 +68,9 @@ pub fn verify_password(password: &str, hash: &str) -> bool {
 pub fn routes() -> Routes {
     Routes::new()
         .prefix("admin")
-        .add("/", get(index))
-        .add("/assets/vue.js", get(vue_asset))
+        .add("/", get(crate::admin_assets::index))
+        .add("/assets/admin.js", get(crate::admin_assets::script))
+        .add("/assets/admin.css", get(crate::admin_assets::stylesheet))
         .add("/api/me", get(me))
         .add("/api/login", post(login))
         .add("/api/logout", post(logout))
@@ -51,22 +78,9 @@ pub fn routes() -> Routes {
         .add("/api/accounts", get(list_accounts).post(create_account))
         .add("/api/accounts/{id}", delete(delete_account))
         .add("/api/accounts/{id}/devices", post(add_device))
+        .add("/api/accounts/{id}/pairing", post(crate::pairing::create))
         .add("/api/devices/{id}/revoke", post(revoke_device))
         .add("/api/devices/{id}/unrevoke", post(unrevoke_device))
-}
-
-async fn index() -> impl IntoResponse {
-    Html(HTML_CONTENT)
-}
-
-async fn vue_asset() -> impl IntoResponse {
-    (
-        [(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("application/javascript; charset=utf-8"),
-        )],
-        VUE_JS,
-    )
 }
 
 fn get_session_token(headers: &HeaderMap) -> Option<String> {
@@ -81,7 +95,7 @@ fn get_session_token(headers: &HeaderMap) -> Option<String> {
     None
 }
 
-async fn authenticate_admin(
+pub(crate) async fn authenticate_admin(
     db: &DatabaseConnection,
     headers: &HeaderMap,
 ) -> Result<String, StatusCode> {
@@ -124,8 +138,12 @@ struct LoginRequest {
 
 async fn login(
     State(ctx): State<AppContext>,
+    headers: HeaderMap,
     Json(payload): Json<LoginRequest>,
 ) -> Result<Response, StatusCode> {
+    if payload.username.len() > 128 || payload.password.len() > 1024 {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
     let row = ctx
         .db
         .query_one_raw(Statement::from_sql_and_values(
@@ -141,13 +159,11 @@ async fn login(
         .try_get("", "password_hash")
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    if !verify_password(&payload.password, &hash) {
+    if !password_work(move || verify_password(&payload.password, &hash)).await? {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
-    let mut random = [0u8; 32];
-    rand::rng().fill_bytes(&mut random);
-    let session_token = hex::encode(random);
+    let session_token = new_secret();
 
     ctx.db
         .execute_raw(Statement::from_sql_and_values(
@@ -159,8 +175,9 @@ async fn login(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let cookie_val = format!(
-        "noter_admin_session={session_token}; Path=/admin; HttpOnly; SameSite=Lax; Max-Age={}",
-        7 * 24 * 3600
+        "noter_admin_session={session_token}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age={}{}",
+        7 * 24 * 3600,
+        secure_cookie(&headers),
     );
 
     let mut headers = HeaderMap::new();
@@ -181,22 +198,24 @@ async fn login(
 
 async fn logout(State(ctx): State<AppContext>, headers: HeaderMap) -> Result<Response, StatusCode> {
     if let Some(token) = get_session_token(&headers) {
-        let _ = ctx
-            .db
+        ctx.db
             .execute_raw(Statement::from_sql_and_values(
                 DbBackend::Postgres,
                 "DELETE FROM admin_sessions WHERE token=$1",
                 vec![token.into()],
             ))
-            .await;
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
 
     let mut resp_headers = HeaderMap::new();
     resp_headers.insert(
         header::SET_COOKIE,
-        HeaderValue::from_static(
-            "noter_admin_session=; Path=/admin; HttpOnly; SameSite=Lax; Max-Age=0",
-        ),
+        HeaderValue::from_str(&format!(
+            "noter_admin_session=; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=0{}",
+            secure_cookie(&headers),
+        ))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
     );
 
     Ok((resp_headers, Json(serde_json::json!({ "ok": true }))).into_response())
@@ -215,7 +234,9 @@ async fn change_password(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let username = authenticate_admin(&ctx.db, &headers).await?;
 
-    if payload.new_password.trim().len() < 4 {
+    if payload.current_password.len() > 1024
+        || !(12..=1024).contains(&payload.new_password.trim().len())
+    {
         return Err(StatusCode::BAD_REQUEST);
     }
 
@@ -234,19 +255,43 @@ async fn change_password(
         .try_get("", "password_hash")
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    if !verify_password(&payload.current_password, &current_hash) {
-        return Err(StatusCode::UNAUTHORIZED);
-    }
-
-    let new_hash =
-        hash_password(&payload.new_password).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    ctx.db
+    let verify_hash = current_hash.clone();
+    let new_hash = password_work(move || {
+        if !verify_password(&payload.current_password, &verify_hash) {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+        hash_password(&payload.new_password).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    })
+    .await??;
+    let session = get_session_token(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let tx = ctx
+        .db
+        .begin()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let updated = tx
         .execute_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
-            "UPDATE admin_users SET password_hash=$1 WHERE username=$2",
-            vec![new_hash.into(), username.into()],
+            "UPDATE admin_users SET password_hash=$1 WHERE username=$2 AND password_hash=$3",
+            vec![
+                new_hash.into(),
+                username.clone().into(),
+                current_hash.into(),
+            ],
         ))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if updated.rows_affected() != 1 {
+        return Err(StatusCode::CONFLICT);
+    }
+    tx.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "DELETE FROM admin_sessions WHERE username=$1 AND token <> $2",
+        vec![username.into(), session.into()],
+    ))
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    tx.commit()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -312,7 +357,9 @@ async fn list_accounts(
         let max_revisions: i64 = row
             .try_get("", "max_revisions")
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let key_check: Option<String> = row.try_get("", "key_check").ok();
+        let needs_key: bool = row
+            .try_get("", "needs_key")
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         let devices: serde_json::Value = row
             .try_get("", "devices")
             .unwrap_or_else(|_| serde_json::json!([]));
@@ -324,7 +371,7 @@ async fn list_accounts(
             "quota_bytes": quota_bytes,
             "revision_count": revision_count,
             "max_revisions": max_revisions,
-            "key_check": key_check,
+            "needs_key": needs_key,
             "devices": devices
         }));
     }
@@ -364,6 +411,15 @@ async fn delete_account(
         .begin()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Use the same account lock as uploads, commits and device enrolment.
+    tx.query_one_raw(Statement::from_sql_and_values(
+        DbBackend::Postgres,
+        "SELECT id FROM accounts WHERE id=$1::uuid FOR UPDATE",
+        vec![account_id.clone().into()],
+    ))
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     tx.execute_raw(Statement::from_sql_and_values(
         DbBackend::Postgres,
@@ -409,9 +465,11 @@ async fn delete_account(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    if let Ok(blob_dir) = std::env::var("BLOB_DIR") {
-        let path = std::path::Path::new(&blob_dir).join(&account_id);
-        let _ = tokio::fs::remove_dir_all(path).await;
+    if let Some(store) = ctx.shared_store.get::<crate::api::BlobStore>() {
+        store.remove_account(&account_id).await.map_err(|error| {
+            tracing::error!(%error, "could not remove deleted account blobs");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     }
 
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -425,9 +483,7 @@ async fn add_device(
     let _ = authenticate_admin(&ctx.db, &headers).await?;
 
     let account = Uuid::parse_str(&account_id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let mut random = [0u8; 32];
-    rand::rng().fill_bytes(&mut random);
-    let token = hex::encode(random);
+    let token = new_secret();
     let device_id = Uuid::new_v4().to_string();
     let token_hash = hex::encode(Sha256::digest(token.as_bytes()));
 

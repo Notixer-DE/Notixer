@@ -24,6 +24,13 @@ jobs:
           flutter-version: '3.44.0'
           cache: true
       - run: flutter pub get --enforce-lockfile
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: server/admin-ui/package-lock.json
+      - run: npm ci --prefix server/admin-ui
+      - run: npm run build --prefix server/admin-ui
       - run: cargo fmt --manifest-path server/Cargo.toml --check
       - run: cargo test --manifest-path server/Cargo.toml --locked
       - run: cargo clippy --manifest-path server/Cargo.toml --locked --all-targets -- -D warnings

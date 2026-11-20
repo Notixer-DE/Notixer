@@ -80,6 +80,63 @@ def main():
             device(owner)
             _, foreign = device(other)
 
+            def create_pairing(owner, site=None):
+                headers = {"Content-Type": "application/json"}
+                if site:
+                    headers["Sec-Fetch-Site"] = site
+                req = urllib.request.Request(
+                    f"http://{address}/admin/api/accounts/{owner}/pairing",
+                    data=b"{}", headers=headers,
+                )
+                with browser.open(req, timeout=30) as response:
+                    assert response.headers.get("Cache-Control") == "no-store"
+                    return json.load(response)
+
+            pairing_owner = account()
+            first_pairing = create_pairing(pairing_owner)
+            assert first_pairing["account"] == pairing_owner and first_pairing["needs_key"] is False
+            try:
+                create_pairing(pairing_owner, "same-site")
+                raise AssertionError("Cross-origin pairing creation was accepted")
+            except urllib.error.HTTPError as error:
+                assert error.code == 403
+            invite = create_pairing(pairing_owner)
+
+            def redeem(code, expected_status, owner=pairing_owner, key="a" * 64):
+                req = urllib.request.Request(
+                    base + "/pairing/redeem",
+                    data=json.dumps({"code": code, "account": owner, "key_check": key}).encode(),
+                    headers={"Content-Type": "application/json"},
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=30) as response:
+                        assert response.status == expected_status
+                        assert response.headers.get("Cache-Control") == "no-store"
+                        return json.load(response)["token"]
+                except urllib.error.HTTPError as error:
+                    assert error.code == expected_status
+
+            redeem(first_pairing["code"], 401)
+            redeem(invite["code"], 401, owner=other)
+
+            def concurrent_redeem():
+                req = urllib.request.Request(
+                    base + "/pairing/redeem",
+                    data=json.dumps({"code": invite["code"], "account": pairing_owner,
+                                     "key_check": "a" * 64}).encode(),
+                    headers={"Content-Type": "application/json"},
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=30) as response:
+                        return response.status, json.load(response)["token"]
+                except urllib.error.HTTPError as error:
+                    return error.code, None
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                outcomes = sorted(pool.map(lambda _: concurrent_redeem(), range(2)))
+            assert [status for status, _ in outcomes] == [200, 401]
+            paired_token = outcomes[0][1]
+
             def request(method, path, token=token, body=None, status=200):
                 headers = {"Authorization": "Bearer " + token}
                 if isinstance(body, dict):
@@ -93,6 +150,19 @@ def main():
                     actual, output = error.code, error.read()
                 assert actual == status, (method, path, actual, status, output[:300])
                 return output
+
+            assert json.loads(request("GET", "/session", token=paired_token))["account"] == pairing_owner
+            request("PUT", "/key-check", token=paired_token, body={"value": "a" * 64}, status=204)
+            next_invite = create_pairing(pairing_owner)
+            assert next_invite["needs_key"] is True
+            redeem(next_invite["code"], 409, key="c" * 64)
+            assert redeem(next_invite["code"], 200)
+            redeem(next_invite["code"], 401)
+            expired_invite = create_pairing(pairing_owner)
+            run("exec", "-T", "postgres", "psql", "-U", "noter", "-d", "noter", "-c",
+                "UPDATE pairing_codes SET expires_at = now() - interval '1 second'")
+            redeem(expired_invite["code"], 401)
+            print("PASS: pairing authority, one-time redemption, wrong key retry and expiry")
 
             request("GET", "/session", token="bad", status=401)
             request("PUT", "/key-check", body={"value": "a" * 64}, status=204)

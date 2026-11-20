@@ -4,17 +4,16 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const html = fs.readFileSync(path.join(__dirname, '../server/src/assets/admin.html'), 'utf8');
-const script = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)]
-  .map(match => match[1]).find(source => source.includes('createApp('));
-assert.ok(script, 'The dashboard inline script must exist');
+const dashboard = fs.readFileSync(path.join(__dirname, '../server/admin-ui/src/dashboard.js'), 'utf8');
+const script = dashboard
+  .replace(/^import .* from 'vue';$/m, 'const { ref, computed, onMounted } = Vue;')
+  .replace('export function', 'function') + '\napp = setupDashboard();';
 let app, response = {ok: false, status: 500}, copySucceeds = false, removed = 0;
 const context = {
   Vue: {
     ref: value => ({value}),
     computed: callback => ({get value() { return callback(); }}),
     onMounted: () => {},
-    createApp: options => ({mount() { app = options.setup(); }}),
   },
   fetch: async () => response,
   setTimeout: () => 0,
@@ -25,7 +24,8 @@ const context = {
     execCommand: () => copySucceeds,
   },
 };
-vm.runInNewContext(script, context, {filename: 'admin.html'});
+vm.runInNewContext(script, context, {filename: 'dashboard.js'});
+app = context.app;
 const lastToast = () => app.toasts.value.at(-1);
 (async () => {
   app.authenticated.value = true;
