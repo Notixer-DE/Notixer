@@ -4,6 +4,8 @@ A self-hosted synchronization server for Notixer using Loco/Rust, PostgreSQL and
 
 ## Setup with Docker Compose
 
+Compose uses `notixer` as both the PostgreSQL role and database name. PostgreSQL creates them when it initializes an empty volume. To start a fresh instance alongside an older installation, stop the old stack to free the host port, then use `docker compose -p notixer-fresh up -d --build --wait`. This creates separate database and file volumes while preserving the old volumes. Use `-p notixer-fresh` on subsequent Compose commands for that instance.
+
 1. Create the configuration and set a random database password (hexadecimal characters) in `.env`:
 
    ```sh
@@ -127,7 +129,8 @@ For a consistent backup, briefly stop the server and back up the database and fi
 
 ```sh
 docker compose stop server
-# Use pg_dump for PostgreSQL and back up noter_files at the same point in time.
+docker compose exec -T postgres pg_dump -U notixer -d notixer > notixer.sql
+# Back up noter_files at the same point in time.
 docker compose up -d server
 ```
 
