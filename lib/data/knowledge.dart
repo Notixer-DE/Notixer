@@ -5,6 +5,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
+import 'journal_template.dart';
 import 'markdown_document.dart';
 import 'markdown_library.dart';
 import 'notebook.dart';
@@ -12,32 +13,9 @@ import 'pdf_search.dart';
 import 'quick_todos.dart';
 import 'todo_list.dart';
 
+export 'journal_template.dart';
+
 typedef KnowledgeDestination = ({Notebook note, String anchor});
-
-class MarkdownTemplate {
-  const MarkdownTemplate(this.id, this.name, this.source);
-  final String id, name, source;
-  Map<String, String> toJson() => {'id': id, 'name': name, 'source': source};
-  String render(DateTime date, String title) {
-    const days = [
-      'Monday',
-      'Tuesday',
-      'Wednesday',
-      'Thursday',
-      'Friday',
-      'Saturday',
-      'Sunday',
-    ];
-    return source
-        .replaceAll('{{date}}', journalDate(date))
-        .replaceAll('{{title}}', title)
-        .replaceAll('{{weekday}}', days[date.weekday - 1])
-        .replaceAll('{{year}}', '${date.year}');
-  }
-}
-
-String journalDate(DateTime date) =>
-    '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
 /// Journal identity survives renaming titles/tags and restoring linked copies.
 String? journalEntryDate(Notebook note) {
@@ -267,13 +245,7 @@ class KnowledgeStore {
   KnowledgeStore(this.repository);
   final LocalNotebookRepository repository;
   File get file => File(p.join(repository.directory.path, '.knowledge.json'));
-  List<MarkdownTemplate> templates = [
-    const MarkdownTemplate(
-      'daily',
-      'Daily journal',
-      '# {{date}} · {{weekday}}\n\n## Tasks\n\n## Notes\n- \n\n## Reflection\n',
-    ),
-  ];
+  List<MarkdownTemplate> templates = [defaultJournalTemplate];
   List<KnowledgeView> views = [];
   String? journalTemplate = 'daily';
   bool automaticBackups = true;

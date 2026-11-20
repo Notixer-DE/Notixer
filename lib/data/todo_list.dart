@@ -1,6 +1,8 @@
 import 'markdown_document.dart';
 import 'notebook.dart';
 
+export 'todo_items.dart';
+
 Future<Notebook> createTodoList(NotebookRepository repository, String title) {
   final id = LocalNotebookRepository.newId();
   final now = DateTime.now();
@@ -15,70 +17,4 @@ Future<Notebook> createTodoList(NotebookRepository repository, String title) {
     ),
     MarkdownDocument('').encode(),
   );
-}
-
-final _punctuation = RegExp(r'[\\`*_{}\[\]()<>#+\-.!|~]');
-final _escapedPunctuation = RegExp(r'\\([\\`*_{}\[\]()<>#+\-.!|~])');
-
-String todoItemText(String source) =>
-    source.replaceAllMapped(_escapedPunctuation, (match) => match[1]!);
-
-String _encodeText(String value) => value
-    .replaceAll(RegExp(r'[\r\n]+'), ' ')
-    .trim()
-    .replaceAllMapped(_punctuation, (match) => '\\${match[0]}');
-
-class TodoListItem {
-  const TodoListItem(
-    this.line,
-    this.offset,
-    this._start,
-    this._end,
-    this.text,
-    this.done,
-  );
-
-  final int line, offset, _start, _end;
-  final String text;
-  final bool done;
-
-  String rename(String source, String value) =>
-      source.replaceRange(_start, _end, ' ${_encodeText(value)}');
-
-  String check(String source, bool done) =>
-      source.replaceRange(offset, offset + 1, done ? 'x' : ' ');
-}
-
-List<TodoListItem> todoListItems(String source) {
-  final items = <TodoListItem>[];
-  var line = 1, nextBreak = source.indexOf('\n');
-  for (final offset in markdownTaskOffsets(source)) {
-    while (nextBreak >= 0 && nextBreak < offset) {
-      line++;
-      nextBreak = source.indexOf('\n', nextBreak + 1);
-    }
-    var end = nextBreak < 0 ? source.length : nextBreak;
-    if (end > offset && source[end - 1] == '\r') end--;
-    final start = offset + 2;
-    items.add(
-      TodoListItem(
-        line,
-        offset,
-        start,
-        end,
-        todoItemText(source.substring(start, end).trim()),
-        source[offset] != ' ',
-      ),
-    );
-  }
-  return items;
-}
-
-String appendTodoItem(String source, String text) {
-  final value = _encodeText(text);
-  if (value.isEmpty) return source;
-  final newline = source.contains('\r\n') ? '\r\n' : '\n';
-  final item = '- [ ] $value$newline';
-  final separator = source.isEmpty || source.endsWith('\n') ? '' : newline;
-  return '$source$separator$item';
 }

@@ -103,7 +103,7 @@ Notixer works completely offline. The cloud button can connect a self-hosted Not
 
 ## Install and build
 
-Download Android APKs, Debian packages, Windows ZIPs and checksums from [GitHub Releases](https://github.com/Notixer-DE/Notixer/releases/latest).
+Download Android APKs, Debian packages, Windows and Web ZIPs, and checksums from [GitHub Releases](https://github.com/Notixer-DE/Notixer/releases/latest).
 
 Use Flutter **3.44.0** / Dart **3.12**:
 
@@ -115,6 +115,14 @@ flutter test
 # Optional dashboard behavior checks (Node.js):
 node tools/test-admin-ui.cjs
 ```
+
+### Web
+
+Download the `*_web.zip` release asset, extract it and serve the contents from the root of an HTTPS site. For a local check, use `python3 -m http.server 8000 --directory <extracted-directory>` and open `http://localhost:8000`.
+
+Notixer Web supports Markdown notes and checklists, dedicated to-do lists, quick tasks and the journal calendar with an editable default template. It keeps notes in the current browser's IndexedDB and works offline after the first online load. Use **Library actions → Export web backup** to download an independent copy, and **Import file** to restore missing entries from a Web backup or open a Markdown file. Individual notes can be downloaded as Markdown. The native app provides PDF and ink editing, media capture and encrypted server sync.
+
+To build and package locally after fetching dependencies, run `bash tools/build-web.sh`. The package is written to `dist/`.
 
 ### Android
 
