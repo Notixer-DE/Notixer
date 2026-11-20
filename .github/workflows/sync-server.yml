@@ -27,6 +27,7 @@ jobs:
       - run: cargo fmt --manifest-path server/Cargo.toml --check
       - run: cargo test --manifest-path server/Cargo.toml --locked
       - name: Check server lints
+        shell: bash
         run: |
           if ! cargo clippy --manifest-path server/Cargo.toml --locked --all-targets --message-format=short -- -D warnings 2>&1 | tee "$RUNNER_TEMP/server-clippy.log"; then
             while IFS= read -r message; do
