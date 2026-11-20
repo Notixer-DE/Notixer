@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -7,12 +8,23 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../data/journal_template.dart';
 import '../data/markdown_document.dart';
+import '../data/markdown_library.dart';
+import '../data/media.dart';
+import '../data/paper.dart';
+import '../data/quick_todos.dart';
 import '../data/todo_items.dart';
+import '../sync/notebook_sync.dart'
+    show SettingsConflictNote, archivedSettingsConflictTag;
 import '../ui/journal_calendar.dart';
 import '../ui/journal_template_dialog.dart';
 import '../ui/markdown_preview.dart';
 import '../ui/noter_theme.dart';
 import 'web_library.dart';
+import 'web_note_archive.dart';
+import 'web_document_page.dart';
+import 'browser_library.dart' show downloadBrowserBytes;
+import 'web_sync.dart';
+import 'web_sync_page.dart';
 
 typedef WebDownload = void Function(String name, String contents, String type);
 
@@ -21,25 +33,33 @@ class NotixerWebApp extends StatelessWidget {
     super.key,
     required this.library,
     required this.download,
+    required this.sync,
   });
 
   final WebLibrary library;
   final WebDownload download;
+  final WebSync sync;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Notixer',
+    localizationsDelegates: const [DartPdfEditorLocalizations.delegate],
     theme: NoterTheme.light,
     builder: (context, child) =>
         Theme(data: NoterTheme.forWindow(context), child: child!),
-    home: _Workspace(library: library, download: download),
+    home: _Workspace(library: library, download: download, sync: sync),
   );
 }
 
 class _Workspace extends StatefulWidget {
-  const _Workspace({required this.library, required this.download});
+  const _Workspace({
+    required this.library,
+    required this.download,
+    required this.sync,
+  });
   final WebLibrary library;
   final WebDownload download;
+  final WebSync sync;
 
   @override
   State<_Workspace> createState() => _WorkspaceState();
@@ -53,8 +73,11 @@ class _WorkspaceState extends State<_Workspace> {
   ];
   final _random = Random.secure();
   List<WebNote> _notes = [];
+  List<QuickTodo> _quickTodos = [];
+  bool _onlyOpenTasks = true;
   int _section = 0;
   String _query = '';
+  String? _folder;
   String? _error;
   bool _busy = true;
   DateTime _day = DateUtils.dateOnly(DateTime.now());
@@ -78,9 +101,16 @@ class _WorkspaceState extends State<_Workspace> {
     });
     try {
       await action();
+      await widget.sync.quickTodos.migrate();
+      final quickTodos = await widget.sync.quickTodos.read();
       final notes = await widget.library.readAll();
       notes.sort((a, b) => b.modified.compareTo(a.modified));
-      if (mounted) setState(() => _notes = notes);
+      if (mounted) {
+        setState(() {
+          _notes = notes;
+          _quickTodos = quickTodos;
+        });
+      }
     } catch (error) {
       if (mounted) setState(() => _error = '$error');
     } finally {
@@ -91,18 +121,40 @@ class _WorkspaceState extends State<_Workspace> {
   String _id() =>
       'note-${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}-${_random.nextInt(0x7fffffff).toRadixString(36)}';
 
-  Future<void> _open(WebNote note, {bool newNote = false}) async {
+  Future<void> _open(
+    WebNote note, {
+    bool newNote = false,
+    String? heading,
+  }) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) => _Editor(
-          note: note,
-          previous: newNote ? null : note,
-          library: widget.library,
-          download: widget.download,
-        ),
+        builder: (_) =>
+            note.kind == WebNoteKind.pdf || note.kind == WebNoteKind.media
+            ? WebDocumentPage(note: note, library: widget.library)
+            : _Editor(
+                note: note,
+                previous: newNote ? null : note,
+                library: widget.library,
+                download: widget.download,
+                onFollow: _followDocument,
+                heading: heading,
+              ),
       ),
     );
     if (mounted) await _load();
+  }
+
+  Future<bool> _followDocument(WebNote from, String href) async {
+    final visible = _notes.where((note) => note.syncDocument);
+    final target = MarkdownLibrary.target(
+      visible.map(metadataForWebNote).toList(),
+      metadataForWebNote(from),
+      href,
+    );
+    final note = target == null ? null : _note(target.id);
+    if (note == null || !mounted) return false;
+    await _open(note, heading: Uri.parse(href).fragment);
+    return true;
   }
 
   Future<void> _create(WebNoteKind kind) async {
@@ -115,22 +167,55 @@ class _WorkspaceState extends State<_Workspace> {
     await _open(WebNote(_id(), kind, title, '', DateTime.now()), newNote: true);
   }
 
+  Future<void> _createPaperNote(String pattern) async {
+    final title = await _askText(context, 'New notebook', 'Title');
+    if (title == null || !mounted) return;
+    WebNote? note;
+    await _perform(() async {
+      final newNote = webNoteFromFile(
+        _id(),
+        title,
+        pattern,
+        await createPaper(pattern),
+      );
+      await widget.library.write(newNote, previous: null);
+      note = newNote;
+    });
+    final saved = note;
+    if (mounted && saved != null) await _open(saved);
+  }
+
   Future<void> _import() => _perform(() async {
     final file = await openFile(
-      acceptedTypeGroups: const [
+      acceptedTypeGroups: [
         XTypeGroup(
-          label: 'Markdown or Notixer Web backup',
-          extensions: ['md', 'markdown', 'json'],
+          label: 'Notixer files, Markdown, PDF, media and Web backups',
+          extensions: [
+            'md',
+            'markdown',
+            'json',
+            'noter',
+            'pdf',
+            for (final format in MediaFormat.formats) format.extension,
+          ],
         ),
       ],
     );
     if (file == null) return;
-    final backup = file.name.toLowerCase().endsWith('.json');
+    final extension = file.name.toLowerCase().split('.').last;
+    final media = MediaFormat.of(extension);
+    final backup = extension == 'json';
+    final binary = extension == 'pdf' || extension == 'noter' || media != null;
     if (await file.length() >
-        (backup ? webBackupMaxBytes : MarkdownDocument.maxTextBytes)) {
+        (backup
+            ? webBackupMaxBytes
+            : binary
+            ? 128 * 1024 * 1024
+            : MarkdownDocument.maxTextBytes)) {
       throw const FormatException('The file is too large to import.');
     }
-    final source = utf8.decode(await file.readAsBytes());
+    final bytes = await file.readAsBytes();
+    final source = binary ? '' : utf8.decode(bytes);
     if (backup) {
       final notes = decodeWebBackup(source);
       final added = await widget.library.importMissing(notes);
@@ -145,10 +230,23 @@ class _WorkspaceState extends State<_Workspace> {
     final title = name.isEmpty
         ? 'Imported note'
         : String.fromCharCodes(name.runes.take(60));
-    await widget.library.write(
-      WebNote(_id(), WebNoteKind.markdown, title, source, DateTime.now()),
-      previous: null,
-    );
+    final note = switch (extension) {
+      'noter' => webNoteFromArchive(bytes),
+      'pdf' => webNoteFromFile(_id(), title, 'pdf', bytes),
+      _ when media != null => webNoteFromFile(
+        _id(),
+        title,
+        'media:$extension',
+        bytes,
+      ),
+      _ => WebNote(_id(), WebNoteKind.markdown, title, source, DateTime.now()),
+    };
+    if (extension == 'noter') {
+      final added = await widget.library.importMissing([note]);
+      if (mounted && added == 0) _message('This note already exists.');
+    } else {
+      await widget.library.write(note, previous: null);
+    }
   });
 
   void _message(String text) =>
@@ -157,7 +255,10 @@ class _WorkspaceState extends State<_Workspace> {
   void _backup() => _perform(() async {
     widget.download(
       'notixer-web-${journalDate(DateTime.now())}.json',
-      encodeWebBackup(await widget.library.readAll()),
+      encodeWebBackup([
+        ...await widget.library.readAll(),
+        ...await widget.sync.quickTodos.backup(),
+      ]),
       'application/json',
     );
   });
@@ -166,19 +267,14 @@ class _WorkspaceState extends State<_Workspace> {
     final text = supplied ?? await _askText(context, 'Add to-do', 'To-do');
     if (text == null || text.trim().isEmpty || !mounted) return;
     await _perform(() async {
-      final existing = _note(WebNote.inboxId);
-      final note =
-          existing ??
-          WebNote(
-            WebNote.inboxId,
-            WebNoteKind.inbox,
-            'Unsorted to-dos',
-            '',
-            DateTime.now(),
-          );
-      await widget.library.write(
-        note.edit(note.title, appendTodoItem(note.source, text)),
-        previous: existing,
+      final now = DateTime.now();
+      await widget.sync.quickTodos.write(
+        QuickTodo(
+          id: _id(),
+          text: text.trim().replaceAll(RegExp(r'[\r\n]+'), ' '),
+          created: now,
+          modified: now,
+        ),
       );
     });
   }
@@ -201,9 +297,15 @@ class _WorkspaceState extends State<_Workspace> {
     );
   }
 
+  WebNote? _journalNote(DateTime date) {
+    final day = journalDate(date);
+    return _note('journal-$day') ??
+        _notes.where((note) => note.day == day).firstOrNull;
+  }
+
   Future<void> _todayEntry() async {
     final draft = _newDay(_day);
-    final note = _note(draft.id);
+    final note = _journalNote(_day);
     final text = await _askText(
       context,
       'Add journal entry',
@@ -291,6 +393,24 @@ class _WorkspaceState extends State<_Workspace> {
         title: const Text('Notixer'),
         actions: [
           IconButton(
+            tooltip: 'Sync',
+            onPressed: _busy
+                ? null
+                : () async {
+                    await Navigator.of(context).push<void>(
+                      MaterialPageRoute(
+                        builder: (_) => WebSyncPage(sync: widget.sync),
+                      ),
+                    );
+                    if (mounted) await _load();
+                  },
+            icon: Icon(
+              widget.sync.connected
+                  ? Icons.cloud_sync_outlined
+                  : Icons.cloud_outlined,
+            ),
+          ),
+          IconButton(
             tooltip: 'Add to-do',
             onPressed: _busy ? null : _addTodo,
             icon: const Icon(Icons.playlist_add),
@@ -351,12 +471,21 @@ class _WorkspaceState extends State<_Workspace> {
   }
 
   Widget _library() {
+    final folders = _notes.map((note) => note.folder).nonNulls.toSet().toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final folder = folders.contains(_folder) ? _folder : null;
+    final query = _query.toLowerCase();
     final visible = _notes
         .where(
           (note) =>
-              (note.kind == WebNoteKind.markdown ||
-                  note.kind == WebNoteKind.todo) &&
-              note.title.toLowerCase().contains(_query.toLowerCase()),
+              note.syncDocument &&
+              (folder == null || note.folder == folder) &&
+              [
+                note.title,
+                note.source,
+                ...note.tags,
+                if (note.folder != null) note.folder!,
+              ].any((value) => value.toLowerCase().contains(query)),
         )
         .toList();
     return ListView.builder(
@@ -388,6 +517,23 @@ class _WorkspaceState extends State<_Workspace> {
                     icon: const Icon(Icons.checklist),
                     label: const Text('New to-do list'),
                   ),
+                  PopupMenuButton<String>(
+                    tooltip: 'New notebook',
+                    enabled: !_busy,
+                    onSelected: _createPaperNote,
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(value: 'blank', child: Text('Blank paper')),
+                      PopupMenuItem(value: 'lined', child: Text('Lined paper')),
+                      PopupMenuItem(value: 'grid', child: Text('Grid paper')),
+                    ],
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      child: Text('New notebook'),
+                    ),
+                  ),
                   OutlinedButton.icon(
                     onPressed: _busy ? null : _import,
                     icon: const Icon(Icons.file_open_outlined),
@@ -399,56 +545,315 @@ class _WorkspaceState extends State<_Workspace> {
               TextFormField(
                 initialValue: _query,
                 decoration: const InputDecoration(
-                  hintText: 'Search note titles',
+                  hintText: 'Search notes, contents and tags',
                   prefixIcon: Icon(Icons.search),
                 ),
                 onChanged: (value) => setState(() => _query = value),
               ),
+              if (folders.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  key: ValueKey(folder),
+                  initialValue: folder ?? '',
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Folder'),
+                  items: [
+                    const DropdownMenuItem(
+                      value: '',
+                      child: Text('All folders'),
+                    ),
+                    for (final name in folders)
+                      DropdownMenuItem(value: name, child: Text(name)),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => _folder = value == '' ? null : value),
+                ),
+              ],
               const SizedBox(height: 12),
               if (visible.isEmpty && !_busy)
-                Text(_query.isEmpty ? 'No notes yet.' : 'No matching notes.'),
+                Text(
+                  query.isEmpty && folder == null
+                      ? 'No notes yet.'
+                      : 'No matching notes.',
+                ),
             ],
           );
         }
         final note = visible[index - 1];
-        final tasks = note.kind == WebNoteKind.todo;
+        final metadata = metadataForWebNote(note);
+        final settingsConflict =
+            metadata.isSettingsConflict && !metadata.isArchivedSettingsConflict;
+        final (type, icon) = switch (note.kind) {
+          _ when settingsConflict => ('Settings conflict', Icons.warning_amber),
+          _ when note.id.startsWith('conflict_') => (
+            'Sync conflict',
+            Icons.warning_amber,
+          ),
+          WebNoteKind.pdf => ('PDF', Icons.picture_as_pdf_outlined),
+          WebNoteKind.media => ('Media', Icons.perm_media_outlined),
+          WebNoteKind.todo => ('To-do list', Icons.checklist),
+          WebNoteKind.journal => ('Journal', Icons.calendar_today_outlined),
+          _ => ('Markdown', Icons.description_outlined),
+        };
         return ListTile(
-          leading: Icon(tasks ? Icons.checklist : Icons.description_outlined),
+          leading: Icon(icon),
           title: Text(note.title),
-          subtitle: Text(tasks ? 'To-do list' : 'Markdown'),
+          subtitle: Text(
+            [
+              type,
+              if (note.folder != null) note.folder!,
+              ...note.tags.map((tag) => '#$tag'),
+            ].join(' · '),
+          ),
           onTap: _busy ? null : () => _open(note),
-        );
-      },
-    );
-  }
-
-  Widget _tasks() {
-    final note = _note(WebNote.inboxId);
-    return _TaskList(
-      heading: 'Unsorted to-dos',
-      source: note?.source ?? '',
-      enabled: !_busy,
-      onAdd: _addTodo,
-      onChange: (source) {
-        if (note == null) return;
-        _perform(
-          () => widget.library.write(
-            note.edit(note.title, source),
-            previous: note,
+          trailing: PopupMenuButton<String>(
+            tooltip: 'Note actions',
+            enabled: !_busy,
+            onSelected: (value) {
+              if (value == 'organize') _organize(note);
+              if (value == 'archive') _archiveConflict(note);
+              if (value == 'download') _downloadArchive(note);
+              if (value == 'delete') _deleteNote(note);
+            },
+            itemBuilder: (_) => [
+              if (settingsConflict)
+                const PopupMenuItem(
+                  value: 'archive',
+                  child: Text('Archive conflict'),
+                ),
+              const PopupMenuItem(
+                value: 'organize',
+                child: Text('Folders and tags'),
+              ),
+              const PopupMenuItem(
+                value: 'download',
+                child: Text('Download Notixer file'),
+              ),
+              const PopupMenuItem(value: 'delete', child: Text('Delete')),
+            ],
           ),
         );
       },
     );
   }
 
+  Future<void> _archiveConflict(WebNote note) => _perform(
+    () => widget.library.write(
+      note.organize('Archived settings conflicts', [
+        ...note.tags.where((tag) => tag != 'Sync conflict'),
+        archivedSettingsConflictTag,
+      ]),
+      previous: note,
+    ),
+  );
+
+  Future<void> _deleteNote(WebNote note) async {
+    if (!await _confirm(context, 'Delete this note?', 'Delete') || !mounted) {
+      return;
+    }
+    await _perform(() => widget.library.delete(note));
+  }
+
+  Future<void> _downloadArchive(WebNote note) => _perform(() async {
+    downloadBrowserBytes(
+      '${note.title}.noter',
+      archiveForWebNote(note),
+      'application/zip',
+    );
+  });
+
+  Future<void> _organize(WebNote note) async {
+    var folder = note.folder ?? '';
+    var tags = note.tags.join(', ');
+    final updated = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        scrollable: true,
+        title: const Text('Folders and tags'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              initialValue: folder,
+              decoration: const InputDecoration(labelText: 'Folder'),
+              onChanged: (value) => folder = value.trim(),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              initialValue: tags,
+              decoration: const InputDecoration(
+                labelText: 'Tags separated by commas',
+              ),
+              onChanged: (value) => tags = value,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (updated != true || !mounted) return;
+    final unique = tags
+        .split(',')
+        .map((tag) => tag.trim())
+        .where((tag) => tag.isNotEmpty)
+        .toSet()
+        .toList();
+    await _perform(
+      () => widget.library.write(
+        note.organize(folder.isEmpty ? null : folder, unique),
+        previous: note,
+      ),
+    );
+  }
+
+  Future<void> _editQuickTodo(QuickTodo todo) async {
+    var text = todo.text;
+    var project = todo.project ?? '';
+    var due = todo.due ?? '';
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        scrollable: true,
+        title: const Text('Plan to-do'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              initialValue: text,
+              onChanged: (value) => text = value,
+              decoration: const InputDecoration(labelText: 'To-do'),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              initialValue: project,
+              onChanged: (value) => project = value,
+              decoration: const InputDecoration(labelText: 'Project'),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              initialValue: due,
+              onChanged: (value) => due = value,
+              decoration: const InputDecoration(
+                labelText: 'Due date (YYYY-MM-DD)',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || result != true) return;
+    await _changeQuickTodo(
+      todo,
+      text: text.trim(),
+      project: project.trim(),
+      due: due.trim(),
+    );
+  }
+
+  Future<void> _changeQuickTodo(
+    QuickTodo previous, {
+    bool? done,
+    String? text,
+    String? project,
+    String? due,
+  }) => _perform(() async {
+    final modified = DateTime.now();
+    final updated = QuickTodo(
+      id: previous.id,
+      text: text ?? previous.text,
+      done: done ?? previous.done,
+      created: previous.created,
+      modified: modified.isAfter(previous.modified)
+          ? modified
+          : previous.modified.add(const Duration(microseconds: 1)),
+      project: project == '' ? null : project ?? previous.project,
+      due: due == '' ? null : due ?? previous.due,
+    );
+    await widget.sync.quickTodos.write(
+      QuickTodo.fromJson(updated.id, updated.toJson()),
+      previous: previous,
+    );
+  });
+
+  Widget _tasks() {
+    final visible = _quickTodos
+        .where((task) => !_onlyOpenTasks || !task.done)
+        .toList();
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text('Tasks', style: Theme.of(context).textTheme.headlineSmall),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilledButton.icon(
+              icon: const Icon(Icons.add),
+              label: const Text('Add task'),
+              onPressed: _busy ? null : _addTodo,
+            ),
+            FilterChip(
+              label: const Text('Open only'),
+              selected: _onlyOpenTasks,
+              onSelected: (value) => setState(() => _onlyOpenTasks = value),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (visible.isEmpty)
+          Text(_onlyOpenTasks ? 'No open tasks.' : 'No tasks yet.'),
+        for (final todo in visible)
+          ListTile(
+            dense: true,
+            leading: Checkbox(
+              value: todo.done,
+              semanticLabel: todo.text,
+              onChanged: _busy
+                  ? null
+                  : (value) => _changeQuickTodo(todo, done: value),
+            ),
+            title: Text(todo.text),
+            subtitle: todo.project == null && todo.due == null
+                ? null
+                : Text([?todo.project, ?todo.due].join(' · ')),
+            trailing: IconButton(
+              tooltip: 'Plan to-do',
+              icon: const Icon(Icons.edit_calendar_outlined),
+              onPressed: _busy ? null : () => _editQuickTodo(todo),
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _journal() {
-    final note = _note('journal-${journalDate(_day)}');
+    final note = _journalNote(_day);
     void choose(DateTime day) {
       setState(() {
         _day = day;
         _month = DateTime(day.year, day.month);
       });
-      final entry = _note('journal-${journalDate(day)}');
+      final entry = _journalNote(day);
       if (entry != null) _open(entry);
     }
 
@@ -522,11 +927,15 @@ class _Editor extends StatefulWidget {
     required this.previous,
     required this.library,
     required this.download,
+    required this.onFollow,
+    this.heading,
   });
   final WebNote note;
   final WebNote? previous;
   final WebLibrary library;
   final WebDownload download;
+  final Future<bool> Function(WebNote, String) onFollow;
+  final String? heading;
 
   @override
   State<_Editor> createState() => _EditorState();
@@ -536,6 +945,7 @@ class _EditorState extends State<_Editor> {
   late WebNote? _saved = widget.previous;
   late final _title = TextEditingController(text: widget.note.title);
   late final _source = TextEditingController(text: widget.note.source);
+  late final _document = markdownForWebNote(widget.note);
   final _scroll = ScrollController();
   final _preview = GlobalKey<MarkdownPreviewState>();
   late bool _editing = _saved == null;
@@ -546,6 +956,17 @@ class _EditorState extends State<_Editor> {
   bool get _dirty =>
       _source.text != (_saved ?? widget.note).source ||
       _title.text != (_saved ?? widget.note).title;
+
+  @override
+  void initState() {
+    super.initState();
+    final heading = widget.heading;
+    if (heading != null && heading.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _preview.currentState?.scrollToHeading(heading);
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -562,7 +983,7 @@ class _EditorState extends State<_Editor> {
       _error = null;
     });
     try {
-      final note = widget.note.edit(_title.text, source);
+      final note = (_saved ?? widget.note).edit(_title.text, source);
       await widget.library.write(note, previous: _saved);
       if (!mounted) return false;
       setState(() {
@@ -623,6 +1044,16 @@ class _EditorState extends State<_Editor> {
       await _preview.currentState?.scrollToHeading(uri.fragment);
     } else if (uri.scheme == 'https' || uri.scheme == 'http') {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else if (_document.assets[href] case final bytes?) {
+      downloadBrowserBytes(
+        href.split('/').last,
+        bytes,
+        'application/octet-stream',
+      );
+    } else if (!await widget.onFollow(_saved ?? widget.note, href) && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('The linked file could not be found.')),
+      );
     }
   }
 
@@ -765,7 +1196,7 @@ class _EditorState extends State<_Editor> {
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
         sliver: MarkdownPreview(
           key: _preview,
-          document: MarkdownDocument(_source.text),
+          document: _document.copy(source: _source.text),
           scrollController: _scroll,
           onToggle: (offset, checked) {
             if (!_busy) {

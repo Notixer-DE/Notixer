@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
+import 'disk_sync_files.dart';
+import 'sync_storage.dart';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'sync_crypto.dart';
@@ -34,18 +36,20 @@ class ServerRemote implements RevisionRemote {
     required Uri server,
     required this.token,
     required this.crypto,
-    required this.cache,
+    Directory? cache,
+    SyncFiles? cacheFiles,
     http.Client? client,
     bool allowInsecureHttp = false,
   }) : server = validateServerUrl(
          server.toString(),
          allowInsecureHttp: allowInsecureHttp,
        ),
-       _client = client ?? http.Client();
+       _client = client ?? http.Client(),
+       _cache = cacheFiles ?? DiskSyncFiles(cache!);
   final Uri server;
   final String token;
   final SyncCrypto crypto;
-  final Directory cache;
+  final SyncFiles _cache;
   final http.Client _client;
   late final _transport = _ServerHttp(server, token, _client);
   final _envelopes = <String, Map<String, dynamic>>{};
@@ -98,13 +102,6 @@ class ServerRemote implements RevisionRemote {
     return '$server:${crypto.account}:${crypto.keyCheck}';
   }
 
-  Future<void> _write(File file, List<int> bytes) async {
-    await file.parent.create(recursive: true);
-    final temp = File('${file.path}.tmp');
-    await temp.writeAsBytes(bytes, flush: true);
-    await temp.rename(file.path);
-  }
-
   Future<SyncRevision> _inspect(Map<String, dynamic> envelope) async {
     final id = envelope['id'] as String;
     if (!syncHashPattern.hasMatch(id)) {
@@ -143,22 +140,20 @@ class ServerRemote implements RevisionRemote {
 
   @override
   Future<List<SyncRevision>> list() async {
-    await cache.create(recursive: true);
     final all = <String, SyncRevision>{};
-    final history = Directory('${cache.path}/history');
-    await history.create(recursive: true);
-    await for (final entry in history.list()) {
-      if (entry is File && entry.path.endsWith('.json')) {
-        final r = await _inspect(
-          jsonDecode(await entry.readAsString()) as Map<String, dynamic>,
-        );
-        all[r.revision] = r;
+    for (final key in await _cache.list('history/')) {
+      if (!key.endsWith('.json')) continue;
+      final data = await _cache.read(key);
+      if (data == null) {
+        throw const SyncFailure('The local sync journal is incomplete.');
       }
+      final revision = await _inspect(
+        jsonDecode(utf8.decode(data)) as Map<String, dynamic>,
+      );
+      all[revision.revision] = revision;
     }
-    final cursorFile = File('${cache.path}/cursor');
-    var cursor = await cursorFile.exists()
-        ? int.parse(await cursorFile.readAsString())
-        : 0;
+    final cursorBytes = await _cache.read('cursor');
+    var cursor = cursorBytes == null ? 0 : int.parse(utf8.decode(cursorBytes));
     if (cursor < 0 || all.length < cursor) {
       throw const SyncFailure(
         'The local sync journal is incomplete. Check the cache before running a full sync again.',
@@ -179,13 +174,13 @@ class ServerRemote implements RevisionRemote {
         final envelope = raw as Map<String, dynamic>;
         final revision = await _inspect(envelope);
         // Persist before advancing the cursor; crashes may replay, never skip.
-        await _write(
-          File('${history.path}/${envelope['id']}.json'),
-          utf8.encode(jsonEncode(envelope)),
+        await _cache.write(
+          'history/${envelope['id']}.json',
+          Uint8List.fromList(utf8.encode(jsonEncode(envelope))),
         );
         all[revision.revision] = revision;
       }
-      await _write(cursorFile, utf8.encode('$next'));
+      await _cache.write('cursor', Uint8List.fromList(utf8.encode('$next')));
       cursor = next;
       if (items.isEmpty) break;
     }
@@ -198,18 +193,18 @@ class ServerRemote implements RevisionRemote {
       throw const SyncFailure('The note exceeds the sync limit.');
     }
     final blobs = <String>[];
-    final files = <String, File>{};
+    final locations = <String, String>{};
     for (var offset = 0; offset < bytes.length; offset += syncBlockBytes) {
       final end = (offset + syncBlockBytes).clamp(0, bytes.length);
       final plain = Uint8List.sublistView(bytes, offset, end);
       // Local keyed lookup reuses the exact random-nonce ciphertext on retry.
       // Neither this lookup nor the plaintext hash is sent to the server.
       final lookup = crypto.identify('chunk:${sha256.convert(plain)}');
-      final file = File('${cache.path}/chunks/$lookup');
+      final location = 'chunks/$lookup';
       Uint8List? encrypted;
-      if (await file.exists() && await file.length() <= syncBlockBytes + 28) {
+      final cached = await _cache.read(location, maxBytes: syncBlockBytes + 28);
+      if (cached != null) {
         try {
-          final cached = await file.readAsBytes();
           final restored = await crypto.decrypt(cached, 'chunk');
           if (crypto.identify('chunk:${sha256.convert(restored)}') == lookup) {
             encrypted = cached;
@@ -220,11 +215,11 @@ class ServerRemote implements RevisionRemote {
       }
       if (encrypted == null) {
         encrypted = await crypto.encrypt(plain, 'chunk');
-        await _write(file, encrypted);
+        await _cache.write(location, encrypted);
       }
       final id = sha256.convert(encrypted).toString();
       blobs.add(id);
-      files[id] = file;
+      locations[id] = location;
     }
     final missing =
         (jsonDecode(
@@ -242,11 +237,12 @@ class ServerRemote implements RevisionRemote {
     for (var offset = 0; offset < missingIds.length; offset += 4) {
       await Future.wait(
         missingIds.skip(offset).take(4).map((id) async {
-          final file = files[id];
-          if (file == null) {
+          final location = locations[id];
+          final data = location == null ? null : await _cache.read(location);
+          if (data == null) {
             throw const SyncFailure('The server requested an unknown block.');
           }
-          await _request('PUT', '/blobs/$id', bytes: await file.readAsBytes());
+          await _request('PUT', '/blobs/$id', bytes: data);
         }),
       );
     }
@@ -289,15 +285,13 @@ class ServerRemote implements RevisionRemote {
     final ids = (envelope['blobs'] as List).cast<String>();
     final chunkWrites = <String, Future<void>>{};
     Future<Uint8List> block(String id) async {
-      final file = File('${cache.path}/downloaded/$id');
+      final location = 'downloaded/$id';
       Uint8List? encrypted;
       var reused = false;
-      if (await file.exists() && await file.length() <= syncBlockBytes + 28) {
-        final cached = await file.readAsBytes();
-        if (sha256.convert(cached).toString() == id) {
-          encrypted = cached;
-          reused = true;
-        }
+      final cached = await _cache.read(location, maxBytes: syncBlockBytes + 28);
+      if (cached != null && sha256.convert(cached).toString() == id) {
+        encrypted = cached;
+        reused = true;
       }
       if (encrypted == null) {
         encrypted = await _request(
@@ -310,11 +304,13 @@ class ServerRemote implements RevisionRemote {
         }
       }
       final plain = await crypto.decrypt(encrypted, 'chunk');
-      if (!reused) await _write(file, encrypted);
+      if (!reused) await _cache.write(location, encrypted);
       final lookup = crypto.identify('chunk:${sha256.convert(plain)}');
       await chunkWrites.putIfAbsent(lookup, () async {
-        final chunkFile = File('${cache.path}/chunks/$lookup');
-        if (!await chunkFile.exists()) await _write(chunkFile, encrypted!);
+        final chunkKey = 'chunks/$lookup';
+        if (await _cache.read(chunkKey) == null) {
+          await _cache.write(chunkKey, encrypted!);
+        }
       });
       return plain;
     }

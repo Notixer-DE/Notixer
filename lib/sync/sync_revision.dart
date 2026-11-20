@@ -2,6 +2,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 
+String libraryExtraId(String kind, String key) =>
+    'extra_${sha256.convert(utf8.encode('$kind:$key'))}';
+
 const maxSyncBytes = 256 * 1024 * 1024;
 final syncHashPattern = RegExp(r'^[a-f0-9]{64}$');
 
