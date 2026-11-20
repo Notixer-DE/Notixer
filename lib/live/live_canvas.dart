@@ -288,12 +288,21 @@ class LiveCanvasSurface extends StatefulWidget {
     this.fingerDrawing = false,
     this.lasso = const [],
     this.selection,
+    this.selectionOverlay,
+    this.transforming = false,
   });
   final LiveCanvasModel model;
   final void Function(PointerEvent, Offset)? input;
   final bool fingerDrawing;
   final List<Offset> lasso;
   final Rect? selection;
+  final Widget Function(
+    Rect bounds,
+    Offset Function(Offset) toLocal,
+    Offset Function(Offset) toPage,
+  )?
+  selectionOverlay;
+  final bool transforming;
 
   @override
   State<LiveCanvasSurface> createState() => _LiveCanvasSurfaceState();
@@ -308,6 +317,8 @@ class _LiveCanvasSurfaceState extends State<LiveCanvasSurface> {
   int? _inkPointer, _mousePanPointer;
   PointerDownEvent? _pendingTouch;
   bool _fingerInk = false, _touchNavigation = false;
+
+  bool get _navigationLocked => _inkPointer != null || widget.transforming;
 
   Rect _pageRect(Rect fit, Size viewport) {
     final size = fit.size * _zoom;
@@ -368,6 +379,7 @@ class _LiveCanvasSurfaceState extends State<LiveCanvasSurface> {
     final touch = event.kind == PointerDeviceKind.touch;
     final position = event.localPosition;
     if (event is PointerDownEvent) {
+      if (widget.transforming) return;
       if (touch) {
         if (NoterBinding.stylusContactActive ||
             (_inkPointer != null && !_fingerInk)) {
@@ -409,7 +421,7 @@ class _LiveCanvasSurfaceState extends State<LiveCanvasSurface> {
         final (before, distance) = _touchFocus();
         _touches[event.pointer] = position;
         if (_touchNavigation &&
-            _inkPointer == null &&
+            !_navigationLocked &&
             !NoterBinding.stylusContactActive) {
           final (after, nextDistance) = _touchFocus();
           _transform(
@@ -422,7 +434,7 @@ class _LiveCanvasSurfaceState extends State<LiveCanvasSurface> {
           return;
         }
       }
-      if (_mousePanPointer == event.pointer && _inkPointer == null) {
+      if (_mousePanPointer == event.pointer && !_navigationLocked) {
         _transform(fit, viewport, position - event.localDelta, position, 1);
         return;
       }
@@ -491,7 +503,7 @@ class _LiveCanvasSurfaceState extends State<LiveCanvasSurface> {
                 onPointerUp: pointer,
                 onPointerCancel: pointer,
                 onPointerSignal: (event) {
-                  if (event is PointerScrollEvent && _inkPointer == null) {
+                  if (event is PointerScrollEvent && !_navigationLocked) {
                     _transform(
                       fit,
                       viewport,
@@ -503,7 +515,7 @@ class _LiveCanvasSurfaceState extends State<LiveCanvasSurface> {
                 },
                 onPointerPanZoomStart: (_) => _trackpadScale = 1,
                 onPointerPanZoomUpdate: (event) {
-                  if (_inkPointer != null) return;
+                  if (_navigationLocked) return;
                   final focus = event.localPosition + event.localPan;
                   _transform(
                     fit,
@@ -538,14 +550,12 @@ class _LiveCanvasSurfaceState extends State<LiveCanvasSurface> {
                                 cache: widget.model.cache,
                                 live: widget.model.live,
                               ),
-                              if (widget.lasso.isNotEmpty ||
-                                  widget.selection != null)
+                              if (widget.lasso.isNotEmpty)
                                 IgnorePointer(
                                   child: CustomPaint(
                                     painter: _LassoPainter(
                                       geometry,
                                       widget.lasso,
-                                      widget.selection,
                                       Theme.of(context).colorScheme.primary,
                                     ),
                                   ),
@@ -559,6 +569,23 @@ class _LiveCanvasSurfaceState extends State<LiveCanvasSurface> {
                 ),
               ),
             ),
+            if (widget.selection case final bounds?
+                when widget.selectionOverlay != null)
+              Positioned.fill(
+                child: widget.selectionOverlay!(
+                  Rect.fromCenter(
+                    center: bounds.center,
+                    width: math.max(bounds.width, 112 / geometry.scale),
+                    height: math.max(bounds.height, 112 / geometry.scale),
+                  ),
+                  (point) =>
+                      geometry.toViewOffset(point.dx, point.dy) + page.topLeft,
+                  (point) {
+                    final (x, y) = geometry.toPagePoint(point - page.topLeft);
+                    return Offset(x, y);
+                  },
+                ),
+              ),
             Positioned(
               right: 8,
               bottom: 8,
@@ -570,7 +597,7 @@ class _LiveCanvasSurfaceState extends State<LiveCanvasSurface> {
                   children: [
                     IconButton(
                       tooltip: 'Zoom out',
-                      onPressed: _zoom <= 1 || _inkPointer != null
+                      onPressed: _zoom <= 1 || _navigationLocked
                           ? null
                           : () => _transform(
                               fit,
@@ -583,7 +610,7 @@ class _LiveCanvasSurfaceState extends State<LiveCanvasSurface> {
                     ),
                     IconButton(
                       tooltip: 'Fit page',
-                      onPressed: _zoom == 1 || _inkPointer != null
+                      onPressed: _zoom == 1 || _navigationLocked
                           ? null
                           : () => _transform(
                               fit,
@@ -596,7 +623,7 @@ class _LiveCanvasSurfaceState extends State<LiveCanvasSurface> {
                     ),
                     IconButton(
                       tooltip: 'Zoom in',
-                      onPressed: _zoom >= _maximumZoom || _inkPointer != null
+                      onPressed: _zoom >= _maximumZoom || _navigationLocked
                           ? null
                           : () =>
                                 _transform(fit, viewport, center, center, 1.4),
@@ -614,10 +641,9 @@ class _LiveCanvasSurfaceState extends State<LiveCanvasSurface> {
 }
 
 class _LassoPainter extends CustomPainter {
-  const _LassoPainter(this.geometry, this.points, this.selection, this.color);
+  const _LassoPainter(this.geometry, this.points, this.color);
   final PdfPageGeometry geometry;
   final List<Offset> points;
-  final Rect? selection;
   final Color color;
 
   @override
@@ -626,12 +652,6 @@ class _LassoPainter extends CustomPainter {
       ..color = color
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5;
-    if (selection case final bounds?) {
-      final rect = geometry.toViewRect(
-        PdfRect(bounds.left, bounds.top, bounds.right, bounds.bottom),
-      );
-      canvas.drawRect(rect.inflate(2), outline);
-    }
     if (points.length > 1) {
       final path = Path()
         ..addPolygon([
@@ -644,8 +664,5 @@ class _LassoPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_LassoPainter old) =>
-      old.points != points ||
-      old.selection != selection ||
-      old.geometry != geometry ||
-      old.color != color;
+      old.points != points || old.geometry != geometry || old.color != color;
 }

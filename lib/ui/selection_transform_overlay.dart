@@ -37,8 +37,10 @@ class SelectionTransformOverlay extends StatefulWidget {
     required this.onStart,
     required this.onUpdate,
     required this.onFinish,
+    this.moveEnabled = true,
   });
   final Rect bounds;
+  final bool moveEnabled;
   final Offset Function(Offset) toLocal, toPage;
   final VoidCallback onStart;
   final ValueChanged<SelectionTransform> onUpdate;
@@ -139,14 +141,19 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay> {
           : handle == null
           ? SystemMouseCursors.move
           : SystemMouseCursors.resizeUpLeftDownRight,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        dragStartBehavior: DragStartBehavior.down,
-        onPanStart: (d) => _begin(d, handle, rotate: rotate),
-        onPanUpdate: _update,
-        onPanEnd: (_) => _finish(false),
-        onPanCancel: () => _finish(true),
-        child: child,
+      child: Listener(
+        // Flutter ends an accepted pan on a raw pointer cancellation.
+        // Discard its preview before the recognizer can commit it.
+        onPointerCancel: (_) => _finish(true),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          dragStartBehavior: DragStartBehavior.down,
+          onPanStart: (d) => _begin(d, handle, rotate: rotate),
+          onPanUpdate: _update,
+          onPanEnd: (_) => _finish(false),
+          onPanCancel: () => _finish(true),
+          child: child,
+        ),
       ),
     ),
   );
@@ -187,10 +194,11 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay> {
               child: CustomPaint(painter: _FramePainter(corners, rotatePoint)),
             ),
           ),
-          Positioned.fromRect(
-            rect: screen.deflate(math.min(12, screen.shortestSide / 4)),
-            child: _target('Move selection', const SizedBox.expand()),
-          ),
+          if (widget.moveEnabled)
+            Positioned.fromRect(
+              rect: screen.deflate(math.min(12, screen.shortestSide / 4)),
+              child: _target('Move selection', const SizedBox.expand()),
+            ),
           for (final handle in const [
             Offset(-1, -1),
             Offset(0, -1),

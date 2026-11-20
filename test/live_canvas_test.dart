@@ -12,6 +12,7 @@ import 'package:noter/sync/sync_controller.dart';
 import 'package:noter/live/live_channel.dart';
 import 'package:noter/sync/sync_crypto.dart';
 import 'package:noter/ui/ink_layer.dart';
+import 'package:noter/ui/selection_transform_overlay.dart';
 import 'package:pdf/pdf.dart' show PdfPageFormat;
 
 void main() {
@@ -216,7 +217,7 @@ void main() {
     },
   );
 
-  testWidgets('the lasso moves and deletes selected ink on both devices', (
+  testWidgets('the lasso moves, transforms and deletes ink on both devices', (
     tester,
   ) async {
     final root = Directory.systemTemp.createTempSync('notixer-live-lasso-');
@@ -262,16 +263,66 @@ void main() {
     expect(moved.points[0], greaterThan(original.points[0]));
     expect(viewer.ink.index.strokes.single.points, moved.points);
 
+    final resize = await tester.startGesture(
+      tester.getCenter(find.bySemanticsLabel('Resize selection 1,0')),
+    );
+    await resize.moveBy(const Offset(56, 0));
+    await tester.pump();
+    expect(model.ink.preview.strokes.single.width, greaterThan(moved.width));
+    expect(viewer.ink.index.strokes.single.points, moved.points);
+    await resize.up();
+    await tester.pump();
+    final scaled = model.ink.index.strokes.single;
+    expect(
+      scaled.points[3] - scaled.points[0],
+      greaterThan(moved.points[3] - moved.points[0]),
+    );
+    expect(scaled.points[1], closeTo(moved.points[1], .001));
+    expect(viewer.ink.index.strokes.single.points, scaled.points);
+
+    final overlayFinder = find.byType(SelectionTransformOverlay);
+    final overlay = tester.widget<SelectionTransformOverlay>(overlayFinder);
+    final pivot =
+        tester.getTopLeft(overlayFinder) +
+        overlay.toLocal(overlay.bounds.center);
+    final rotationHandle = tester.getCenter(
+      find.bySemanticsLabel('Rotate selection'),
+    );
+    final from = rotationHandle - pivot;
+    final rotate = await tester.startGesture(
+      rotationHandle,
+      kind: PointerDeviceKind.stylus,
+    );
+    await rotate.moveTo(pivot + Offset(-from.dy, from.dx));
+    await rotate.up();
+    await tester.pump();
+    final rotated = model.ink.index.strokes.single;
+    expect(rotated.points[3] - rotated.points[0], closeTo(0, .01));
+    expect(
+      (rotated.points[4] - rotated.points[1]).abs(),
+      closeTo(scaled.points[3] - scaled.points[0], .01),
+    );
+    expect(viewer.ink.index.strokes.single.points, rotated.points);
+
+    final cancel = await tester.startGesture(
+      tester.getCenter(find.bySemanticsLabel('Resize selection 1,0')),
+    );
+    await cancel.moveBy(const Offset(56, 0));
+    await cancel.cancel();
+    await tester.pump();
+    expect(model.ink.preview.strokes, isEmpty);
+    expect(model.ink.hidden, isEmpty);
+    expect(viewer.ink.index.strokes.single.points, rotated.points);
+
     await tester.tap(find.byTooltip('Delete selection'));
     await tester.pump();
     expect(model.ink.index.strokes, isEmpty);
     expect(viewer.ink.index.strokes, isEmpty);
-    await tester.tap(find.byTooltip('Undo'));
-    await tester.pump();
-    expect(viewer.ink.index.strokes.single.points, moved.points);
-    await tester.tap(find.byTooltip('Undo'));
-    await tester.pump();
-    expect(viewer.ink.index.strokes.single.points, original.points);
+    for (final expected in [rotated, scaled, moved, original]) {
+      await tester.tap(find.byTooltip('Undo'));
+      await tester.pump();
+      expect(viewer.ink.index.strokes.single.points, expected.points);
+    }
     await tester.pumpWidget(const SizedBox());
   });
 
