@@ -688,7 +688,7 @@ class LocalNotebookRepository implements NotebookRepository {
   Future<void> purgeTrash(String id) => purgeTrashItems([id]);
 
   /// Delete only the entries already shown when the user confirmed the purge.
-  Future<void> purgeTrashItems(Iterable<String> ids) {
+  Future<void> purgeTrashItems(Iterable<String> ids) async {
     final entries = {for (final id in ids) id: _recoveryFile(id, null)};
     return _serialize(() async {
       for (final entry in entries.entries) {
