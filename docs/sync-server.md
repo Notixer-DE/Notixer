@@ -93,6 +93,17 @@ On Android, connect the sync server, then open **Library actions → Live Canvas
 
 The link grants access to the drawing for that session. Share it with the intended viewers only. The server relays encrypted drawing messages and holds the session in memory. The saved notebook uses the ordinary Notixer library and sync.
 
+#### Verify Live Canvas latency
+
+The Docker integration check measures WebSocket relay latency from frame send to receive in one process. This measures the relay and does not include Android input, encryption before send, or browser rendering.
+
+To check the 150 ms end-to-end target from [issue #31](https://github.com/Notixer-DE/Notixer/issues/31):
+
+1. Open Live Canvas on an Android device and open its viewer link in Chromium. Put both displays in the same camera shot. Record at a known frame rate, preferably 120 fps or higher.
+2. On the same Wi-Fi network and with the relay reachable on the LAN, draw 30 short strokes. Keep the stylus down for at least half a second each time.
+3. For each stroke, count frames from visible stylus contact to the first ink visible in Chromium. Convert the count to milliseconds with `1000 × frames / fps`. Sort the 30 samples and record the 29th value as p95. The target is p95 ≤ 150 ms, with every stroke visible before pointer-up.
+4. Repeat with a remote relay and record its p95 separately. Record the phone model, Android and Chromium versions, network topology, relay location, and recording frame rate alongside the measurements.
+
 ### Revoke a lost device
 
 ```sh

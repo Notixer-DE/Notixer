@@ -16,7 +16,7 @@ async function request(method, path, token) {
 
 function socketFor(path, role, token) {
   const url = new URL(path, origin);
-  url.protocol = 'ws:';
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   const socket = new WebSocket(url);
   socket.binaryType = 'arraybuffer';
   sockets.push(socket);
@@ -44,6 +44,23 @@ function socketFor(path, role, token) {
       return queue.shift();
     },
   };
+}
+
+async function measureRelay(host, viewer) {
+  const samples = [];
+  for (let index = 0; index < 33; index++) {
+    const frame = new Uint8Array(256);
+    new DataView(frame.buffer).setUint32(0, index);
+    const start = performance.now();
+    host.socket.send(frame);
+    assert.deepEqual(new Uint8Array(await viewer.next()), frame);
+    if (index >= 3) samples.push(performance.now() - start);
+  }
+  samples.sort((a, b) => a - b);
+  const p95 = samples[Math.ceil(samples.length * 0.95) - 1];
+  const median = samples[samples.length / 2].toFixed(2);
+  assert(p95 < 1000, 'Local relay p95 exceeded the CI regression ceiling');
+  console.log(`Live Canvas relay only (30 frames): p50 ${median} ms, p95 ${p95.toFixed(2)} ms`);
 }
 
 async function main() {
@@ -81,6 +98,8 @@ async function main() {
   assert.equal(await previous.next(), null);
   host.socket.send(frame);
   assert.deepEqual(new Uint8Array(await reconnected.next()), frame);
+
+  await measureRelay(host, reconnected);
 
   assert.equal((await request('DELETE', path, hostToken)).status, 204);
   assert.equal(await reconnected.next(), 'ended');
