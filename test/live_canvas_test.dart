@@ -138,6 +138,84 @@ void main() {
     },
   );
 
+  testWidgets(
+    'pen and marker widths accept decimals and stream independently',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final root = Directory.systemTemp.createTempSync('notixer-live-width-');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final repository = LocalNotebookRepository(root);
+      final sync = SyncController(repository);
+      final viewer = LiveCanvasModel();
+      addTearDown(sync.dispose);
+      addTearDown(viewer.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LiveHostPage(repository: repository, sync: sync),
+        ),
+      );
+      final surface = find.byType(LiveCanvasSurface);
+      final model = tester.widget<LiveCanvasSurface>(surface).model;
+      model.onEvent = viewer.receive;
+      final pen = TestPointer(10, PointerDeviceKind.stylus);
+
+      Future<void> openWidth(String tool) async {
+        await tester.tap(find.byTooltip('$tool width'));
+        await tester.pumpAndSettle();
+      }
+
+      Future<void> applyWidth(String value) async {
+        await tester.enterText(find.byType(TextFormField), value);
+        await tester.tap(find.text('Apply'));
+        await tester.pumpAndSettle();
+      }
+
+      Future<void> draw() async {
+        final center = tester.getCenter(find.byType(InkLayer));
+        await tester.sendEventToBinding(pen.down(center));
+        await tester.sendEventToBinding(pen.up());
+        await tester.pump();
+      }
+
+      expect(find.text('4 px'), findsOneWidget);
+      await openWidth('Pen');
+      await applyWidth('0');
+      expect(find.text('Enter a width from 0.1 to 1000 px.'), findsOneWidget);
+      await applyWidth('6,5');
+      expect(find.text('6.5 px'), findsOneWidget);
+      await tester.tap(find.byTooltip('Zoom in'));
+      await tester.pump();
+      await draw();
+
+      await tester.tap(find.byTooltip('Marker'));
+      await tester.pump();
+      expect(find.text('20 px'), findsOneWidget);
+      await openWidth('Marker');
+      await applyWidth('32');
+      await draw();
+
+      await tester.tap(find.byTooltip('Pen'));
+      await tester.pump();
+      expect(find.text('6.5 px'), findsOneWidget);
+      await draw();
+
+      expect(model.ink.index.strokes.map((stroke) => stroke.width), [
+        4.875,
+        24,
+        4.875,
+      ]);
+      expect(viewer.ink.index.strokes.map((stroke) => stroke.width), [
+        4.875,
+        24,
+        4.875,
+      ]);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   testWidgets('the lasso moves and deletes selected ink on both devices', (
     tester,
   ) async {

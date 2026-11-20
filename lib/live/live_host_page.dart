@@ -53,6 +53,10 @@ class _LiveHostPageState extends State<LiveHostPage> {
 
   Color _penColor = const Color(0xff17232c);
   Color _markerColor = const Color(0xfff4ca22);
+  double _penWidthPx = 4, _markerWidthPx = 20;
+
+  // The page and the live protocol use PDF points. One CSS pixel is 1/96 in.
+  static const _pointsPerPixel = 72 / 96;
 
   static const _colors = [
     ('Black', Color(0xff17232c)),
@@ -119,9 +123,12 @@ class _LiveHostPageState extends State<LiveHostPage> {
           .pressureSensitive(tool == _CanvasTool.marker ? 'highlight' : 'ink');
       switch (tool) {
         case _CanvasTool.pen:
-          _model.begin(_penColor.toARGB32(), 3);
+          _model.begin(_penColor.toARGB32(), _penWidthPx * _pointsPerPixel);
         case _CanvasTool.marker:
-          _model.begin(_markerColor.withAlpha(0x75).toARGB32(), 15);
+          _model.begin(
+            _markerColor.withAlpha(0x75).toARGB32(),
+            _markerWidthPx * _pointsPerPixel,
+          );
         case _CanvasTool.eraser || _CanvasTool.lasso:
           break;
       }
@@ -428,6 +435,87 @@ class _LiveHostPageState extends State<LiveHostPage> {
     );
   }
 
+  Future<void> _editWidth({
+    required bool marker,
+    required String current,
+  }) async {
+    final form = GlobalKey<FormState>();
+    double? width;
+    final result = await showDialog<double>(
+      context: context,
+      builder: (context) {
+        void apply() {
+          if (form.currentState!.validate()) Navigator.pop(context, width);
+        }
+
+        return AlertDialog(
+          scrollable: true,
+          title: Text(marker ? 'Marker width' : 'Pen width'),
+          content: Form(
+            key: form,
+            child: TextFormField(
+              initialValue: current,
+              autofocus: true,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              textInputAction: TextInputAction.done,
+              decoration: const InputDecoration(
+                labelText: 'Stroke width',
+                suffixText: 'px',
+              ),
+              onFieldSubmitted: (_) => apply(),
+              validator: (text) {
+                final value = double.tryParse(
+                  text?.trim().replaceAll(',', '.') ?? '',
+                );
+                if (value == null ||
+                    !value.isFinite ||
+                    value < .1 ||
+                    value > 1000) {
+                  return 'Enter a width from 0.1 to 1000 px.';
+                }
+                width = value;
+                return null;
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(onPressed: apply, child: const Text('Apply')),
+          ],
+        );
+      },
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      if (marker) {
+        _markerWidthPx = result;
+      } else {
+        _penWidthPx = result;
+      }
+    });
+  }
+
+  Widget _widthPicker() {
+    final marker = _tool == _CanvasTool.marker;
+    final width = marker ? _markerWidthPx : _penWidthPx;
+    final value = width % 1 == 0 ? width.toStringAsFixed(0) : width.toString();
+    return Tooltip(
+      message: marker ? 'Marker width' : 'Pen width',
+      child: TextButton.icon(
+        onPressed: _pointer == null
+            ? () => _editWidth(marker: marker, current: value)
+            : null,
+        icon: const Icon(Icons.line_weight),
+        label: Text('$value px'),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: _leaving,
@@ -492,8 +580,11 @@ class _LiveHostPageState extends State<LiveHostPage> {
                         : () => _selectTool(tool),
                     icon: Icon(icon),
                   ),
-                if (_tool == _CanvasTool.pen || _tool == _CanvasTool.marker)
+                if (_tool == _CanvasTool.pen ||
+                    _tool == _CanvasTool.marker) ...[
                   _colorPicker(),
+                  _widthPicker(),
+                ],
                 if (_tool == _CanvasTool.lasso &&
                     _model.ink.selected.isNotEmpty)
                   IconButton(
