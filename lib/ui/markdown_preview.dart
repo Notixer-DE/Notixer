@@ -1,7 +1,6 @@
 import 'dart:convert';
-import 'dart:isolate';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/foundation.dart' show mapEquals;
+import 'package:flutter/foundation.dart' show compute, mapEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'dart:typed_data';
@@ -77,10 +76,8 @@ List<_PreviewBlock> _parsePreview(String source) {
   ];
 }
 
-Future<List<_PreviewBlock>> _parseOffThread(String source) => Isolate.run(
-  () => _parsePreview(source),
-  debugName: 'noter:markdown-preview',
-);
+Future<List<_PreviewBlock>> _parseOffThread(String source) =>
+    compute(_parsePreview, source, debugLabel: 'noter:markdown-preview');
 
 /// Parse large documents off the UI isolate; build and retain only nearby
 /// Markdown blocks. Scrolling and save-status updates never parse the source.

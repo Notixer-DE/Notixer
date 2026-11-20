@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
-import '../data/knowledge.dart';
+import '../data/journal_template.dart';
 import 'markdown_style.dart';
 
 class JournalTemplateDialog extends StatefulWidget {

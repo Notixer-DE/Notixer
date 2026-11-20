@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../data/knowledge.dart';
+import '../data/journal_template.dart';
 
 class JournalCalendar extends StatelessWidget {
   const JournalCalendar({
