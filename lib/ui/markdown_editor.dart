@@ -28,6 +28,7 @@ import 'document_tab.dart';
 import 'library_graph_page.dart';
 import 'organize_dialog.dart';
 import '../data/knowledge.dart';
+import '../data/document_task.dart';
 import 'knowledge_page.dart';
 import 'wiki_link_suggestions.dart';
 
@@ -700,12 +701,10 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   }
 
   Future<void> _applyTask(KnowledgeTask task) async {
-    if (task.note.id != _session.note.id ||
-        markdownRevision(_text.text) != task.revision ||
-        !markdownOpenTasks(_text.text).any((t) => t.offset == task.offset)) {
+    if (task.note.id != _session.note.id) {
       throw const FormatException('The task changed. Reload the list first.');
     }
-    _text.text = _text.text.replaceRange(task.offset, task.offset + 1, 'x');
+    _text.text = task.editDocument(_text.text);
     if (!await _saveDocument()) {
       throw const FormatException('Could not save the task.');
     }
@@ -1636,10 +1635,10 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                               onFollow: _follow,
                               onToggle: (offset, checked) {
                                 if (_busy || _leaving) return;
-                                _text.text = _text.text.replaceRange(
+                                _text.text = updateDocumentTask(
+                                  _text.text,
                                   offset,
-                                  offset + 1,
-                                  checked ? 'x' : ' ',
+                                  done: checked,
                                 );
                               },
                             ),

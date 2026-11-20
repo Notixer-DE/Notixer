@@ -7,6 +7,7 @@ import '../data/knowledge.dart';
 import '../data/keyboard_shortcuts.dart';
 import '../data/library_backup.dart';
 import '../data/notebook.dart';
+import '../data/quick_todos.dart';
 import 'journal_calendar.dart';
 import 'journal_template_dialog.dart';
 import 'markdown_editor.dart';
@@ -14,6 +15,8 @@ import 'noter_theme.dart';
 import 'plan_todo_dialog.dart';
 import 'quick_todo_dialog.dart';
 import 'workspace_chrome.dart';
+import 'todo_timer.dart';
+import 'inbox_capture_dialog.dart';
 
 class KnowledgePage extends StatefulWidget {
   const KnowledgePage({
@@ -49,7 +52,8 @@ enum _TaskView {
   today('Today'),
   unsorted('Unsorted'),
   projects('Projects'),
-  all('All tasks');
+  all('All tasks'),
+  completed('Completed');
 
   const _TaskView(this.label);
   final String label;
@@ -169,7 +173,10 @@ class _KnowledgePageState extends State<KnowledgePage> {
   Future<void> _search() async {
     if (_busy) return;
     final generation = ++_generation;
-    final onlyQuickTodos = _taskSection && _taskView != _TaskView.all;
+    final onlyQuickTodos =
+        _taskSection &&
+        _taskView != _TaskView.all &&
+        _taskView != _TaskView.completed;
     setState(() {
       _busy = true;
       _error = null;
@@ -183,6 +190,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
       final result = await _store.scan(
         _view,
         onlyQuickTodos: onlyQuickTodos,
+        completedTasks: _taskSection && _taskView == _TaskView.completed,
         cancelled: () =>
             !mounted || generation != _generation || _cancelRequested,
         onProgress: (done, total) {
@@ -252,52 +260,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
   }
 
   Future<void> _capture([String initial = '']) async {
-    final title = TextEditingController(),
-        text = TextEditingController(text: initial);
-    final value = await showDialog<(String, String)>(
-      context: context,
-      builder: (context) => AlertDialog(
-        scrollable: true,
-        title: const Text('Quick capture'),
-        content: SizedBox(
-          width: 500,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: title,
-                decoration: const InputDecoration(
-                  labelText: 'Title (optional)',
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: text,
-                minLines: 5,
-                maxLines: 14,
-                decoration: const InputDecoration(
-                  labelText: 'Text or Markdown',
-                  helperText: 'Saved to Inbox for later organization.',
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, (title.text, text.text)),
-            child: const Text('Capture'),
-          ),
-        ],
-      ),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 250));
-    title.dispose();
-    text.dispose();
+    final value = await showInboxCaptureDialog(context, initial: initial);
     if (value != null && mounted) {
       await _work(() async {
         final note = await _store.capture(value.$1, value.$2);
@@ -398,7 +361,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
   Future<void> _complete(KnowledgeTask task) async {
     await _work(() async {
       if (task.quickTodo != null) {
-        await _store.completeTask(task);
+        await _store.changeTaskStatus(task.quickTodo!, !task.quickTodo!.done);
         if (mounted) await widget.onQuickTodosChanged?.call();
         return;
       }
@@ -414,6 +377,25 @@ class _KnowledgePageState extends State<KnowledgePage> {
       }
     });
     if (_error == null && mounted) await _search();
+  }
+
+  Future<void> _timer(KnowledgeTask task, TodoTimerAction action) async {
+    await _work(() async {
+      if (task.quickTodo != null) {
+        await _store.changeTaskTimer(task.quickTodo!, action);
+        if (mounted) await widget.onQuickTodosChanged?.call();
+        return;
+      }
+      if (!await FileGateway.prepareClose()) {
+        throw const FormatException(
+          'Save open documents before changing a task.',
+        );
+      }
+      await (widget.onCompleteTask ?? _store.completeTask)(
+        task.withTimer(action),
+      );
+    });
+    if (mounted && _error == null) await _search();
   }
 
   Future<void> _quickTodo() async {
@@ -459,7 +441,11 @@ class _KnowledgePageState extends State<KnowledgePage> {
   }
 
   List<KnowledgeHit> _taskHits(KnowledgeScan scan, String today) {
-    if (!_taskSection || _taskView == _TaskView.all) return scan.hits;
+    if (!_taskSection ||
+        _taskView == _TaskView.all ||
+        _taskView == _TaskView.completed) {
+      return scan.hits;
+    }
     final catalog = widget.repository.catalog;
     final selected = catalog.folderName(_projectFilter) == null
         ? ''
@@ -477,7 +463,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
           final String due => due.compareTo(today) <= 0,
           null => false,
         },
-        _TaskView.all => true,
+        _TaskView.all || _TaskView.completed => true,
       };
     }).toList();
     if (_taskView == _TaskView.today) {
@@ -503,8 +489,11 @@ class _KnowledgePageState extends State<KnowledgePage> {
               ? null
               : (_) {
                   if (view == _taskView) return;
+                  final wasCompleted = _taskView == _TaskView.completed;
                   setState(() => _taskView = view);
-                  if (view == _TaskView.all && _scannedQuickTodosOnly) {
+                  if (wasCompleted ||
+                      view == _TaskView.completed ||
+                      (view == _TaskView.all && _scannedQuickTodosOnly)) {
                     unawaited(_search());
                   }
                 },
@@ -519,12 +508,19 @@ class _KnowledgePageState extends State<KnowledgePage> {
             : hit.anchor.startsWith('page=')
             ? ' · Page ${hit.anchor.substring(5)}'
             : ''}';
-    if (task?.canPlan != true) return source;
+    if (task?.canPlan != true) {
+      final completed = task?.todo?.completionTime;
+      return completed == null
+          ? source
+          : '$source · Completed · ${MaterialLocalizations.of(context).formatMediumDate(completed.toLocal())}';
+    }
     final project = widget.repository.catalog.folderName(hit.note.folderId);
     final due = task!.due;
     final details = [
       if (hit.note.title != hit.snippet) hit.note.title,
       ?project,
+      if (task.todo?.completionTime case final completed?)
+        'Completed · ${MaterialLocalizations.of(context).formatMediumDate(completed.toLocal())}',
       if (due != null)
         '${due.compareTo(today) < 0 ? 'Overdue' : 'Due'} · '
             '${MaterialLocalizations.of(context).formatMediumDate(DateTime.parse(due))}',
@@ -789,6 +785,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
                           'No open to-dos due today or overdue.',
                         _TaskView.projects => 'No open project to-dos.',
                         _TaskView.all => 'No matches.',
+                        _TaskView.completed => 'No completed tasks.',
                       }
                     : 'No matches.',
               ),
@@ -808,7 +805,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
               return ListTile(
                 leading: _view.openTasks && task != null
                     ? Checkbox(
-                        value: false,
+                        value: task.done,
                         onChanged: _busy ? null : (_) => _complete(task),
                       )
                     : Icon(
@@ -830,17 +827,32 @@ class _KnowledgePageState extends State<KnowledgePage> {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
-                trailing: _view.openTasks && task != null && task.canPlan
-                    ? IconButton(
-                        tooltip: 'Plan to-do',
-                        onPressed: _busy ? null : () => _planTodo(task),
-                        icon: const Icon(Icons.edit_calendar_outlined),
+                trailing: _view.openTasks && task != null
+                    ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (task.todo case final todo?)
+                            TodoTimer(
+                              todo: todo,
+                              onChanged: _busy
+                                  ? null
+                                  : (action) => _timer(task, action),
+                            ),
+                          if (task.canPlan && !task.done)
+                            IconButton(
+                              tooltip: 'Plan to-do',
+                              onPressed: _busy ? null : () => _planTodo(task),
+                              icon: const Icon(Icons.edit_calendar_outlined),
+                            ),
+                        ],
                       )
                     : null,
                 onTap: _busy
                     ? null
                     : task?.quickTodo != null
-                    ? () => _planTodo(task!)
+                    ? task!.quickTodo!.done
+                          ? null
+                          : () => _planTodo(task)
                     : () => _open(hit.note, hit.anchor),
               );
             },

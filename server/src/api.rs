@@ -45,7 +45,7 @@ impl BlobStore {
 }
 
 #[derive(Debug)]
-struct ApiError(StatusCode);
+pub(crate) struct ApiError(pub(crate) StatusCode);
 type ApiResult<T> = Result<T, ApiError>;
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
@@ -85,11 +85,14 @@ fn valid_id(s: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-struct Identity {
+pub(crate) struct Identity {
     account: String,
-    device: String,
+    pub(crate) device: String,
 }
-async fn authenticate(db: &DatabaseConnection, headers: &HeaderMap) -> ApiResult<Identity> {
+pub(crate) async fn authenticate(
+    db: &DatabaseConnection,
+    headers: &HeaderMap,
+) -> ApiResult<Identity> {
     let token = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
@@ -141,6 +144,11 @@ pub fn routes() -> Routes {
         .add("/blobs/{id}", put(upload).get(download))
         .add("/commits", post(commit))
         .add("/changes", get(changes))
+        .add("/live", post(crate::live::create))
+        .add(
+            "/live/{id}",
+            get(crate::live::connect).delete(crate::live::end),
+        )
 }
 
 async fn health(State(ctx): State<AppContext>) -> ApiResult<StatusCode> {

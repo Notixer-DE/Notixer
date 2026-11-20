@@ -35,6 +35,7 @@ impl Hooks for App {
     async fn after_context(ctx: AppContext) -> Result<AppContext> {
         let storage = crate::api::BlobStore::from_env().await?;
         ctx.shared_store.insert(storage);
+        ctx.shared_store.insert(crate::live::LiveRooms::default());
         Ok(ctx)
     }
 

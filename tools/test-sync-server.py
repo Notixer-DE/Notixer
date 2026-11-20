@@ -142,6 +142,15 @@ def main():
             request("GET", "/session", status=401)
             print("PASS: auth, isolation, integrity, quota-safe retry, concurrent cursors, pagination, persistence, revocation")
 
+            _, token_for_live = device(owner)
+            subprocess.run(
+                ["node", str(ROOT / "tools" / "test-live-canvas.cjs")],
+                cwd=ROOT,
+                env=dict(env, NOTIXER_LIVE_ORIGIN=f"http://{address}",
+                         NOTIXER_LIVE_HOST=token_for_live, NOTIXER_LIVE_OTHER=foreign),
+                check=True,
+            )
+
             flutter = os.environ.get("FLUTTER_BIN")
             if flutter:
                 live_owner = account()

@@ -75,6 +75,14 @@ notes.example.com {
 
 The browser keeps the credentials in the open tab. Enter them again after closing or reloading it. Keep a browser profile per vault and keep independent backups of the local library. For separate Web and API origins, the API reverse proxy must explicitly allow the Web origin on `/api/v1/*`, including `OPTIONS` preflight requests, `GET, PUT, POST`, and the `Authorization` and `Content-Type` headers. Use HTTPS for both origins.
 
+### Share a Live Canvas
+
+Install a server and Web build that include Live Canvas. Serve Notixer Web on the same HTTPS origin as the sync API using the reverse-proxy example above. The proxy must pass WebSocket upgrades on `/api/v1/live/*`. Caddy's `reverse_proxy` handles the upgrade automatically. Route creation and session termination through the same server instance as the WebSocket connections.
+
+On Android, connect the sync server, then open **Library actions → Live Canvas → Share live**. Copy the viewer link and open it in a browser. A session can have up to 12 viewers and expires after two hours. **Stop sharing** revokes the invitation and disconnects the viewers. Use **Save to library** to keep the drawing as a regular notebook.
+
+The link grants access to the drawing for that session. Share it with the intended viewers only. The server relays encrypted drawing messages and holds the session in memory. The saved notebook uses the ordinary Notixer library and sync.
+
 ### Revoke a lost device
 
 ```sh

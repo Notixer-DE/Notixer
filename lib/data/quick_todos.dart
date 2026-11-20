@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:path/path.dart' as p;
 
+enum TodoTimerAction { start, pause, stop }
+
 class QuickTodo {
   const QuickTodo({
     required this.id,
@@ -14,6 +16,10 @@ class QuickTodo {
     this.done = false,
     this.project,
     this.due,
+    this.completedAt,
+    this.timerStartedAt,
+    this.workMilliseconds = 0,
+    this.timerPaused = false,
   });
 
   final String id, text;
@@ -21,6 +27,22 @@ class QuickTodo {
   final bool done;
   // The collection stores a local folder ID. Sync serializes the folder name.
   final String? project, due;
+
+  final DateTime? completedAt, timerStartedAt;
+  final int workMilliseconds;
+  final bool timerPaused;
+
+  DateTime? get completionTime => done ? completedAt ?? modified : null;
+
+  Duration workTimeAt(DateTime now) {
+    final started = timerStartedAt;
+    final elapsed = started == null
+        ? 0
+        : now.difference(started).inMilliseconds;
+    return Duration(
+      milliseconds: workMilliseconds + (elapsed < 0 ? 0 : elapsed),
+    );
+  }
 
   QuickTodo withProject(String? project) => QuickTodo(
     id: id,
@@ -30,7 +52,45 @@ class QuickTodo {
     done: done,
     project: project,
     due: due,
+    completedAt: completedAt,
+    timerStartedAt: timerStartedAt,
+    workMilliseconds: workMilliseconds,
+    timerPaused: timerPaused,
   );
+
+  QuickTodo update(
+    DateTime now, {
+    String? text,
+    required String? project,
+    required String? due,
+    bool? done,
+    TodoTimerAction? timer,
+  }) {
+    final checked = done ?? this.done;
+    final stop = checked || timer == TodoTimerAction.stop;
+    final settle = stop || timer == TodoTimerAction.pause;
+    return QuickTodo(
+      id: id,
+      text: text ?? this.text,
+      created: created,
+      modified: now.isAfter(modified)
+          ? now
+          : modified.add(const Duration(microseconds: 1)),
+      done: checked,
+      project: project,
+      due: due,
+      completedAt: checked ? completionTime ?? now : null,
+      timerStartedAt: settle
+          ? null
+          : timerStartedAt ?? (timer == TodoTimerAction.start ? now : null),
+      workMilliseconds: settle
+          ? workTimeAt(now).inMilliseconds
+          : workMilliseconds,
+      timerPaused:
+          !stop &&
+          (timer == TodoTimerAction.pause || (timer == null && timerPaused)),
+    );
+  }
 
   Map<String, Object?> toJson() => {
     'text': text,
@@ -39,6 +99,12 @@ class QuickTodo {
     'done': done,
     'project': project,
     'due': due,
+    if (completedAt != null)
+      'completedAt': completedAt!.toUtc().toIso8601String(),
+    if (timerStartedAt != null)
+      'timerStartedAt': timerStartedAt!.toUtc().toIso8601String(),
+    if (workMilliseconds != 0) 'workMilliseconds': workMilliseconds,
+    if (timerPaused) 'timerPaused': true,
   };
 
   factory QuickTodo.fromJson(String id, Object? value) {
@@ -51,6 +117,12 @@ class QuickTodo {
     final done = value['done'];
     final project = value['project'];
     final due = value['due'];
+    final completed = DateTime.tryParse(value['completedAt']?.toString() ?? '');
+    final started = DateTime.tryParse(
+      value['timerStartedAt']?.toString() ?? '',
+    );
+    final work = value['workMilliseconds'] ?? 0;
+    final paused = value['timerPaused'] ?? false;
     if (text is! String ||
         text.trim().isEmpty ||
         text.contains(RegExp(r'[\r\n]')) ||
@@ -58,6 +130,13 @@ class QuickTodo {
         created == null ||
         modified == null ||
         done is! bool ||
+        (value['completedAt'] != null && (completed == null || !done)) ||
+        (value['timerStartedAt'] != null && (started == null || done)) ||
+        work is! int ||
+        work < 0 ||
+        work > 9007199254740991 ||
+        paused is! bool ||
+        (paused && (started != null || done)) ||
         (project != null &&
             (project is! String ||
                 project.trim().isEmpty ||
@@ -73,6 +152,10 @@ class QuickTodo {
       done: done,
       project: project as String?,
       due: due as String?,
+      completedAt: completed,
+      timerStartedAt: started,
+      workMilliseconds: work,
+      timerPaused: paused,
     );
   }
 
