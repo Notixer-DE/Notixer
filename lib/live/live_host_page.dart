@@ -185,7 +185,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
               _attempts = 0;
               _status = 'Live · $_viewers watching';
             });
-            _enqueue(_model.snapshot());
+            if (_viewers > 0) _enqueue(_model.snapshot());
           }
         },
         onError: (Object _) => _lost(session, socket),
@@ -199,6 +199,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
   void _lost(LiveChannel session, WebSocketChannel? socket) {
     if (!mounted || _session != session || _socket != socket) return;
     _socket = null;
+    _viewers = 0;
     _queue.clear();
     if (socket != null) unawaited(socket.sink.close());
     if (++_attempts > 12) {
@@ -216,7 +217,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
   void _enqueue(Map<String, Object> event) {
     final socket = _socket;
     final session = _session;
-    if (socket == null || session == null) return;
+    if (socket == null || session == null || _viewers == 0) return;
     if (_queue.length >= 128) {
       _queue.clear();
       _queue.add(_model.snapshot());

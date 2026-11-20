@@ -1,6 +1,10 @@
 use async_trait::async_trait;
 use axum::{
-    Router, extract::DefaultBodyLimit, http::StatusCode, middleware, response::IntoResponse,
+    Router,
+    extract::DefaultBodyLimit,
+    http::{Method, StatusCode, header},
+    middleware,
+    response::IntoResponse,
 };
 use loco_rs::{
     Result,
@@ -50,7 +54,26 @@ impl Hooks for App {
                         let Ok(_permit) = permits.try_acquire_owned() else {
                             return StatusCode::SERVICE_UNAVAILABLE.into_response();
                         };
-                        next.run(request).await
+                        let admin_api = request.uri().path().starts_with("/admin/api/");
+                        if admin_api
+                            && !matches!(
+                                *request.method(),
+                                Method::GET | Method::HEAD | Method::OPTIONS
+                            )
+                            && request
+                                .headers()
+                                .get("sec-fetch-site")
+                                .is_some_and(|site| site == "same-site" || site == "cross-site")
+                        {
+                            return StatusCode::FORBIDDEN.into_response();
+                        }
+                        let mut response = next.run(request).await;
+                        if admin_api {
+                            response
+                                .headers_mut()
+                                .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+                        }
+                        response
                     }
                 },
             )))

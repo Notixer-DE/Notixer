@@ -39,6 +39,13 @@ impl BlobStore {
         })
     }
 
+    pub(crate) async fn remove_account(&self, account: &str) -> std::io::Result<()> {
+        match fs::remove_dir_all(self.root.join(account)).await {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            result => result,
+        }
+    }
+
     fn path(&self, account: &str, id: &str) -> PathBuf {
         self.root.join(account).join(&id[..2]).join(id)
     }
@@ -79,7 +86,13 @@ fn text_array(values: &[String]) -> Value {
         Some(Box::new(values.iter().cloned().map(Value::from).collect())),
     )
 }
-fn valid_id(s: &str) -> bool {
+pub(crate) fn new_secret() -> String {
+    let mut random = [0u8; 32];
+    rand::rng().fill_bytes(&mut random);
+    hex::encode(random)
+}
+
+pub(crate) fn valid_id(s: &str) -> bool {
     s.len() == 64
         && s.bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
@@ -144,6 +157,7 @@ pub fn routes() -> Routes {
         .add("/blobs/{id}", put(upload).get(download))
         .add("/commits", post(commit))
         .add("/changes", get(changes))
+        .add("/pairing/redeem", post(crate::pairing::redeem))
         .add("/live", post(crate::live::create))
         .add(
             "/live/{id}",
@@ -263,7 +277,6 @@ async fn upload(
         .try_acquire()
         .map_err(|_| ApiError(StatusCode::TOO_MANY_REQUESTS))?;
     let path = store.path(&who.account, &id);
-    fs::create_dir_all(path.parent().unwrap()).await?;
     let tx = lock_account(&ctx.db, &who).await?;
     if tx
         .query_one_raw(stmt(
@@ -283,6 +296,7 @@ async fn upload(
     if available != 1 {
         return Err(ApiError(StatusCode::INSUFFICIENT_STORAGE));
     }
+    fs::create_dir_all(path.parent().unwrap()).await?;
     let tmp = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
     // Complete and fsync before making the block available to commits.
     let result = async {

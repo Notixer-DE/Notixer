@@ -1,5 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, TargetPlatform;
+import '../sync/device_pairing.dart';
+import 'device_pairing_scanner.dart';
 import '../data/keyboard_shortcuts.dart';
 import '../sync/sync_controller.dart';
 import '../sync/sync_crypto.dart';
@@ -22,6 +26,108 @@ class _SyncPageState extends State<SyncPage> {
   String? _noteId;
   String? _noteTitle;
   bool _validating = false;
+
+  Future<void> _scanPairing() async {
+    final sync = widget.controller;
+    if (sync.busy) return;
+    final pairing = await Navigator.of(context).push<DevicePairing>(
+      MaterialPageRoute(builder: (_) => const DevicePairingScanner()),
+    );
+    if (!mounted || pairing == null) return;
+    final form = GlobalKey<FormState>();
+    String key = pairing.recoveryKey ?? '';
+    final wantsKey = pairing.needsKey && key.isEmpty;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        scrollable: true,
+        title: const Text('Connect to this sync server?'),
+        content: Form(
+          key: form,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SelectableText(pairing.server.origin),
+              const SizedBox(height: 8),
+              Text(
+                sync.enabled
+                    ? 'This will replace the current connection. The next sync merges your local notes with the new account.'
+                    : 'The next sync merges your local notes with this account.',
+              ),
+              if (wantsKey)
+                TextFormField(
+                  decoration: const InputDecoration(labelText: 'Recovery key'),
+                  obscureText: true,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  onChanged: (value) => key = value.trim(),
+                  validator: (value) => (value?.trim().isEmpty ?? true)
+                      ? 'Enter the existing recovery key.'
+                      : null,
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (form.currentState?.validate() == true) {
+                Navigator.pop(context, true);
+              }
+            },
+            child: const Text('Pair device'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    final generated = key.isEmpty;
+    if (generated) key = await SyncCrypto.generateRecoveryKey();
+    if (!mounted) return;
+    await sync.pair(pairing, key);
+    if (!mounted) return;
+    final connected = sync.error == null;
+    if (connected) {
+      _server.text = sync.serverUrl;
+      _token.clear();
+      _key.clear();
+      setState(() => _allowHttp = false);
+    }
+    if (generated) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          scrollable: true,
+          title: const Text('Back up your recovery key'),
+          content: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                connected
+                    ? 'Keep this key somewhere safe. You can also find it later in Sync settings.'
+                    : 'Pairing did not finish. Save this key in case the server already registered it, then generate a new pairing code.',
+              ),
+
+              const SizedBox(height: 12),
+              SelectableText(key),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Done'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
 
   Future<void> _synchronize() async {
     final sync = widget.controller;
@@ -354,6 +460,15 @@ class _SyncPageState extends State<SyncPage> {
                       'Use the same recovery key on all devices belonging to the same account. '
                       'Only generate new keys for an empty account.',
                     ),
+                    if (defaultTargetPlatform == TargetPlatform.android) ...[
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: sync.busy ? null : _scanPairing,
+                        icon: const Icon(Icons.qr_code_scanner),
+                        label: const Text('Scan pairing QR code'),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
                     TextField(
                       controller: _server,
                       enabled: !sync.busy,
@@ -465,7 +580,7 @@ class _SyncPageState extends State<SyncPage> {
                     const SizedBox(height: 24),
                     const Text(
                       'Concurrent changes are preserved as conflict copies. '
-                      'Deletions are synced. Pen presets and empty folders stay local. '
+                      'Deletions, pen presets and empty folders are also synced. '
                       'Existing cloud copies are neither imported nor deleted. '
                       'Create local .noter backups before switching.',
                     ),

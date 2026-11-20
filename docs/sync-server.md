@@ -44,6 +44,15 @@ docker compose exec server noter-server admin add-device ACCOUNT_UUID
 
 `add-device` displays the device ID and a random 256-bit access token **once**. The server stores only its SHA-256 hash. Generate a separate token for each device and keep it secret.
 
+### Pair Android with a QR code
+
+1. In the admin dashboard at **/admin**, select an account and choose **Pair device by QR code**.
+2. Check that the displayed HTTPS address is reachable from your Android device. For an existing vault, you can paste its recovery key into the dashboard form. The browser includes the key in the QR image locally. The server never receives the recovery key itself. If you leave the field blank, the app asks for the existing key after scanning.
+3. In Notixer on Android, open **Self-hosted sync server → Scan pairing QR code**. Scan the code and confirm the server shown in the app.
+4. For a new vault, Notixer generates the recovery key. Back it up when the app displays it. Each successful scan creates a separate device token in the Android keychain.
+
+The code expires after five minutes and can be redeemed once. Generating a new code for the same account replaces the previous one. Treat the QR code as a secret, especially if it contains the recovery key. The dashboard also supports creating device tokens for manual setup.
+
 ### Connect a device
 
 1. Open **Self-hosted sync server** in Notixer and enter the server address without a path and the device access token.
@@ -59,7 +68,8 @@ Serve the extracted Notixer Web ZIP and the Sync API at the same HTTPS origin. K
 
 ```caddyfile
 notes.example.com {
-    handle /api/v1/* {
+    @notixer_backend path /api/v1/* /admin /admin/*
+    handle @notixer_backend {
         reverse_proxy 127.0.0.1:5150
     }
     handle {
@@ -82,6 +92,17 @@ Install a server and Web build that include Live Canvas. Serve Notixer Web on th
 On Android, connect the sync server, then open **Library actions → Live Canvas → Share live**. Copy the viewer link and open it in a browser. A session can have up to 12 viewers and expires after two hours. **Stop sharing** revokes the invitation and disconnects the viewers. Use **Save to library** to keep the drawing as a regular notebook.
 
 The link grants access to the drawing for that session. Share it with the intended viewers only. The server relays encrypted drawing messages and holds the session in memory. The saved notebook uses the ordinary Notixer library and sync.
+
+#### Verify Live Canvas latency
+
+The Docker integration check measures WebSocket relay latency from frame send to receive in one process. This measures the relay and does not include Android input, encryption before send, or browser rendering.
+
+To check the 150 ms end-to-end target from [issue #31](https://github.com/Notixer-DE/Notixer/issues/31):
+
+1. Open Live Canvas on an Android device and open its viewer link in Chromium. Put both displays in the same camera shot. Record at a known frame rate, preferably 120 fps or higher.
+2. On the same Wi-Fi network and with the relay reachable on the LAN, draw 30 short strokes. Keep the stylus down for at least half a second each time.
+3. For each stroke, count frames from visible stylus contact to the first ink visible in Chromium. Convert the count to milliseconds with `1000 × frames / fps`. Sort the 30 samples and record the 29th value as p95. The target is p95 ≤ 150 ms, with every stroke visible before pointer-up.
+4. Repeat with a remote relay and record its p95 separately. Record the phone model, Android and Chromium versions, network topology, relay location, and recording frame rate alongside the measurements.
 
 ### Revoke a lost device
 
@@ -114,6 +135,17 @@ The database dump and `noter_files` belong together. Keep them separate from the
 
 - Before updating, take a backup. Then run `docker compose up -d --build --wait`. Migrations run automatically; destructive rollbacks are disabled.
 - `docker compose down` preserves volumes. **`docker compose down -v` permanently deletes all server data.**
+
+## Admin frontend development
+
+The admin dashboard lives under `server/admin-ui`. It uses Vue single-file components and Vite. Docker builds and bundles the assets automatically. When building or testing the Rust server directly, build the dashboard first:
+
+```sh
+npm ci --prefix server/admin-ui
+npm run build --prefix server/admin-ui
+```
+
+Use `npm run dev --prefix server/admin-ui` for frontend development with the sync server running on port 5150. When using an HTTPS reverse proxy, forward `X-Forwarded-Proto: https` so the admin session cookie gets the `Secure` flag.
 
 ## Checks
 
