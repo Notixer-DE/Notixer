@@ -158,6 +158,12 @@ def main():
             redeem(next_invite["code"], 409, key="c" * 64)
             assert redeem(next_invite["code"], 200)
             redeem(next_invite["code"], 401)
+            with browser.open(f"http://{address}/admin/api/accounts", timeout=30) as response:
+                listed = {entry["id"]: entry for entry in json.load(response)}
+            assert listed[pairing_owner]["needs_key"] is True
+            assert "key_check" not in listed[pairing_owner]
+            assert len(listed[pairing_owner]["devices"]) == 2
+            assert listed[other]["needs_key"] is False
             expired_invite = create_pairing(pairing_owner)
             run("exec", "-T", "postgres", "psql", "-U", "noter", "-d", "noter", "-c",
                 "UPDATE pairing_codes SET expires_at = now() - interval '1 second'")

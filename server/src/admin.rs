@@ -331,7 +331,7 @@ async fn list_accounts(
                 a.quota_bytes,
                 a.revision_count,
                 a.max_revisions,
-                a.key_check,
+                a.key_check IS NOT NULL AS needs_key,
                 COALESCE(
                     json_agg(
                         json_build_object(
