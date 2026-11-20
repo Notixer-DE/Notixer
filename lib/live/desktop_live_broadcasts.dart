@@ -103,7 +103,6 @@ class _DesktopLiveBroadcastsState extends State<DesktopLiveBroadcasts> {
           builder: (_) => LiveViewerPage(
             join: () async => (
               channel: await LiveSessions(credentials).channel(id),
-              role: 'account-viewer',
               token: credentials.token,
             ),
           ),

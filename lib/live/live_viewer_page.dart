@@ -8,10 +8,8 @@ import 'live_canvas.dart';
 import 'live_channel.dart';
 
 class LiveViewerPage extends StatefulWidget {
-  const LiveViewerPage({super.key, required this.join, this.toggleFullscreen});
-  final Future<({LiveChannel channel, String role, String token})> Function()
-  join;
-  final Future<void> Function()? toggleFullscreen;
+  const LiveViewerPage({super.key, required this.join});
+  final Future<({LiveChannel channel, String token})> Function() join;
 
   @override
   State<LiveViewerPage> createState() => _LiveViewerPageState();
@@ -21,7 +19,7 @@ class _LiveViewerPageState extends State<LiveViewerPage> {
   final _model = LiveCanvasModel();
   WebSocketChannel? _socket;
   Timer? _retry;
-  late final ({LiveChannel channel, String role, String token}) _access;
+  late final ({LiveChannel channel, String token}) _access;
   bool _presentation = false;
   int? _sequence;
   bool _waitingForSnapshot = true;
@@ -46,7 +44,10 @@ class _LiveViewerPageState extends State<LiveViewerPage> {
 
   Future<void> _connect() async {
     try {
-      final socket = await _access.channel.join(_access.role, _access.token);
+      final socket = await _access.channel.join(
+        'account-viewer',
+        _access.token,
+      );
       if (!mounted || _finished) {
         await socket.sink.close();
         return;
@@ -69,11 +70,7 @@ class _LiveViewerPageState extends State<LiveViewerPage> {
                 _end('The host ended sharing.');
                 return;
               case 'denied':
-                _end(
-                  _access.role == 'account-viewer'
-                      ? 'This broadcast is unavailable for your device.'
-                      : 'This invitation is invalid or has expired.',
-                );
+                _end('This broadcast is unavailable for your device.');
                 return;
             }
             final event = await _access.channel.decode(message);
@@ -111,7 +108,7 @@ class _LiveViewerPageState extends State<LiveViewerPage> {
     if (socket != null) unawaited(socket.sink.close());
     _model.cancel(send: false);
     if (++_attempts > 12) {
-      _end('The Live Canvas is unavailable or the invitation has expired.');
+      _end('The Live Canvas broadcast is unavailable or has expired.');
       return;
     }
     setState(() => _status = 'Reconnecting…');
@@ -128,24 +125,7 @@ class _LiveViewerPageState extends State<LiveViewerPage> {
     if (mounted) setState(() => _status = status);
   }
 
-  Future<void> _fullscreen() async {
-    final fullscreen = widget.toggleFullscreen;
-    if (fullscreen == null) {
-      setState(() => _presentation = !_presentation);
-      return;
-    }
-    try {
-      await fullscreen();
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Full screen is unavailable in this browser.'),
-          ),
-        );
-      }
-    }
-  }
+  void _fullscreen() => setState(() => _presentation = !_presentation);
 
   @override
   void dispose() {
@@ -173,9 +153,7 @@ class _LiveViewerPageState extends State<LiveViewerPage> {
                 title: const Text('Live Canvas'),
                 actions: [
                   IconButton(
-                    tooltip: widget.toggleFullscreen == null
-                        ? 'Presentation mode'
-                        : 'Full screen',
+                    tooltip: 'Presentation mode',
                     icon: const Icon(Icons.fullscreen),
                     onPressed: _fullscreen,
                   ),

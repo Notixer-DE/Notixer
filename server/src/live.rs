@@ -13,7 +13,6 @@ use loco_rs::app::AppContext;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -48,8 +47,7 @@ impl Default for LiveRooms {
 
 struct Room {
     owner: String,
-    account: Option<String>,
-    invite: [u8; 32],
+    account: String,
     expires: Instant,
     publisher: watch::Sender<Option<Uuid>>,
     viewers: watch::Sender<usize>,
@@ -74,15 +72,9 @@ fn active(room: &Room) -> bool {
 }
 
 #[derive(Serialize, ToSchema)]
-pub(crate) struct LiveInvitation {
+pub(crate) struct LiveBroadcast {
     id: String,
-    invite: String,
-    account_viewers: bool,
-}
-
-#[derive(Deserialize, ToSchema)]
-pub(crate) struct LiveSessionOptions {
-    account_viewers: bool,
+    account_only: bool,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -111,7 +103,7 @@ pub(crate) async fn list(
     let sessions = rooms
         .iter()
         .filter(|(_, room)| {
-            room.account.as_ref() == Some(&who.account)
+            room.account == who.account
                 && room.owner != who.device
                 && active(room)
                 && room.publisher.borrow().is_some()
@@ -128,28 +120,23 @@ pub(crate) async fn list(
     post, path = "/api/v1/live", tag = "Live Canvas",
     summary = "Create a Live Canvas session",
     operation_id = "createLiveSession", security(("device_token" = [])),
-    request_body = Option<LiveSessionOptions>,
-    responses((status = 200, body = LiveInvitation), (status = 401, body = crate::openapi::ErrorBody), (status = 429, description = "Session limit reached", body = crate::openapi::ErrorBody))
+    responses((status = 200, body = LiveBroadcast), (status = 401, body = crate::openapi::ErrorBody), (status = 429, description = "Session limit reached", body = crate::openapi::ErrorBody))
 )]
 pub(crate) async fn create(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
-    options: Option<Json<LiveSessionOptions>>,
 ) -> Result<impl axum::response::IntoResponse, ApiError> {
     let who = authenticate(&ctx.db, &headers).await?;
     let owner = who.device;
-    let account_viewers = options.is_some_and(|options| options.account_viewers);
     let store = store(&ctx)?;
     let mut rooms = store.rooms.lock().await;
     if rooms.len() >= 32 || rooms.values().filter(|room| room.owner == owner).count() >= 2 {
         return Err(ApiError(StatusCode::TOO_MANY_REQUESTS));
     }
     let id = random_id();
-    let invite = random_id();
     let room = Arc::new(Room {
         owner,
-        account: account_viewers.then_some(who.account),
-        invite: Sha256::digest(invite.as_bytes()).into(),
+        account: who.account,
         expires: Instant::now() + SESSION_AGE,
         publisher: watch::channel(None).0,
         viewers: watch::channel(0).0,
@@ -167,10 +154,9 @@ pub(crate) async fn create(
     });
     Ok((
         private_headers(),
-        Json(LiveInvitation {
+        Json(LiveBroadcast {
             id,
-            invite,
-            account_viewers,
+            account_only: true,
         }),
     ))
 }
@@ -203,14 +189,18 @@ pub(crate) async fn end(
     get, path = "/api/v1/live/{id}", tag = "Live Canvas",
     summary = "Upgrade to a Live Canvas WebSocket",
     params(("id" = String, Path, description = "Live Canvas session ID")),
-    description = "After upgrading, send a JSON message with role and token. The host and account-viewer roles use device tokens. The viewer role uses the session invitation. Drawing frames are encrypted binary messages.",
-    responses((status = 101, description = "WebSocket upgrade"), (status = 400, description = "Invalid WebSocket handshake"), (status = 404, body = crate::openapi::ErrorBody), (status = 503, description = "Relay unavailable"))
+    description = "After upgrading, send a JSON message with role and token. The host and account-viewer roles use device tokens. Viewers must be another device on the host account. Browser WebSocket requests are rejected. Drawing frames are encrypted binary messages.",
+    responses((status = 101, description = "WebSocket upgrade"), (status = 400, description = "Invalid WebSocket handshake"), (status = 403, description = "Browser connection rejected", body = crate::openapi::ErrorBody), (status = 404, body = crate::openapi::ErrorBody), (status = 503, description = "Relay unavailable"))
 )]
 pub(crate) async fn connect(
     State(ctx): State<AppContext>,
     Path(id): Path<String>,
+    headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Result<Response, ApiError> {
+    if headers.contains_key(header::ORIGIN) {
+        return Err(ApiError(StatusCode::FORBIDDEN));
+    }
     let store = store(&ctx)?;
     let permit = store
         .sockets
@@ -255,12 +245,6 @@ async fn serve(mut socket: WebSocket, ctx: AppContext, room: Arc<Room>) {
         return;
     }
     let authorized = match join.role.as_str() {
-        "viewer" => {
-            join.token.len() == 64 && {
-                let hash: [u8; 32] = Sha256::digest(join.token.as_bytes()).into();
-                hash == room.invite
-            }
-        }
         "host" | "account-viewer" => {
             let mut headers = HeaderMap::new();
             if let Ok(token) = HeaderValue::from_str(&format!("Bearer {}", join.token)) {
@@ -273,7 +257,7 @@ async fn serve(mut socket: WebSocket, ctx: AppContext, room: Arc<Room>) {
                         if join.role == "host" {
                             who.device == room.owner
                         } else {
-                            room.account.as_ref() == Some(&who.account) && who.device != room.owner
+                            room.account == who.account && who.device != room.owner
                         }
                     })
                 })

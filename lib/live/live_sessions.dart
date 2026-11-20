@@ -11,12 +11,8 @@ class LiveSessions {
 
   final LiveCredentials credentials;
 
-  Future<({LiveChannel channel, Uri invitation})> start() async {
-    final response = await _request(
-      'POST',
-      '/api/v1/live',
-      data: {'account_viewers': true},
-    );
+  Future<LiveChannel> start() async {
+    final response = await _request('POST', '/api/v1/live');
     if (response.statusCode != 200) {
       throw FormatException(switch (response.statusCode) {
         401 || 403 =>
@@ -33,21 +29,12 @@ class LiveSessions {
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     final id = _roomId(body['id']);
     try {
-      if (body['account_viewers'] != true) {
+      if (body['account_only'] != true) {
         throw const FormatException(
-          'Update the sync server to share with desktop devices.',
+          'Update the sync server to share privately with other apps.',
         );
       }
-      final invite = _roomId(body['invite']);
-      final key = credentials.crypto.liveRoomKey(id);
-      return (
-        channel: await channel(id),
-        invitation: credentials.server.replace(
-          path: '/',
-          fragment:
-              'live?${Uri(queryParameters: {'room': id, 'invite': invite, 'key': key}).query}',
-        ),
-      );
+      return await channel(id);
     } catch (_) {
       await end(id).catchError((Object _) {});
       rethrow;
@@ -89,20 +76,12 @@ class LiveSessions {
     }
   }
 
-  Future<http.Response> _request(
-    String method,
-    String path, {
-    Map<String, Object>? data,
-  }) async {
+  Future<http.Response> _request(String method, String path) async {
     final client = http.Client();
     try {
       final request = http.Request(method, credentials.server.resolve(path))
         ..followRedirects = false
         ..headers['Authorization'] = 'Bearer ${credentials.token}';
-      if (data != null) {
-        request.headers['Content-Type'] = 'application/json';
-        request.body = jsonEncode(data);
-      }
       return await (() async => http.Response.fromStream(
         await client.send(request),
       ))().timeout(const Duration(seconds: 8));

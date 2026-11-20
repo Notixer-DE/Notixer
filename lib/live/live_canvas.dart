@@ -1,11 +1,16 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:dart_pdf_editor/dart_pdf_editor.dart' show PdfPageGeometry;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart' show PdfPageFormat;
 import 'package:pdf_document/pdf_document.dart' show PdfRect;
 
 import '../data/ink.dart';
+import '../editor/ink_gestures.dart';
+import '../editor/operations.dart' show strokeHitsPolygon;
+import '../input/stylus_eraser.dart';
 import '../ui/ink_layer.dart';
 
 class LiveCanvasModel {
@@ -64,11 +69,9 @@ class LiveCanvasModel {
   void finish() {
     if (!live.active) return;
     flush();
-    ink.onEdit = _record;
     try {
-      live.finish();
+      _recordEdits(live.finish);
     } finally {
-      ink.onEdit = null;
       _points.clear();
       onEvent?.call({'type': 'cancel'});
     }
@@ -93,6 +96,57 @@ class LiveCanvasModel {
     ink.apply(edit);
     _record(edit);
   }
+
+  void _recordEdits(VoidCallback edit) {
+    ink.onEdit = _record;
+    try {
+      edit();
+    } finally {
+      ink.onEdit = null;
+    }
+  }
+
+  Rect? get selectionBounds {
+    Rect? bounds;
+    for (final id in ink.selected) {
+      final stroke = ink.index[id];
+      if (stroke != null) {
+        bounds = bounds?.expandToInclude(stroke.bounds) ?? stroke.bounds;
+      }
+    }
+    return bounds;
+  }
+
+  void selectWithLasso(List<Offset> polygon) {
+    if (polygon.length < 3) {
+      ink.select([]);
+      return;
+    }
+    final bounds = polygon.fold(
+      Rect.fromCircle(center: polygon.first, radius: .01),
+      (rect, point) =>
+          rect.expandToInclude(Rect.fromCircle(center: point, radius: .01)),
+    );
+    final groups = ink.index
+        .query(page, bounds)
+        .where((stroke) {
+          return strokeHitsPolygon([
+            for (var i = 0; i < stroke.points.length; i += 3)
+              (stroke.points[i], stroke.points[i + 1]),
+          ], polygon);
+        })
+        .map((stroke) => stroke.group)
+        .toSet();
+    ink.select([
+      for (final group in groups)
+        for (final stroke in ink.index.group(group)) stroke.id,
+    ]);
+  }
+
+  void finishMove(InkMoveGesture gesture, {required bool cancel}) =>
+      _recordEdits(() => gesture.finish(cancel: cancel));
+
+  void deleteSelection() => _recordEdits(ink.deleteSelection);
 
   void undo() {
     if (!canUndo || live.active) return;
@@ -226,58 +280,372 @@ extension on InkStroke {
   }
 }
 
-class LiveCanvasSurface extends StatelessWidget {
-  const LiveCanvasSurface({super.key, required this.model, this.input});
+class LiveCanvasSurface extends StatefulWidget {
+  const LiveCanvasSurface({
+    super.key,
+    required this.model,
+    this.input,
+    this.fingerDrawing = false,
+    this.lasso = const [],
+    this.selection,
+  });
   final LiveCanvasModel model;
   final void Function(PointerEvent, Offset)? input;
+  final bool fingerDrawing;
+  final List<Offset> lasso;
+  final Rect? selection;
 
   @override
-  Widget build(BuildContext context) {
-    final paper = PdfPageFormat.a4;
-    return ColoredBox(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Center(
-        child: AspectRatio(
-          aspectRatio: paper.width / paper.height,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final geometry = PdfPageGeometry(
-                cropBox: PdfRect(0, 0, paper.width, paper.height),
-                rotation: 0,
-                viewSize: constraints.biggest,
-              );
-              void event(PointerEvent event) {
-                final position = event.localPosition / geometry.scale;
-                input?.call(
-                  event,
-                  Offset(position.dx, paper.height - position.dy),
-                );
-              }
+  State<LiveCanvasSurface> createState() => _LiveCanvasSurfaceState();
+}
 
-              return Listener(
-                behavior: HitTestBehavior.opaque,
-                onPointerDown: event,
-                onPointerMove: event,
-                onPointerUp: event,
-                onPointerCancel: event,
-                child: ColoredBox(
-                  color: Colors.white,
-                  child: ClipRect(
-                    child: InkLayer(
-                      controller: model.ink,
-                      page: LiveCanvasModel.page,
-                      geometry: geometry,
-                      visible: const Rect.fromLTWH(0, 0, 1, 1),
-                      cache: model.cache,
-                      live: model.live,
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ),
-    );
+class _LiveCanvasSurfaceState extends State<LiveCanvasSurface> {
+  static const _maximumZoom = 6.0;
+  static const _paper = PdfPageFormat.a4;
+  final _touches = <int, Offset>{};
+  double _zoom = 1, _trackpadScale = 1;
+  Offset _offset = Offset.zero;
+  int? _inkPointer, _mousePanPointer;
+  PointerDownEvent? _pendingTouch;
+  bool _fingerInk = false, _touchNavigation = false;
+
+  Rect _pageRect(Rect fit, Size viewport) {
+    final size = fit.size * _zoom;
+    double edge(double desired, double space, double extent) => extent < space
+        ? (space - extent) / 2
+        : desired.clamp(space - extent, 0.0);
+    return Offset(
+          edge(fit.left + _offset.dx, viewport.width, size.width),
+          edge(fit.top + _offset.dy, viewport.height, size.height),
+        ) &
+        size;
   }
+
+  void _transform(
+    Rect fit,
+    Size viewport,
+    Offset before,
+    Offset after,
+    double factor,
+  ) {
+    final rect = _pageRect(fit, viewport);
+    final zoom = (_zoom * factor).clamp(1.0, _maximumZoom);
+    if (zoom == _zoom && before == after) return;
+    final origin = after - (before - rect.topLeft) * (zoom / _zoom);
+    setState(() {
+      _zoom = zoom;
+      _offset = origin - fit.topLeft;
+      _offset = _pageRect(fit, viewport).topLeft - fit.topLeft;
+    });
+  }
+
+  void _deliver(PointerEvent event, Rect page) {
+    final x = (event.localPosition.dx - page.left) / page.width * _paper.width;
+    final y =
+        (page.bottom - event.localPosition.dy) / page.height * _paper.height;
+    widget.input?.call(event, Offset(x, y));
+  }
+
+  void _cancelFinger(Rect page) {
+    if (!_fingerInk) return;
+    final pointer = _inkPointer;
+    if (_pendingTouch == null && pointer != null) {
+      _deliver(PointerCancelEvent(pointer: pointer), page);
+    }
+    _inkPointer = null;
+    _pendingTouch = null;
+    _fingerInk = false;
+  }
+
+  (Offset, double) _touchFocus() {
+    final points = _touches.values.take(2).toList();
+    if (points.length == 1) return (points.first, 0);
+    return ((points[0] + points[1]) / 2, (points[0] - points[1]).distance);
+  }
+
+  void _pointer(PointerEvent event, Rect fit, Size viewport) {
+    final page = _pageRect(fit, viewport);
+    final touch = event.kind == PointerDeviceKind.touch;
+    final position = event.localPosition;
+    if (event is PointerDownEvent) {
+      if (touch) {
+        if (NoterBinding.stylusContactActive ||
+            (_inkPointer != null && !_fingerInk)) {
+          return;
+        }
+        _touches[event.pointer] = position;
+        if (_touches.length > 1 ||
+            _touchNavigation ||
+            !widget.fingerDrawing ||
+            widget.input == null) {
+          _cancelFinger(page);
+          _touchNavigation = true;
+          return;
+        }
+        if (!page.contains(position)) return;
+        _inkPointer = event.pointer;
+        _fingerInk = true;
+        _pendingTouch = event;
+        return;
+      }
+      if (_inkPointer != null) {
+        if (!_fingerInk || event.kind == PointerDeviceKind.mouse) return;
+        _cancelFinger(page);
+        _touchNavigation = _touches.isNotEmpty;
+      }
+      if (event.kind == PointerDeviceKind.mouse &&
+          (widget.input == null || event.buttons != kPrimaryMouseButton)) {
+        _mousePanPointer = event.pointer;
+        return;
+      }
+      if (!page.contains(position) || widget.input == null) return;
+      _inkPointer = event.pointer;
+      _deliver(event, page);
+      return;
+    }
+
+    if (event is PointerMoveEvent) {
+      if (touch && _touches.containsKey(event.pointer)) {
+        final (before, distance) = _touchFocus();
+        _touches[event.pointer] = position;
+        if (_touchNavigation &&
+            _inkPointer == null &&
+            !NoterBinding.stylusContactActive) {
+          final (after, nextDistance) = _touchFocus();
+          _transform(
+            fit,
+            viewport,
+            before,
+            after,
+            distance > 1 ? nextDistance / distance : 1,
+          );
+          return;
+        }
+      }
+      if (_mousePanPointer == event.pointer && _inkPointer == null) {
+        _transform(fit, viewport, position - event.localDelta, position, 1);
+        return;
+      }
+      if (_inkPointer != event.pointer) return;
+      final pending = _pendingTouch;
+      if (pending != null) {
+        if ((position - pending.localPosition).distance < 6) return;
+        _pendingTouch = null;
+        _deliver(pending, page);
+      }
+      _deliver(event, page);
+      return;
+    }
+
+    if (event is PointerUpEvent || event is PointerCancelEvent) {
+      if (_mousePanPointer == event.pointer) _mousePanPointer = null;
+      if (touch) {
+        _touches.remove(event.pointer);
+        if (_touches.isEmpty) _touchNavigation = false;
+      }
+      if (_inkPointer != event.pointer) return;
+      final pending = _pendingTouch;
+      _inkPointer = null;
+      _pendingTouch = null;
+      _fingerInk = false;
+      if (pending != null) {
+        if (event is PointerCancelEvent) return;
+        _deliver(pending, page);
+      }
+      _deliver(event, page);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final viewport = constraints.biggest;
+      if (viewport.isEmpty) return const SizedBox.shrink();
+      final scale = math.min(
+        viewport.width / _paper.width,
+        viewport.height / _paper.height,
+      );
+      final fit = Rect.fromCenter(
+        center: viewport.center(Offset.zero),
+        width: _paper.width * scale,
+        height: _paper.height * scale,
+      );
+      final page = _pageRect(fit, viewport);
+      final visible = page.intersect(Offset.zero & viewport);
+      final geometry = PdfPageGeometry(
+        cropBox: PdfRect(0, 0, _paper.width, _paper.height),
+        rotation: 0,
+        viewSize: page.size,
+      );
+      final center = viewport.center(Offset.zero);
+      void pointer(PointerEvent event) => _pointer(event, fit, viewport);
+      return ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Listener(
+                behavior: HitTestBehavior.opaque,
+                onPointerDown: pointer,
+                onPointerMove: pointer,
+                onPointerUp: pointer,
+                onPointerCancel: pointer,
+                onPointerSignal: (event) {
+                  if (event is PointerScrollEvent && _inkPointer == null) {
+                    _transform(
+                      fit,
+                      viewport,
+                      event.localPosition,
+                      event.localPosition,
+                      math.pow(1.002, -event.scrollDelta.dy).toDouble(),
+                    );
+                  }
+                },
+                onPointerPanZoomStart: (_) => _trackpadScale = 1,
+                onPointerPanZoomUpdate: (event) {
+                  if (_inkPointer != null) return;
+                  final focus = event.localPosition + event.localPan;
+                  _transform(
+                    fit,
+                    viewport,
+                    focus - event.localPanDelta,
+                    focus,
+                    event.scale / _trackpadScale,
+                  );
+                  _trackpadScale = event.scale;
+                },
+                child: Stack(
+                  children: [
+                    Positioned.fromRect(
+                      rect: page,
+                      child: ColoredBox(
+                        color: Colors.white,
+                        child: ClipRect(
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              InkLayer(
+                                controller: widget.model.ink,
+                                page: LiveCanvasModel.page,
+                                geometry: geometry,
+                                visible: Rect.fromLTRB(
+                                  (visible.left - page.left) / page.width,
+                                  (visible.top - page.top) / page.height,
+                                  (visible.right - page.left) / page.width,
+                                  (visible.bottom - page.top) / page.height,
+                                ),
+                                continuous: true,
+                                cache: widget.model.cache,
+                                live: widget.model.live,
+                              ),
+                              if (widget.lasso.isNotEmpty ||
+                                  widget.selection != null)
+                                IgnorePointer(
+                                  child: CustomPaint(
+                                    painter: _LassoPainter(
+                                      geometry,
+                                      widget.lasso,
+                                      widget.selection,
+                                      Theme.of(context).colorScheme.primary,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Positioned(
+              right: 8,
+              bottom: 8,
+              child: Material(
+                color: Theme.of(context).colorScheme.surface,
+                shape: const StadiumBorder(),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Zoom out',
+                      onPressed: _zoom <= 1 || _inkPointer != null
+                          ? null
+                          : () => _transform(
+                              fit,
+                              viewport,
+                              center,
+                              center,
+                              1 / 1.4,
+                            ),
+                      icon: const Icon(Icons.remove),
+                    ),
+                    IconButton(
+                      tooltip: 'Fit page',
+                      onPressed: _zoom == 1 || _inkPointer != null
+                          ? null
+                          : () => _transform(
+                              fit,
+                              viewport,
+                              center,
+                              center,
+                              1 / _zoom,
+                            ),
+                      icon: const Icon(Icons.fit_screen_outlined),
+                    ),
+                    IconButton(
+                      tooltip: 'Zoom in',
+                      onPressed: _zoom >= _maximumZoom || _inkPointer != null
+                          ? null
+                          : () =>
+                                _transform(fit, viewport, center, center, 1.4),
+                      icon: const Icon(Icons.add),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class _LassoPainter extends CustomPainter {
+  const _LassoPainter(this.geometry, this.points, this.selection, this.color);
+  final PdfPageGeometry geometry;
+  final List<Offset> points;
+  final Rect? selection;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final outline = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    if (selection case final bounds?) {
+      final rect = geometry.toViewRect(
+        PdfRect(bounds.left, bounds.top, bounds.right, bounds.bottom),
+      );
+      canvas.drawRect(rect.inflate(2), outline);
+    }
+    if (points.length > 1) {
+      final path = Path()
+        ..addPolygon([
+          for (final point in points) geometry.toViewOffset(point.dx, point.dy),
+        ], true);
+      canvas.drawPath(path, Paint()..color = color.withValues(alpha: .1));
+      canvas.drawPath(path, outline);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_LassoPainter old) =>
+      old.points != points ||
+      old.selection != selection ||
+      old.geometry != geometry ||
+      old.color != color;
 }

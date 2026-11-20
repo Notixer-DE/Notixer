@@ -90,8 +90,7 @@ void main() {
         token: Platform.environment['NOTER_TEST_TOKEN_B']!,
         crypto: await SyncCrypto.create(key, account),
       ));
-      final result = await host.start();
-      final channel = result.channel;
+      final channel = await host.start();
       addTearDown(
         () => HttpOverrides.runWithHttpOverrides(
           () => host.end(channel.id),
