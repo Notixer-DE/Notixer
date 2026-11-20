@@ -53,7 +53,7 @@ async function main() {
   const {id, invite} = await result.json();
   const path = '/api/v1/live/' + id;
   assert.equal((await request('DELETE', path, otherToken)).status, 404);
-  const host = socketFor(path, 'host', hostToken);
+  let host = socketFor(path, 'host', hostToken);
   assert.deepEqual(JSON.parse(await host.next()), {viewers: 0});
   assert.equal(await socketFor(path, 'host', otherToken).next(), 'denied');
   assert.equal(await socketFor(path, 'viewer', '0'.repeat(64)).next(), 'denied');
@@ -73,6 +73,15 @@ async function main() {
   assert.deepEqual(JSON.parse(await host.next()), {viewers: 1});
   host.socket.send(frame);
   assert.deepEqual(new Uint8Array(await reconnected.next()), frame);
+
+  // A host can resume immediately even while its old connection still exists.
+  const previous = host;
+  host = socketFor(path, 'host', hostToken);
+  assert.deepEqual(JSON.parse(await host.next()), {viewers: 1});
+  assert.equal(await previous.next(), null);
+  host.socket.send(frame);
+  assert.deepEqual(new Uint8Array(await reconnected.next()), frame);
+
   assert.equal((await request('DELETE', path, hostToken)).status, 204);
   assert.equal(await reconnected.next(), 'ended');
   assert.equal(await host.next(), 'ended');

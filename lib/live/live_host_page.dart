@@ -37,10 +37,11 @@ class _LiveHostPageState extends State<LiveHostPage> {
   Uri? _invite;
   String? _token, _error;
   String _status = 'Drawing locally';
-  int _sequence = 0, _viewers = 0;
+  int _sequence = 0, _viewers = 0, _attempts = 0;
   int? _pointer;
   bool _sending = false, _busy = false, _leaving = false;
   int? _savedSequence;
+  Notebook? _savedNote;
   _CanvasTool _tool = _CanvasTool.pen;
 
   @override
@@ -150,6 +151,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
     _session = session;
     _token = credentials.token;
     _sequence = 0;
+    _attempts = 0;
     _invite = server.replace(
       path: '/',
       fragment:
@@ -180,6 +182,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
           if (control is Map && control['viewers'] is int) {
             setState(() {
               _viewers = control['viewers'] as int;
+              _attempts = 0;
               _status = 'Live · $_viewers watching';
             });
             _enqueue(_model.snapshot());
@@ -198,6 +201,10 @@ class _LiveHostPageState extends State<LiveHostPage> {
     _socket = null;
     _queue.clear();
     if (socket != null) unawaited(socket.sink.close());
+    if (++_attempts > 12) {
+      _clear('Sharing disconnected · Drawing locally');
+      return;
+    }
     setState(() => _status = 'Reconnecting…');
     _retry?.cancel();
     _retry = Timer(const Duration(seconds: 2), () {
@@ -298,14 +305,15 @@ class _LiveHostPageState extends State<LiveHostPage> {
     final bytes = await createPaper('blank');
     final pdf = PdfDocument.open(bytes);
     final revision = _model.ink.sequence;
-    await widget.repository.saveWithInk(
-      Notebook(
-        id: LocalNotebookRepository.newId(),
-        title: 'Live Canvas · $date',
-        paper: 'blank',
-        created: now,
-        modified: now,
-      ),
+    _savedNote = await widget.repository.saveWithInk(
+      _savedNote ??
+          Notebook(
+            id: LocalNotebookRepository.newId(),
+            title: 'Live Canvas · $date',
+            paper: 'blank',
+            created: now,
+            modified: now,
+          ),
       bytes,
       _model.documentForPage(inkPageId(pdf, 0)),
     );

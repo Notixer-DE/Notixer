@@ -16,16 +16,14 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Arc,
     time::{Duration, Instant},
 };
 use tokio::{
     sync::{Mutex, Semaphore, broadcast, watch},
     time::{interval, timeout},
 };
+use uuid::Uuid;
 
 const SESSION_AGE: Duration = Duration::from_secs(2 * 60 * 60);
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
@@ -51,7 +49,7 @@ struct Room {
     owner: String,
     invite: [u8; 32],
     expires: Instant,
-    connected: AtomicBool,
+    publisher: watch::Sender<Option<Uuid>>,
     viewers: watch::Sender<usize>,
     ended: watch::Sender<bool>,
     frames: broadcast::Sender<Bytes>,
@@ -81,7 +79,7 @@ pub(crate) async fn create(
     let store = store(&ctx)?;
     let mut rooms = store.rooms.lock().await;
     rooms.retain(|_, room| active(room));
-    if rooms.len() >= 128 || rooms.values().filter(|room| room.owner == owner).count() >= 2 {
+    if rooms.len() >= 32 || rooms.values().filter(|room| room.owner == owner).count() >= 2 {
         return Err(ApiError(StatusCode::TOO_MANY_REQUESTS));
     }
     let id = random_id();
@@ -90,10 +88,10 @@ pub(crate) async fn create(
         owner,
         invite: Sha256::digest(invite.as_bytes()).into(),
         expires: Instant::now() + SESSION_AGE,
-        connected: AtomicBool::new(false),
+        publisher: watch::channel(None).0,
         viewers: watch::channel(0).0,
         ended: watch::channel(false).0,
-        frames: broadcast::channel(32).0,
+        frames: broadcast::channel(8).0,
     });
     rooms.insert(id.clone(), Arc::clone(&room));
     let registry = Arc::clone(&store.rooms);
@@ -183,10 +181,17 @@ async fn serve(mut socket: WebSocket, ctx: AppContext, room: Arc<Room>) {
             .await
             .is_ok_and(|result| result.is_ok_and(|identity| identity.device == room.owner))
             && active(&room)
-            && !room.connected.swap(true, Ordering::AcqRel)
         {
-            host(&mut socket, &room).await;
-            room.connected.store(false, Ordering::Release);
+            let owner = Uuid::new_v4();
+            room.publisher.send_replace(Some(owner));
+            host(&mut socket, &room, owner).await;
+            room.publisher.send_if_modified(|current| {
+                if *current != Some(owner) {
+                    return false;
+                }
+                *current = None;
+                true
+            });
             return;
         }
     } else if admitted && join.role == "viewer" && join.token.len() == 64 {
@@ -209,11 +214,15 @@ async fn serve(mut socket: WebSocket, ctx: AppContext, room: Arc<Room>) {
     send(&mut socket, Message::Text("denied".into())).await;
 }
 
-async fn host(socket: &mut WebSocket, room: &Room) {
+async fn host(socket: &mut WebSocket, room: &Room, owner: Uuid) {
+    let mut publisher = room.publisher.subscribe();
     let mut ended = room.ended.subscribe();
     let mut viewers = room.viewers.subscribe();
     let mut heartbeat = interval(Duration::from_secs(20));
     loop {
+        if *publisher.borrow_and_update() != Some(owner) {
+            return;
+        }
         if *ended.borrow() {
             send(socket, Message::Text("ended".into())).await;
             return;
@@ -231,11 +240,13 @@ async fn host(socket: &mut WebSocket, room: &Room) {
             tokio::select! {
                 _ = ended.changed() => break,
                 _ = viewers.changed() => break,
+                _ = publisher.changed() => break,
                 _ = heartbeat.tick() => {
                     if !send(socket, Message::Ping(Bytes::new())).await { return; }
                 }
                 input = socket.recv() => match input {
-                    Some(Ok(Message::Binary(frame))) if !frame.is_empty() => {
+                    Some(Ok(Message::Binary(frame)))
+                        if !frame.is_empty() && *publisher.borrow() == Some(owner) => {
                         let _ = room.frames.send(frame);
                     }
                     Some(Ok(Message::Pong(_) | Message::Ping(_))) => {}
@@ -248,6 +259,7 @@ async fn host(socket: &mut WebSocket, room: &Room) {
 
 async fn viewer(socket: &mut WebSocket, room: &Room, mut events: broadcast::Receiver<Bytes>) {
     let mut ended = room.ended.subscribe();
+    let mut publisher = room.publisher.subscribe();
     let mut heartbeat = interval(Duration::from_secs(20));
     if !send(socket, Message::Text("joined".into())).await {
         return;
@@ -259,6 +271,12 @@ async fn viewer(socket: &mut WebSocket, room: &Room, mut events: broadcast::Rece
         }
         tokio::select! {
             _ = ended.changed() => {},
+            _ = publisher.changed() => {
+                let offline = publisher.borrow_and_update().is_none();
+                if offline && !send(socket, Message::Text("host-offline".into())).await {
+                    return;
+                }
+            }
             _ = heartbeat.tick() => {
                 if !send(socket, Message::Ping(Bytes::new())).await { return; }
             }
