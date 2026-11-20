@@ -193,6 +193,11 @@ void main() {
       final restored = await repository.restore(
         (await repository.recovery()).single,
       );
+      await expectLater(
+        repository.purgeTrashItems([note.id, '../escape']),
+        throwsFormatException,
+      );
+      expect((await repository.recovery()).single.note.id, note.id);
       await repository.purgeTrash(note.id);
       expect(await repository.recovery(), isEmpty);
       expect(await repository.recovery(id: note.id), isEmpty);
