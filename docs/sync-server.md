@@ -53,6 +53,28 @@ docker compose exec server noter-server admin add-device ACCOUNT_UUID
 
 Tokens and keys are stored in the system keychain (Android Keystore, Linux Secret Service, or Windows secure storage).
 
+### Connect Notixer Web
+
+Serve the extracted Notixer Web ZIP and the Sync API at the same HTTPS origin. Keep the sync server listening on loopback and forward its API routes through the same reverse proxy as the static site. This example assumes Caddy and Docker Compose are on the same host:
+
+```caddyfile
+notes.example.com {
+    handle /api/v1/* {
+        reverse_proxy 127.0.0.1:5150
+    }
+    handle {
+        root * /srv/notixer/web
+        file_server
+    }
+}
+```
+
+1. Create a separate device token for the browser under your existing sync account.
+2. Open **Sync** in the web app and enter the public server origin, device token and the recovery key from the installed app.
+3. Select **Connect**, then **Sync now**. Repeat **Sync now** to upload local edits and fetch changes from other devices.
+
+The browser keeps the credentials in the open tab. Enter them again after closing or reloading it. Keep a browser profile per vault and keep independent backups of the local library. For separate Web and API origins, the API reverse proxy must explicitly allow the Web origin on `/api/v1/*`, including `OPTIONS` preflight requests, `GET, PUT, POST`, and the `Authorization` and `Content-Type` headers. Use HTTPS for both origins.
+
 ### Revoke a lost device
 
 ```sh

@@ -23,8 +23,7 @@ class LibraryExtrasSync {
   final RevisionRemote remote;
   final void Function(String)? onProgress;
   static final _epoch = DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
-  static String _id(String kind, String key) =>
-      'extra_${sha256.convert(utf8.encode('$kind:$key'))}';
+  static String _id(String kind, String key) => libraryExtraId(kind, key);
   static const _files = [
     '.knowledge.json',
     QuickTodoStore.fileName,

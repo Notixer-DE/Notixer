@@ -120,7 +120,9 @@ node tools/test-admin-ui.cjs
 
 Download the `*_web.zip` release asset, extract it and serve the contents from the root of an HTTPS site. For a local check, use `python3 -m http.server 8000 --directory <extracted-directory>` and open `http://localhost:8000`.
 
-Notixer Web supports Markdown notes and checklists, dedicated to-do lists, quick tasks and the journal calendar with an editable default template. It keeps notes in the current browser's IndexedDB and works offline after the first online load. Use **Library actions → Export web backup** to download an independent copy, and **Import file** to restore missing entries from a Web backup or open a Markdown file. Individual notes can be downloaded as Markdown. The native app provides PDF and ink editing, media capture and encrypted server sync.
+Notixer Web supports Markdown notes and checklists, dedicated to-do lists, quick tasks, the journal calendar, PDFs and media files. Import files with **Import file** and download individual files from their viewer or their **Note actions** menu. The browser stores your library in IndexedDB and works offline after the first online load. Use **Library actions → Export web backup** to keep a separate copy.
+
+Open **Sync** to exchange documents and quick tasks with your self-hosted Notixer vault. Use a device token for the browser and the vault's recovery key. See the [web sync setup](docs/sync-server.md#connect-notixer-web) for hosting and connection instructions. PDFs with separate handwriting from the installed app can be viewed and downloaded in the browser.
 
 To build and package locally after fetching dependencies, run `bash tools/build-web.sh`. The package is written to `dist/`.
 

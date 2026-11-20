@@ -9,6 +9,8 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:dart_pdf_editor/dart_pdf_editor.dart' show PdfDocument;
 import 'package:path/path.dart' as p;
+import '../sync/disk_sync_files.dart';
+import '../sync/sync_storage.dart';
 import 'catalog.dart';
 import 'templates.dart';
 import 'learning.dart';
@@ -252,7 +254,8 @@ class RecoveryEntry {
 }
 
 /// One atomically replaced archive per document keeps metadata and PDF together.
-class LocalNotebookRepository implements NotebookRepository {
+class LocalNotebookRepository
+    implements NotebookRepository, SyncNotebookRepository {
   LocalNotebookRepository(this.directory, {DateTime Function()? clock})
     : _clock = clock ?? DateTime.now,
       templates = TemplateRepository(
@@ -354,6 +357,10 @@ class LocalNotebookRepository implements NotebookRepository {
     );
   }
 
+  @override
+  SyncFiles get syncState => DiskSyncFiles(directory);
+
+  @override
   Future<List<String>> syncIds() => _serialize(() async {
     await directory.create(recursive: true);
     final ids = <String>[];
@@ -369,6 +376,7 @@ class LocalNotebookRepository implements NotebookRepository {
 
   /// Read one note at a time, so a large library is not held twice in memory.
   /// Raw bytes guard replacement; the archive carries portable folder metadata.
+  @override
   Future<({Uint8List raw, Uint8List archive})?> snapshotForSync(String id) =>
       _serialize(() async {
         await catalog.load();
@@ -394,6 +402,7 @@ class LocalNotebookRepository implements NotebookRepository {
       _decodeValidated(bytes);
 
   /// A remote operation cannot overwrite edits made while the network was busy.
+  @override
   Future<void> applySync(String id, Uint8List? expected, Uint8List? archive) {
     final expectedSnapshot = expected == null
         ? null

@@ -1,13 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:js_interop';
+import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:web/web.dart' as web;
 
+import '../sync/sync_storage.dart';
 import 'web_library.dart';
+import 'web_note_archive.dart';
 
-class BrowserLibrary implements WebLibrary {
+class BrowserLibrary implements WebLibrary, SyncNotebookRepository {
   static const _store = 'notes';
+  static const _sync = 'sync';
   Future<web.IDBDatabase>? _opening;
 
   Future<web.IDBDatabase> _database() => _opening ??= _open().then(
@@ -19,9 +24,11 @@ class BrowserLibrary implements WebLibrary {
   );
 
   Future<web.IDBDatabase> _open() async {
-    final request = web.window.indexedDB.open('notixer-web', 1);
+    final request = web.window.indexedDB.open('notixer-web', 2);
     request.onupgradeneeded = ((web.Event _) {
-      (request.result as web.IDBDatabase).createObjectStore(_store);
+      final db = request.result as web.IDBDatabase;
+      if (!db.objectStoreNames.contains(_store)) db.createObjectStore(_store);
+      if (!db.objectStoreNames.contains(_sync)) db.createObjectStore(_sync);
     }).toJS;
     final db = await _request(request) as web.IDBDatabase;
     db.onversionchange = ((web.Event _) {
@@ -48,9 +55,10 @@ class BrowserLibrary implements WebLibrary {
 
   Future<T> _transaction<T>(
     String mode,
-    Future<T> Function(web.IDBObjectStore) action,
-  ) async {
-    final transaction = (await _database()).transaction(_store.toJS, mode);
+    Future<T> Function(web.IDBObjectStore) action, {
+    String location = _store,
+  }) async {
+    final transaction = (await _database()).transaction(location.toJS, mode);
     final done = Completer<void>();
     transaction.oncomplete = ((web.Event _) => done.complete()).toJS;
     transaction.onabort = ((web.Event _) => done.completeError(
@@ -65,7 +73,7 @@ class BrowserLibrary implements WebLibrary {
     );
     final T result;
     try {
-      result = await action(transaction.objectStore(_store));
+      result = await action(transaction.objectStore(location));
     } catch (_) {
       try {
         transaction.abort();
@@ -129,10 +137,167 @@ class BrowserLibrary implements WebLibrary {
         }
         return added;
       });
+  SyncNotebookRepository get extras => _BrowserExtras(this);
+
+  Future<void> replaceExtra(
+    String name,
+    Uint8List? expected,
+    Uint8List? next,
+  ) => _transaction('readwrite', (store) async {
+    final key = 'extras/$name'.toJS;
+    final current = await _request(store.get(key)) as JSUint8Array?;
+    if (!listEquals(current?.toDart, expected)) {
+      throw StateError(
+        'An extra changed in another tab during sync. Sync again.',
+      );
+    }
+    if (next == null) {
+      await _request(store.delete(key));
+    } else {
+      await _request(store.put(next.toJS, key));
+    }
+  }, location: _sync);
+
+  @override
+  SyncFiles get syncState => syncFiles('state/');
+
+  SyncFiles syncFiles(String prefix) => _IndexedSyncFiles(this, prefix);
+
+  Future<void> checkAccount(String account) =>
+      _checkAccount(account, attach: false);
+  Future<void> attachAccount(String account) =>
+      _checkAccount(account, attach: true);
+
+  Future<void> _checkAccount(
+    String account, {
+    required bool attach,
+  }) => _transaction(attach ? 'readwrite' : 'readonly', (store) async {
+    final key = 'library-account'.toJS;
+    final current = await _request(store.get(key)) as JSString?;
+    if (current != null && current.toDart != account) {
+      throw StateError(
+        'This browser library is connected to a different vault. Use another browser profile for that vault.',
+      );
+    }
+    if (attach) await _request(store.put(account.toJS, key));
+  }, location: _sync);
+
+  @override
+  Future<List<String>> syncIds() async => [
+    for (final note in await readAll())
+      if (note.syncDocument) note.id,
+  ];
+
+  @override
+  Future<({Uint8List raw, Uint8List archive})?> snapshotForSync(
+    String id,
+  ) async {
+    final raw = await _transaction(
+      'readonly',
+      (store) async =>
+          (await _request(store.get(id.toJS)) as JSString?)?.toDart,
+    );
+    if (raw == null) return null;
+    final note = WebNote.fromJson(jsonDecode(raw));
+    if (!note.syncDocument) {
+      throw const FormatException('Reserved browser note identity.');
+    }
+    return (
+      raw: Uint8List.fromList(utf8.encode(raw)),
+      archive: archiveForWebNote(note),
+    );
+  }
+
+  @override
+  Future<void> applySync(String id, Uint8List? expected, Uint8List? archive) {
+    final updated = archive == null ? null : webNoteFromArchive(archive);
+    if (updated != null && updated.id != id) {
+      throw const FormatException('Incorrect sync note ID.');
+    }
+    final previous = expected == null ? null : utf8.decode(expected);
+    return _transaction('readwrite', (store) async {
+      final current = await _request(store.get(id.toJS)) as JSString?;
+      if (current?.toDart != previous) {
+        throw StateError(
+          'A note changed in another tab during sync. Sync again.',
+        );
+      }
+      if (updated == null) {
+        await _request(store.delete(id.toJS));
+      } else {
+        await _request(store.put(updated.encode().toJS, id.toJS));
+      }
+    });
+  }
 }
 
-void downloadBrowserFile(String name, String content, String type) {
-  final blob = web.Blob([content.toJS].toJS, web.BlobPropertyBag(type: type));
+class _BrowserExtras implements SyncNotebookRepository {
+  _BrowserExtras(this.library);
+  final BrowserLibrary library;
+  late final SyncFiles _storage = library.syncFiles('extras/');
+
+  @override
+  SyncFiles get syncState => library.syncFiles('extra-state/');
+
+  @override
+  Future<List<String>> syncIds() => _storage.list('');
+
+  @override
+  Future<({Uint8List raw, Uint8List archive})?> snapshotForSync(
+    String id,
+  ) async {
+    final bytes = await _storage.read(id);
+    return bytes == null ? null : (raw: bytes, archive: bytes);
+  }
+
+  @override
+  Future<void> applySync(String id, Uint8List? expected, Uint8List? archive) =>
+      library.replaceExtra(id, expected, archive);
+}
+
+class _IndexedSyncFiles implements SyncFiles {
+  _IndexedSyncFiles(this.library, this.prefix);
+  final BrowserLibrary library;
+  final String prefix;
+
+  @override
+  Future<Uint8List?> read(String key, {int? maxBytes}) =>
+      library._transaction('readonly', (store) async {
+        final item =
+            await library._request(store.get('$prefix$key'.toJS))
+                as JSUint8Array?;
+        final bytes = item?.toDart;
+        return bytes != null && (maxBytes == null || bytes.length <= maxBytes)
+            ? bytes
+            : null;
+      }, location: BrowserLibrary._sync);
+
+  @override
+  Future<void> write(String key, Uint8List bytes) =>
+      library._transaction('readwrite', (store) async {
+        await library._request(store.put(bytes.toJS, '$prefix$key'.toJS));
+      }, location: BrowserLibrary._sync);
+
+  @override
+  Future<List<String>> list(
+    String subPrefix,
+  ) => library._transaction('readonly', (store) async {
+    final keyPrefix = '$prefix$subPrefix';
+    final range = web.IDBKeyRange.bound(keyPrefix.toJS, '$keyPrefix￿'.toJS);
+    final keys =
+        await library._request(store.getAllKeys(range)) as JSArray<JSString>;
+    return [for (final key in keys.toDart) key.toDart.substring(prefix.length)];
+  }, location: BrowserLibrary._sync);
+}
+
+void downloadBrowserFile(String name, String content, String type) =>
+    _download(name, content.toJS, type);
+
+void downloadBrowserBytes(String name, Uint8List content, String type) =>
+    _download(name, content.toJS, type);
+
+void _download(String name, JSAny content, String type) {
+  final blob = web.Blob([content].toJS, web.BlobPropertyBag(type: type));
   final url = web.URL.createObjectURL(blob);
   final link = web.HTMLAnchorElement()
     ..href = url

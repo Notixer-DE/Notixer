@@ -1,12 +1,14 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path/path.dart' as p;
 import '../data/notebook.dart';
 import '../data/learning.dart';
+import '../data/ink.dart';
 import 'sync_revision.dart';
+import 'sync_storage.dart';
 
 const archivedSettingsConflictTag = 'Archived settings conflict';
 final _settingsConflictId = RegExp(r'^settings_extra_conflict_[0-9a-f]{40}$');
@@ -19,7 +21,49 @@ extension SettingsConflictNote on Notebook {
 
 String archiveDigest(Uint8List bytes) {
   final (note, pdf, ink) = LocalNotebookRepository.decodeWithInk(bytes);
+  return archiveDigestFromNote(note, pdf, ink?.encode());
+}
+
+String archiveDigestFromNote(Notebook note, Uint8List pdf, Uint8List? ink) {
   final json = note.toJson()..remove('folderId');
+  return sha256
+      .convert(
+        utf8.encode(
+          jsonEncode({
+            'note': json,
+            'pdf': sha256.convert(pdf).toString(),
+            if (ink != null) 'ink': sha256.convert(ink).toString(),
+          }),
+        ),
+      )
+      .toString();
+}
+
+Future<String> archiveDigestAsync(Uint8List bytes) => kIsWeb
+    ? Future.sync(() => archiveDigest(bytes))
+    : Isolate.run(
+        () => archiveDigest(bytes),
+        debugName: 'noter:archive-digest',
+      );
+
+/// Assessments and their save timestamp do not constitute a document conflict.
+/// Keep the existing conflict-copy rule for actual PDF/organization edits.
+Future<String> _documentDigest(Uint8List bytes) {
+  if (kIsWeb) return Future.sync(() => _documentDigestOf(bytes));
+  final transfer = TransferableTypedData.fromList([bytes]);
+  return Isolate.run(
+    () => _documentDigestOf(transfer.materialize().asUint8List()),
+    debugName: 'noter:sync-document-digest',
+  );
+}
+
+String _documentDigestOf(Uint8List bytes) {
+  final (note, pdf, ink) = LocalNotebookRepository.decodeWithInk(bytes);
+  final json = note.toJson()
+    ..remove('folderId')
+    ..remove('version')
+    ..remove('learning')
+    ..remove('modified');
   return sha256
       .convert(
         utf8.encode(
@@ -33,68 +77,51 @@ String archiveDigest(Uint8List bytes) {
       .toString();
 }
 
-Future<String> archiveDigestAsync(Uint8List bytes) =>
-    Isolate.run(() => archiveDigest(bytes), debugName: 'noter:archive-digest');
-
-/// Assessments and their save timestamp do not constitute a document conflict.
-/// Keep the existing conflict-copy rule for actual PDF/organization edits.
-Future<String> _documentDigest(Uint8List bytes) {
-  final transfer = TransferableTypedData.fromList([bytes]);
-  return Isolate.run(() {
-    final (note, pdf, ink) = LocalNotebookRepository.decodeWithInk(
-      transfer.materialize().asUint8List(),
-    );
-    final json = note.toJson()
-      ..remove('folderId')
-      ..remove('version')
-      ..remove('learning')
-      ..remove('modified');
-    return sha256
-        .convert(
-          utf8.encode(
-            jsonEncode({
-              'note': json,
-              'pdf': sha256.convert(pdf).toString(),
-              if (ink != null) 'ink': sha256.convert(ink.encode()).toString(),
-            }),
-          ),
-        )
-        .toString();
-  }, debugName: 'noter:sync-document-digest');
-}
-
 Future<LearningProgress> _mergeLearning(
   LearningProgress a,
   LearningProgress b,
-) => Isolate.run(() => a.merge(b), debugName: 'noter:merge-assessments');
+) => kIsWeb
+    ? Future.sync(() => a.merge(b))
+    : Isolate.run(() => a.merge(b), debugName: 'noter:merge-assessments');
 
 Future<(String, String)> _inspectArchive(Uint8List bytes) {
+  if (kIsWeb) return Future.sync(() => _inspectBytes(bytes));
   final transfer = TransferableTypedData.fromList([bytes]);
-  return _inspectTransferred(transfer);
+  return Isolate.run(
+    () => _inspectBytes(transfer.materialize().asUint8List()),
+    debugName: 'noter:sync-digest',
+  );
 }
 
-Future<(String, String)> _inspectTransferred(TransferableTypedData bytes) =>
-    Isolate.run(() {
-      final raw = bytes.materialize().asUint8List();
-      final (note, pdf, ink) = LocalNotebookRepository.decodeWithInk(raw);
-      validateNotebookContent(note, pdf);
-      final json = note.toJson()..remove('folderId');
-      return (
-        sha256
-            .convert(
-              utf8.encode(
-                jsonEncode({
-                  'note': json,
-                  'pdf': sha256.convert(pdf).toString(),
-                  if (ink != null)
-                    'ink': sha256.convert(ink.encode()).toString(),
-                }),
-              ),
-            )
-            .toString(),
-        note.id,
-      );
-    }, debugName: 'noter:sync-digest');
+(String, String) _inspectBytes(Uint8List bytes) {
+  final (note, payload, ink) = LocalNotebookRepository.decodeWithInk(bytes);
+  validateNotebookContent(note, payload);
+  return (archiveDigestFromNote(note, payload, ink?.encode()), note.id);
+}
+
+Future<(Notebook, Uint8List, InkDocument?)> _decodeInkValidated(
+  Uint8List bytes,
+) {
+  if (!kIsWeb) return LocalNotebookRepository.decodeInkValidated(bytes);
+  return Future.sync(() {
+    final decoded = LocalNotebookRepository.decodeWithInk(bytes);
+    validateNotebookContent(decoded.$1, decoded.$2);
+    return decoded;
+  });
+}
+
+Future<(Notebook, Uint8List)> _decodeValidated(Uint8List bytes) async {
+  final (note, payload, _) = await _decodeInkValidated(bytes);
+  return (note, payload);
+}
+
+Future<Uint8List> _encodeSyncArchive(
+  Notebook note,
+  Uint8List payload, {
+  InkDocument? ink,
+}) => kIsWeb
+    ? Future.sync(() => LocalNotebookRepository.encode(note, payload, ink: ink))
+    : LocalNotebookRepository.encodeAsync(note, payload, ink: ink);
 
 final deletedDigest = sha256
     .convert(utf8.encode('noter:deleted:v1'))
@@ -117,7 +144,7 @@ class NotebookSync {
     this.onProgress,
     this.extras = false,
   });
-  final LocalNotebookRepository repository;
+  final SyncNotebookRepository repository;
   final RevisionRemote remote;
   final bool extras;
   final void Function(String)? onProgress;
@@ -149,13 +176,12 @@ class NotebookSync {
     final account = sha256
         .convert(utf8.encode(await remote.accountId()))
         .toString();
-    final stateFile = File(
-      '${repository.directory.path}/.sync-state-$account.json',
-    );
+    final stateFiles = repository.syncState;
+    final stateKey = '.sync-state-$account.json';
+    final cachedState = await stateFiles.read(stateKey);
     var state = <String, dynamic>{};
-    if (await stateFile.exists()) {
-      final json =
-          jsonDecode(await stateFile.readAsString()) as Map<String, dynamic>;
+    if (cachedState != null) {
+      final json = jsonDecode(utf8.decode(cachedState)) as Map<String, dynamic>;
       if (json['version'] != 1) {
         throw const FormatException('Unknown sync state.');
       }
@@ -259,9 +285,7 @@ class NotebookSync {
       if (live.length > 1 && _settingsConflictId.hasMatch(id)) {
         // Another device can still have an unpublished copy of this notice.
         for (final candidate in live) {
-          final (note, _) = await LocalNotebookRepository.decodeValidated(
-            await read(candidate),
-          );
+          final (note, _) = await _decodeValidated(await read(candidate));
           if (note.isArchivedSettingsConflict) {
             winner = candidate;
             break;
@@ -289,15 +313,12 @@ class NotebookSync {
           ? null
           : await _documentDigest(winnerBytes);
       if (winnerBytes != null && live.length > 1) {
-        final (note, pdf, ink) =
-            await LocalNotebookRepository.decodeInkValidated(winnerBytes);
+        final (note, pdf, ink) = await _decodeInkValidated(winnerBytes);
         if (note.isArchivedSettingsConflict) archivedConflictContent = pdf;
         learning = note.learning;
         var modified = note.modified;
         for (final other in live.where((r) => r.revision != winner.revision)) {
-          final (otherNote, _) = await LocalNotebookRepository.decodeValidated(
-            await read(other),
-          );
+          final (otherNote, _) = await _decodeValidated(await read(other));
           // Set union is idempotent and commutative. Conflicting IDs abort
           // instead of picking a rating and silently discarding the other.
           learning = await _mergeLearning(learning, otherNote.learning);
@@ -305,7 +326,7 @@ class NotebookSync {
             modified = otherNote.modified;
           }
         }
-        winnerBytes = await LocalNotebookRepository.encodeAsync(
+        winnerBytes = await _encodeSyncArchive(
           note.copy(learning: learning, modified: modified),
           pdf,
           ink: ink,
@@ -324,8 +345,7 @@ class NotebookSync {
             localIds.contains(conflictId)) {
           continue;
         }
-        final (note, pdf, ink) =
-            await LocalNotebookRepository.decodeInkValidated(bytes);
+        final (note, pdf, ink) = await _decodeInkValidated(bytes);
         if (archivedConflictContent != null &&
             !note.isArchivedSettingsConflict &&
             sha256.convert(archivedConflictContent) == sha256.convert(pdf)) {
@@ -353,11 +373,7 @@ class NotebookSync {
                 )
               : null,
         );
-        final archive = await LocalNotebookRepository.encodeAsync(
-          copy,
-          pdf,
-          ink: ink,
-        );
+        final archive = await _encodeSyncArchive(copy, pdf, ink: ink);
         await publish(
           SyncRevision(
             noteId: conflictId,
@@ -392,13 +408,12 @@ class NotebookSync {
         'digest': winner.deleted ? null : resolvedDigest,
         'heads': [resolved.revision],
       };
-      await stateFile.parent.create(recursive: true);
-      final temporary = File('${stateFile.path}.tmp');
-      await temporary.writeAsString(
-        jsonEncode({'version': 1, 'notes': state}),
-        flush: true,
+      await stateFiles.write(
+        stateKey,
+        Uint8List.fromList(
+          utf8.encode(jsonEncode({'version': 1, 'notes': state})),
+        ),
       );
-      await temporary.rename(stateFile.path);
       cache.removeWhere((revision, _) => revisions[revision]?.noteId == id);
     }
     return report;

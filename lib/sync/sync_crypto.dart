@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:isolate';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:crypto/crypto.dart' as hashes;
 import 'package:cryptography/cryptography.dart';
 
@@ -17,7 +18,12 @@ class SyncCrypto {
       base64UrlEncode(await (await _aes.newSecretKey()).extractBytes());
 
   static Future<SyncCrypto> create(String recoveryKey, String account) async {
-    final raw = base64Url.decode(recoveryKey.trim());
+    final Uint8List raw;
+    try {
+      raw = base64Url.decode(base64Url.normalize(recoveryKey.trim()));
+    } on FormatException {
+      throw const FormatException('Enter a valid recovery key.');
+    }
     if (raw.length != 32) {
       throw const FormatException('The key must contain 32 bytes.');
     }
@@ -42,7 +48,7 @@ class SyncCrypto {
   String wireRevision(String id) => identify('noter:revision:v1:$id');
 
   Future<Uint8List> encrypt(List<int> bytes, String context) async {
-    if (bytes.length >= 65536) {
+    if (!kIsWeb && bytes.length >= 65536) {
       final key = await _encryption.extractBytes();
       final aad = utf8.encode('noter:sync:v1:$account:$context');
       final transfer = TransferableTypedData.fromList([
@@ -62,7 +68,7 @@ class SyncCrypto {
     if (bytes.length < 28) {
       throw const FormatException('Encrypted data is incomplete.');
     }
-    if (bytes.length >= 65536) {
+    if (!kIsWeb && bytes.length >= 65536) {
       final key = await _encryption.extractBytes();
       final aad = utf8.encode('noter:sync:v1:$account:$context');
       final transfer = TransferableTypedData.fromList([
