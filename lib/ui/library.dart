@@ -640,31 +640,35 @@ class _LibraryPageState extends State<LibraryPage> {
     final inbox = _notes
         .where((note) => note.tags.any((tag) => tag.toLowerCase() == 'inbox'))
         .length;
-    return Wrap(
-      spacing: 8,
-      runSpacing: 6,
-      children: [
-        ActionChip(
-          avatar: const Icon(Icons.inbox_outlined),
-          label: Text(inbox == 0 ? 'Inbox' : 'Inbox · $inbox'),
-          onPressed: _busy ? null : () => _knowledge(section: 'Inbox'),
-        ),
-        ActionChip(
-          avatar: const Icon(Icons.checklist),
-          label: const Text('Tasks'),
-          onPressed: _busy ? null : () => _knowledge(section: 'Tasks'),
-        ),
-        ActionChip(
-          avatar: const Icon(Icons.calendar_today_outlined),
-          label: const Text('Journal'),
-          onPressed: _busy ? null : () => _knowledge(section: 'Journal'),
-        ),
-        ActionChip(
-          avatar: const Icon(Icons.sell_outlined),
-          label: const Text('Tags'),
-          onPressed: _busy ? null : () => _knowledge(section: 'Tags'),
-        ),
-      ],
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          ActionChip(
+            avatar: const Icon(Icons.inbox_outlined),
+            label: Text(inbox == 0 ? 'Inbox' : 'Inbox · $inbox'),
+            onPressed: _busy ? null : () => _knowledge(section: 'Inbox'),
+          ),
+          const SizedBox(width: 8),
+          ActionChip(
+            avatar: const Icon(Icons.checklist),
+            label: const Text('Tasks'),
+            onPressed: _busy ? null : () => _knowledge(section: 'Tasks'),
+          ),
+          const SizedBox(width: 8),
+          ActionChip(
+            avatar: const Icon(Icons.calendar_today_outlined),
+            label: const Text('Journal'),
+            onPressed: _busy ? null : () => _knowledge(section: 'Journal'),
+          ),
+          const SizedBox(width: 8),
+          ActionChip(
+            avatar: const Icon(Icons.sell_outlined),
+            label: const Text('Tags'),
+            onPressed: _busy ? null : () => _knowledge(section: 'Tags'),
+          ),
+        ],
+      ),
     );
   }
 

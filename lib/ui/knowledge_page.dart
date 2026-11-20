@@ -512,7 +512,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
       final completed = task?.todo?.completionTime;
       return completed == null
           ? source
-          : '$source · Completed · ${MaterialLocalizations.of(context).formatMediumDate(completed.toLocal())}';
+          : '$source · ${completedTaskLabel(context, completed)}';
     }
     final project = widget.repository.catalog.folderName(hit.note.folderId);
     final due = task!.due;
@@ -520,7 +520,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
       if (hit.note.title != hit.snippet) hit.note.title,
       ?project,
       if (task.todo?.completionTime case final completed?)
-        'Completed · ${MaterialLocalizations.of(context).formatMediumDate(completed.toLocal())}',
+        completedTaskLabel(context, completed),
       if (due != null)
         '${due.compareTo(today) < 0 ? 'Overdue' : 'Due'} · '
             '${MaterialLocalizations.of(context).formatMediumDate(DateTime.parse(due))}',

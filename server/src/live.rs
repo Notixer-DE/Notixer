@@ -7,7 +7,7 @@ use axum::{
         ws::{Message, WebSocket},
     },
     http::{HeaderMap, HeaderValue, StatusCode, header},
-    response::{IntoResponse, Response},
+    response::Response,
 };
 use loco_rs::app::AppContext;
 use rand::RngCore;

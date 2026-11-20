@@ -4,6 +4,16 @@ import 'package:flutter/material.dart';
 
 import '../data/quick_todos.dart';
 
+String completedTaskLabel(BuildContext context, DateTime completed) {
+  final local = completed.toLocal();
+  final format = MaterialLocalizations.of(context);
+  final time = format.formatTimeOfDay(
+    TimeOfDay.fromDateTime(local),
+    alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+  );
+  return 'Completed · ${format.formatMediumDate(local)} · $time';
+}
+
 class TodoTimer extends StatefulWidget {
   const TodoTimer({super.key, required this.todo, required this.onChanged});
 

@@ -879,7 +879,7 @@ class _WorkspaceState extends State<_Workspace> {
                 ?todo.project,
                 ?todo.due,
                 if (todo.completionTime case final completed?)
-                  'Completed · ${MaterialLocalizations.of(context).formatMediumDate(completed.toLocal())}',
+                  completedTaskLabel(context, completed),
               ].join(' · '),
             ),
             trailing: Row(
