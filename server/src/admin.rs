@@ -1,4 +1,5 @@
 use crate::api::new_secret;
+use crate::openapi::{ApiStatus, DeviceToken, DocumentedRoutes};
 use argon2::{
     Argon2,
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
@@ -8,14 +9,16 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::get,
 };
-use loco_rs::{app::AppContext, controller::Routes};
+use loco_rs::app::AppContext;
 use rand::RngCore;
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement, TransactionTrait};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::Semaphore;
+use utoipa::ToSchema;
+use utoipa_axum::routes;
 use uuid::Uuid;
 
 static PASSWORD_WORK: Semaphore = Semaphore::const_new(2);
@@ -65,22 +68,62 @@ pub fn verify_password(password: &str, hash: &str) -> bool {
         .is_ok()
 }
 
-pub fn routes() -> Routes {
-    Routes::new()
-        .prefix("admin")
-        .add("/", get(crate::admin_assets::index))
-        .add("/assets/admin.js", get(crate::admin_assets::script))
-        .add("/assets/admin.css", get(crate::admin_assets::stylesheet))
-        .add("/api/me", get(me))
-        .add("/api/login", post(login))
-        .add("/api/logout", post(logout))
-        .add("/api/change-password", post(change_password))
-        .add("/api/accounts", get(list_accounts).post(create_account))
-        .add("/api/accounts/{id}", delete(delete_account))
-        .add("/api/accounts/{id}/devices", post(add_device))
-        .add("/api/accounts/{id}/pairing", post(crate::pairing::create))
-        .add("/api/devices/{id}/revoke", post(revoke_device))
-        .add("/api/devices/{id}/unrevoke", post(unrevoke_device))
+pub(crate) fn routes() -> DocumentedRoutes {
+    DocumentedRoutes::new()
+        .asset("/admin", get(crate::admin_assets::index))
+        .asset("/admin/assets/admin.js", get(crate::admin_assets::script))
+        .asset(
+            "/admin/assets/admin.css",
+            get(crate::admin_assets::stylesheet),
+        )
+        .add(routes!(me))
+        .add(routes!(login))
+        .add(routes!(logout))
+        .add(routes!(change_password))
+        .add(routes!(list_accounts, create_account))
+        .add(routes!(delete_account))
+        .add(routes!(add_device))
+        .add(routes!(crate::pairing::create))
+        .add(routes!(revoke_device))
+        .add(routes!(unrevoke_device))
+}
+
+#[derive(Serialize, ToSchema)]
+struct AdminIdentity {
+    authenticated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    username: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct AdminLogin {
+    ok: bool,
+    username: String,
+}
+
+#[derive(Serialize, ToSchema)]
+struct CreatedAccount {
+    id: Uuid,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+struct AdminDevice {
+    id: Uuid,
+    revoked: bool,
+    #[schema(format = DateTime)]
+    created_at: String,
+}
+
+#[derive(Serialize, ToSchema)]
+struct AdminAccount {
+    id: Uuid,
+    cursor: i64,
+    used_bytes: i64,
+    quota_bytes: i64,
+    revision_count: i64,
+    max_revisions: i64,
+    needs_key: bool,
+    devices: Vec<AdminDevice>,
 }
 
 fn get_session_token(headers: &HeaderMap) -> Option<String> {
@@ -115,28 +158,41 @@ pub(crate) async fn authenticate_admin(
     Ok(username)
 }
 
+#[utoipa::path(
+    get, path = "/admin/api/me", tag = "Administration",
+    summary = "Check the current admin session",
+    responses((status = 200, body = AdminIdentity), (status = 500, description = "Could not read session"))
+)]
 async fn me(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<AdminIdentity>, StatusCode> {
     match authenticate_admin(&ctx.db, &headers).await {
-        Ok(username) => Ok(Json(serde_json::json!({
-            "authenticated": true,
-            "username": username
-        }))),
-        Err(StatusCode::UNAUTHORIZED) => Ok(Json(serde_json::json!({
-            "authenticated": false
-        }))),
+        Ok(username) => Ok(Json(AdminIdentity {
+            authenticated: true,
+            username: Some(username),
+        })),
+        Err(StatusCode::UNAUTHORIZED) => Ok(Json(AdminIdentity {
+            authenticated: false,
+            username: None,
+        })),
         Err(error) => Err(error),
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 struct LoginRequest {
     username: String,
+    #[schema(format = Password)]
     password: String,
 }
 
+#[utoipa::path(
+    post, path = "/admin/api/login", tag = "Administration",
+    summary = "Sign in and receive the admin cookie",
+    request_body = LoginRequest,
+    responses((status = 200, body = AdminLogin, headers(("Set-Cookie" = String, description = "Admin session cookie"))), (status = 401, description = "Invalid credentials"), (status = 503, description = "Login capacity reached"))
+)]
 async fn login(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
@@ -202,14 +258,19 @@ async fn login(
 
     Ok((
         headers,
-        Json(serde_json::json!({
-            "ok": true,
-            "username": payload.username
-        })),
+        Json(AdminLogin {
+            ok: true,
+            username: payload.username,
+        }),
     )
         .into_response())
 }
 
+#[utoipa::path(
+    post, path = "/admin/api/logout", tag = "Administration",
+    summary = "End the current admin session",
+    responses((status = 200, body = ApiStatus, headers(("Set-Cookie" = String, description = "Clears the admin session cookie"))))
+)]
 async fn logout(State(ctx): State<AppContext>, headers: HeaderMap) -> Result<Response, StatusCode> {
     if let Some(token) = get_session_token(&headers) {
         ctx.db
@@ -232,20 +293,29 @@ async fn logout(State(ctx): State<AppContext>, headers: HeaderMap) -> Result<Res
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
     );
 
-    Ok((resp_headers, Json(serde_json::json!({ "ok": true }))).into_response())
+    Ok((resp_headers, Json(ApiStatus { ok: true })).into_response())
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 struct ChangePasswordRequest {
+    #[schema(format = Password)]
     current_password: String,
+    #[schema(format = Password, min_length = 12, max_length = 1024)]
     new_password: String,
 }
 
+#[utoipa::path(
+    post, path = "/admin/api/change-password", tag = "Administration",
+    summary = "Change the admin password",
+    security(("admin_session" = [])),
+    request_body = ChangePasswordRequest,
+    responses((status = 200, body = ApiStatus), (status = 400, description = "Password length is invalid"), (status = 401, description = "Admin session or current password invalid"), (status = 409, description = "Password changed concurrently"))
+)]
 async fn change_password(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
     Json(payload): Json<ChangePasswordRequest>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<ApiStatus>, StatusCode> {
     let username = authenticate_admin(&ctx.db, &headers).await?;
 
     if payload.current_password.len() > 1024
@@ -310,13 +380,19 @@ async fn change_password(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(serde_json::json!({ "ok": true })))
+    Ok(Json(ApiStatus { ok: true }))
 }
 
+#[utoipa::path(
+    get, path = "/admin/api/accounts", tag = "Administration",
+    summary = "List accounts, usage and devices",
+    security(("admin_session" = [])),
+    responses((status = 200, body = Vec<AdminAccount>), (status = 401, description = "Admin sign-in required"))
+)]
 async fn list_accounts(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<Vec<AdminAccount>>, StatusCode> {
     let _ = authenticate_admin(&ctx.db, &headers).await?;
 
     let rows = ctx
@@ -379,45 +455,58 @@ async fn list_accounts(
             .try_get("", "devices")
             .unwrap_or_else(|_| serde_json::json!([]));
 
-        accounts.push(serde_json::json!({
-            "id": id,
-            "cursor": cursor,
-            "used_bytes": used_bytes,
-            "quota_bytes": quota_bytes,
-            "revision_count": revision_count,
-            "max_revisions": max_revisions,
-            "needs_key": needs_key,
-            "devices": devices
-        }));
+        accounts.push(AdminAccount {
+            id: Uuid::parse_str(&id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+            cursor,
+            used_bytes,
+            quota_bytes,
+            revision_count,
+            max_revisions,
+            needs_key,
+            devices: serde_json::from_value(devices)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        });
     }
 
-    Ok(Json(serde_json::json!(accounts)))
+    Ok(Json(accounts))
 }
 
+#[utoipa::path(
+    post, path = "/admin/api/accounts", tag = "Administration",
+    summary = "Create an account",
+    security(("admin_session" = [])),
+    responses((status = 200, body = CreatedAccount), (status = 401, description = "Admin sign-in required"))
+)]
 async fn create_account(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<CreatedAccount>, StatusCode> {
     let _ = authenticate_admin(&ctx.db, &headers).await?;
 
-    let id = Uuid::new_v4().to_string();
+    let id = Uuid::new_v4();
     ctx.db
         .execute_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             "INSERT INTO accounts(id) VALUES($1::uuid)",
-            vec![id.clone().into()],
+            vec![id.to_string().into()],
         ))
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(serde_json::json!({ "id": id })))
+    Ok(Json(CreatedAccount { id }))
 }
 
+#[utoipa::path(
+    delete, path = "/admin/api/accounts/{id}", tag = "Administration",
+    summary = "Permanently delete an account and its data",
+    security(("admin_session" = [])), params(("id" = Uuid, Path, description = "Account or device UUID")),
+    responses((status = 200, body = ApiStatus), (status = 400, description = "Invalid account ID"), (status = 401, description = "Admin sign-in required"))
+)]
 async fn delete_account(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
     Path(account_id): Path<String>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<ApiStatus>, StatusCode> {
     let _ = authenticate_admin(&ctx.db, &headers).await?;
     let account_id = Uuid::parse_str(&account_id)
         .map_err(|_| StatusCode::BAD_REQUEST)?
@@ -489,19 +578,25 @@ async fn delete_account(
         })?;
     }
 
-    Ok(Json(serde_json::json!({ "ok": true })))
+    Ok(Json(ApiStatus { ok: true }))
 }
 
+#[utoipa::path(
+    post, path = "/admin/api/accounts/{id}/devices", tag = "Administration",
+    summary = "Create a device and return its access token once",
+    security(("admin_session" = [])), params(("id" = Uuid, Path, description = "Account or device UUID")),
+    responses((status = 200, body = DeviceToken), (status = 400, description = "Invalid account ID"), (status = 401, description = "Admin sign-in required"))
+)]
 async fn add_device(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
     Path(account_id): Path<String>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<DeviceToken>, StatusCode> {
     let _ = authenticate_admin(&ctx.db, &headers).await?;
 
     let account = Uuid::parse_str(&account_id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let token = new_secret();
-    let device_id = Uuid::new_v4().to_string();
+    let device_id = Uuid::new_v4();
     let token_hash = hex::encode(Sha256::digest(token.as_bytes()));
 
     ctx.db
@@ -509,7 +604,7 @@ async fn add_device(
             DbBackend::Postgres,
             "INSERT INTO devices(id, account_id, token_hash) VALUES($1::uuid, $2::uuid, $3)",
             vec![
-                device_id.clone().into(),
+                device_id.to_string().into(),
                 account.to_string().into(),
                 token_hash.into(),
             ],
@@ -517,17 +612,23 @@ async fn add_device(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(serde_json::json!({
-        "id": device_id,
-        "token": token
-    })))
+    Ok(Json(DeviceToken {
+        id: device_id,
+        token,
+    }))
 }
 
+#[utoipa::path(
+    post, path = "/admin/api/devices/{id}/revoke", tag = "Administration",
+    summary = "Revoke a device token",
+    security(("admin_session" = [])), params(("id" = Uuid, Path, description = "Account or device UUID")),
+    responses((status = 200, body = ApiStatus), (status = 400, description = "Invalid device ID"), (status = 401, description = "Admin sign-in required"))
+)]
 async fn revoke_device(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
     Path(device_id): Path<String>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<ApiStatus>, StatusCode> {
     let _ = authenticate_admin(&ctx.db, &headers).await?;
 
     let id = Uuid::parse_str(&device_id).map_err(|_| StatusCode::BAD_REQUEST)?;
@@ -556,14 +657,20 @@ async fn revoke_device(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(serde_json::json!({ "ok": true })))
+    Ok(Json(ApiStatus { ok: true }))
 }
 
+#[utoipa::path(
+    post, path = "/admin/api/devices/{id}/unrevoke", tag = "Administration",
+    summary = "Restore a device token",
+    security(("admin_session" = [])), params(("id" = Uuid, Path, description = "Account or device UUID")),
+    responses((status = 200, body = ApiStatus), (status = 400, description = "Invalid device ID"), (status = 401, description = "Admin sign-in required"))
+)]
 async fn unrevoke_device(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
     Path(device_id): Path<String>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<ApiStatus>, StatusCode> {
     let _ = authenticate_admin(&ctx.db, &headers).await?;
 
     let id = Uuid::parse_str(&device_id).map_err(|_| StatusCode::BAD_REQUEST)?;
@@ -592,7 +699,7 @@ async fn unrevoke_device(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(serde_json::json!({ "ok": true })))
+    Ok(Json(ApiStatus { ok: true }))
 }
 
 #[cfg(test)]

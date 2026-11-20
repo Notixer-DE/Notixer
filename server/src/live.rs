@@ -11,8 +11,8 @@ use axum::{
 };
 use loco_rs::app::AppContext;
 use rand::RngCore;
-use serde::Deserialize;
-use serde_json::{Value, json};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
@@ -23,6 +23,7 @@ use tokio::{
     sync::{Mutex, Semaphore, broadcast, watch},
     time::{interval, timeout},
 };
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 const SESSION_AGE: Duration = Duration::from_secs(2 * 60 * 60);
@@ -71,10 +72,22 @@ fn active(room: &Room) -> bool {
     room.expires > Instant::now() && !*room.ended.borrow()
 }
 
+#[derive(Serialize, ToSchema)]
+pub(crate) struct LiveInvitation {
+    id: String,
+    invite: String,
+}
+
+#[utoipa::path(
+    post, path = "/api/v1/live", tag = "Live Canvas",
+    summary = "Create a Live Canvas session",
+    operation_id = "createLiveSession", security(("device_token" = [])),
+    responses((status = 200, body = LiveInvitation), (status = 401, body = crate::openapi::ErrorBody), (status = 429, description = "Session limit reached", body = crate::openapi::ErrorBody))
+)]
 pub(crate) async fn create(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
-) -> Result<(HeaderMap, Json<Value>), ApiError> {
+) -> Result<(HeaderMap, Json<LiveInvitation>), ApiError> {
     let owner = authenticate(&ctx.db, &headers).await?.device;
     let store = store(&ctx)?;
     let mut rooms = store.rooms.lock().await;
@@ -104,9 +117,15 @@ pub(crate) async fn create(
     let headers = [(header::CACHE_CONTROL, HeaderValue::from_static("no-store"))]
         .into_iter()
         .collect();
-    Ok((headers, Json(json!({"id": id, "invite": invite}))))
+    Ok((headers, Json(LiveInvitation { id, invite })))
 }
 
+#[utoipa::path(
+    delete, path = "/api/v1/live/{id}", tag = "Live Canvas",
+    summary = "End a Live Canvas session",
+    security(("device_token" = [])), params(("id" = String, Path, description = "Live Canvas session ID")),
+    responses((status = 204, description = "Session ended or absent"), (status = 401, body = crate::openapi::ErrorBody), (status = 404, body = crate::openapi::ErrorBody))
+)]
 pub(crate) async fn end(
     State(ctx): State<AppContext>,
     Path(id): Path<String>,
@@ -125,6 +144,13 @@ pub(crate) async fn end(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    get, path = "/api/v1/live/{id}", tag = "Live Canvas",
+    summary = "Upgrade to a Live Canvas WebSocket",
+    params(("id" = String, Path, description = "Live Canvas session ID")),
+    description = "After upgrading, send a JSON message with role and token. The host uses a device token and the viewer uses the session invitation. Drawing frames are encrypted binary messages.",
+    responses((status = 101, description = "WebSocket upgrade"), (status = 400, description = "Invalid WebSocket handshake"), (status = 404, body = crate::openapi::ErrorBody), (status = 503, description = "Relay unavailable"))
+)]
 pub(crate) async fn connect(
     State(ctx): State<AppContext>,
     Path(id): Path<String>,

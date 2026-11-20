@@ -136,6 +136,24 @@ The database dump and `noter_files` belong together. Keep them separate from the
 - Before updating, take a backup. Then run `docker compose up -d --build --wait`. Migrations run automatically; destructive rollbacks are disabled.
 - `docker compose down` preserves volumes. **`docker compose down -v` permanently deletes all server data.**
 
+## OpenAPI contract
+
+The server generates its OpenAPI document from the same annotated handlers that register the Loco.rs routes. It describes the sync, pairing, Live Canvas and admin HTTP endpoints, including bearer-token and admin-cookie authentication. The Live Canvas entry describes the WebSocket handshake and the first authentication message.
+
+Download the JSON from a running server:
+
+```sh
+curl --fail http://127.0.0.1:5150/api/v1/openapi.json -o notixer-openapi.json
+```
+
+Export it directly from the server image, including when PostgreSQL is stopped:
+
+```sh
+docker compose run --rm --no-deps -T server openapi > notixer-openapi.json
+```
+
+The specification only describes the API. Data endpoints retain their existing authentication.
+
 ## Admin frontend development
 
 The admin dashboard lives under `server/admin-ui`. It uses Vue single-file components and Vite. Docker builds and bundles the assets automatically. When building or testing the Rust server directly, build the dashboard first:

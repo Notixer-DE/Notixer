@@ -1,13 +1,13 @@
+use crate::openapi::{DocumentedRoutes, ErrorBody};
 use axum::{
     Json,
     body::{Body, Bytes},
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, post, put},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use loco_rs::{app::AppContext, controller::Routes};
+use loco_rs::app::AppContext;
 use rand::RngCore;
 use sea_orm::{
     ConnectionTrait, Database, DatabaseConnection, DatabaseTransaction, DbBackend, DbErr,
@@ -18,6 +18,8 @@ use sha2::{Digest, Sha256};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::{fs, io::AsyncWriteExt, sync::Semaphore};
 use tokio_util::io::ReaderStream;
+use utoipa::ToSchema;
+use utoipa_axum::routes;
 use uuid::Uuid;
 
 pub const MAX_BLOCK: usize = 4 * 1024 * 1024 + 28;
@@ -57,7 +59,13 @@ type ApiResult<T> = Result<T, ApiError>;
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         // Never expose database errors, tokens, manifests or filesystem paths.
-        (self.0, Json(serde_json::json!({"error": self.0.as_u16()}))).into_response()
+        (
+            self.0,
+            Json(ErrorBody {
+                error: self.0.as_u16(),
+            }),
+        )
+            .into_response()
     }
 }
 impl From<DbErr> for ApiError {
@@ -147,24 +155,51 @@ async fn lock_account(db: &DatabaseConnection, who: &Identity) -> ApiResult<Data
     Ok(tx)
 }
 
-pub fn routes() -> Routes {
-    Routes::new()
-        .prefix("api/v1")
-        .add("/health", get(health))
-        .add("/session", get(session))
-        .add("/key-check", put(key_check))
-        .add("/blobs/missing", post(missing_blobs))
-        .add("/blobs/{id}", put(upload).get(download))
-        .add("/commits", post(commit))
-        .add("/changes", get(changes))
-        .add("/pairing/redeem", post(crate::pairing::redeem))
-        .add("/live", post(crate::live::create))
-        .add(
-            "/live/{id}",
-            get(crate::live::connect).delete(crate::live::end),
-        )
+pub(crate) fn routes() -> DocumentedRoutes {
+    DocumentedRoutes::new()
+        .add(routes!(health))
+        .add(routes!(session))
+        .add(routes!(key_check))
+        .add(routes!(missing_blobs))
+        .add(routes!(upload, download))
+        .add(routes!(commit))
+        .add(routes!(changes))
+        .add(routes!(crate::pairing::redeem))
+        .add(routes!(crate::live::create))
+        .add(routes!(crate::live::connect, crate::live::end))
+        .add(routes!(crate::openapi::json))
 }
 
+#[derive(Serialize, ToSchema)]
+struct SessionInfo {
+    version: u32,
+    account: String,
+    device: String,
+    cursor: i64,
+    key_check: Option<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct MissingBlocks {
+    missing: Vec<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct ChangesPage {
+    cursor: i64,
+    #[schema(value_type = Vec<Commit>)]
+    items: Vec<serde_json::Value>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[schema(value_type = String, format = Binary)]
+struct EncryptedBlock(Vec<u8>);
+
+#[utoipa::path(
+    get, path = "/api/v1/health", tag = "Sync",
+    summary = "Check database and blob storage health",
+    responses((status = 204, description = "Server ready"), (status = 500, body = crate::openapi::ErrorBody), (status = 503, description = "Server unavailable"))
+)]
 async fn health(State(ctx): State<AppContext>) -> ApiResult<StatusCode> {
     ctx.db.query_one_raw(stmt("SELECT 1", vec![])).await?;
     let store = ctx
@@ -175,10 +210,16 @@ async fn health(State(ctx): State<AppContext>) -> ApiResult<StatusCode> {
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    get, path = "/api/v1/session", tag = "Sync",
+    summary = "Read the authenticated device session",
+    security(("device_token" = [])),
+    responses((status = 200, body = SessionInfo), (status = 401, body = crate::openapi::ErrorBody), (status = 404, body = crate::openapi::ErrorBody))
+)]
 async fn session(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
-) -> ApiResult<Json<serde_json::Value>> {
+) -> ApiResult<Json<SessionInfo>> {
     let who = authenticate(&ctx.db, &headers).await?;
     let row = ctx
         .db
@@ -188,17 +229,27 @@ async fn session(
         ))
         .await?
         .ok_or(missing())?;
-    Ok(Json(serde_json::json!({
-        "version": 1, "account": who.account, "device": who.device,
-        "cursor": row.try_get::<i64>("", "cursor")?,
-        "key_check": row.try_get::<Option<String>>("", "key_check")?,
-    })))
+    Ok(Json(SessionInfo {
+        version: 1,
+        account: who.account,
+        device: who.device,
+        cursor: row.try_get("", "cursor")?,
+        key_check: row.try_get("", "key_check")?,
+    }))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 struct KeyCheck {
+    #[schema(pattern = "^[a-f0-9]{64}$")]
     value: String,
 }
+#[utoipa::path(
+    put, path = "/api/v1/key-check", tag = "Sync",
+    summary = "Initialize or verify the recovery key check",
+    security(("device_token" = [])),
+    request_body = KeyCheck,
+    responses((status = 204, description = "Recovery key check matches"), (status = 400, body = crate::openapi::ErrorBody), (status = 401, body = crate::openapi::ErrorBody), (status = 409, description = "Recovery key check conflicts", body = crate::openapi::ErrorBody))
+)]
 async fn key_check(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
@@ -220,15 +271,23 @@ async fn key_check(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 struct BlockQuery {
+    #[schema(max_items = 64)]
     ids: Vec<String>,
 }
+#[utoipa::path(
+    post, path = "/api/v1/blobs/missing", tag = "Blocks",
+    summary = "Find which encrypted blocks need uploading",
+    security(("device_token" = [])),
+    request_body = BlockQuery,
+    responses((status = 200, body = MissingBlocks), (status = 400, body = crate::openapi::ErrorBody), (status = 401, body = crate::openapi::ErrorBody))
+)]
 async fn missing_blobs(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
     bytes: Bytes,
-) -> ApiResult<Json<serde_json::Value>> {
+) -> ApiResult<Json<MissingBlocks>> {
     if bytes.len() > 8192 {
         return Err(bad());
     }
@@ -249,11 +308,23 @@ async fn missing_blobs(
         .into_iter()
         .map(|row| row.try_get::<String>("", "id"))
         .collect::<Result<std::collections::HashSet<_>, _>>()?;
-    Ok(Json(
-        serde_json::json!({"missing": body.ids.into_iter().filter(|id| !present.contains(id)).collect::<Vec<_>>()}),
-    ))
+    Ok(Json(MissingBlocks {
+        missing: body
+            .ids
+            .into_iter()
+            .filter(|id| !present.contains(id))
+            .collect(),
+    }))
 }
 
+#[utoipa::path(
+    put, path = "/api/v1/blobs/{id}", tag = "Blocks",
+    summary = "Upload an encrypted block",
+    security(("device_token" = [])),
+    params(("id" = String, Path, description = "SHA-256 block identifier")),
+    request_body(content = EncryptedBlock, content_type = "application/octet-stream", description = "28 to 4194332 bytes"),
+    responses((status = 201, description = "Block stored"), (status = 204, description = "Block already present"), (status = 400, body = crate::openapi::ErrorBody), (status = 401, body = crate::openapi::ErrorBody), (status = 429, body = crate::openapi::ErrorBody), (status = 507, description = "Storage quota exceeded", body = crate::openapi::ErrorBody))
+)]
 async fn upload(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
@@ -343,6 +414,13 @@ async fn upload(
     Ok(StatusCode::CREATED)
 }
 
+#[utoipa::path(
+    get, path = "/api/v1/blobs/{id}", tag = "Blocks",
+    summary = "Download an encrypted block",
+    security(("device_token" = [])),
+    params(("id" = String, Path, description = "SHA-256 block identifier")),
+    responses((status = 200, body = EncryptedBlock, content_type = "application/octet-stream"), (status = 400, body = crate::openapi::ErrorBody), (status = 401, body = crate::openapi::ErrorBody), (status = 404, body = crate::openapi::ErrorBody))
+)]
 async fn download(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
@@ -379,12 +457,16 @@ async fn download(
         .into_response())
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, ToSchema)]
 #[serde(deny_unknown_fields)]
 struct Commit {
+    #[schema(pattern = "^[a-f0-9]{64}$")]
     id: String,
+    #[schema(max_items = 512)]
     parents: Vec<String>,
+    #[schema(max_items = 64)]
     blobs: Vec<String>,
+    #[schema(format = Byte, max_length = 65536)]
     manifest: String,
 }
 impl Commit {
@@ -404,6 +486,13 @@ impl Commit {
         Ok(())
     }
 }
+#[utoipa::path(
+    post, path = "/api/v1/commits", tag = "Sync",
+    summary = "Publish or replay an encrypted revision",
+    security(("device_token" = [])),
+    request_body = Commit,
+    responses((status = 200, body = Commit), (status = 400, body = crate::openapi::ErrorBody), (status = 401, body = crate::openapi::ErrorBody), (status = 413, body = crate::openapi::ErrorBody), (status = 507, description = "Revision quota exceeded", body = crate::openapi::ErrorBody))
+)]
 async fn commit(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
@@ -488,11 +577,18 @@ struct Changes {
     #[serde(default)]
     after: i64,
 }
+#[utoipa::path(
+    get, path = "/api/v1/changes", tag = "Sync",
+    summary = "List up to 100 revisions after a cursor",
+    security(("device_token" = [])),
+    params(("after" = Option<i64>, Query, minimum = 0, description = "Last processed cursor, defaults to zero")),
+    responses((status = 200, body = ChangesPage), (status = 400, body = crate::openapi::ErrorBody), (status = 401, body = crate::openapi::ErrorBody), (status = 409, description = "Cursor is ahead of the account", body = crate::openapi::ErrorBody))
+)]
 async fn changes(
     State(ctx): State<AppContext>,
     headers: HeaderMap,
     Query(query): Query<Changes>,
-) -> ApiResult<Json<serde_json::Value>> {
+) -> ApiResult<Json<ChangesPage>> {
     if query.after < 0 {
         return Err(bad());
     }
@@ -518,7 +614,7 @@ async fn changes(
         cursor = row.try_get("", "seq")?;
         items.push(row.try_get::<serde_json::Value>("", "envelope")?);
     }
-    Ok(Json(serde_json::json!({"cursor": cursor, "items": items})))
+    Ok(Json(ChangesPage { cursor, items }))
 }
 
 pub async fn admin() -> loco_rs::Result<()> {

@@ -1,3 +1,4 @@
+use crate::openapi::DeviceToken;
 use crate::{
     admin::authenticate_admin,
     api::{ApiError, new_secret, valid_id},
@@ -9,9 +10,10 @@ use axum::{
 };
 use loco_rs::app::AppContext;
 use sea_orm::{ConnectionTrait, DbBackend, Statement, TransactionTrait, Value};
-use serde::Deserialize;
-use serde_json::{Value as JsonValue, json};
+use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 const TTL_SECONDS: i32 = 300;
@@ -24,14 +26,31 @@ fn hash(secret: &str) -> String {
     hex::encode(Sha256::digest(secret.as_bytes()))
 }
 
-type SecretResponse = ([(header::HeaderName, &'static str); 1], Json<JsonValue>);
+type SecretResponse<T> = ([(header::HeaderName, &'static str); 1], Json<T>);
 
+#[derive(Serialize, ToSchema)]
+pub(crate) struct PairingInvitation {
+    #[schema(pattern = "^[a-f0-9]{64}$")]
+    code: String,
+    account: Uuid,
+    needs_key: bool,
+    expires_in: i32,
+}
+
+#[utoipa::path(
+    post, path = "/admin/api/accounts/{id}/pairing", tag = "Pairing",
+    summary = "Issue a five-minute, single-use QR pairing code",
+    operation_id = "createPairingCode", security(("admin_session" = [])),
+    params(("id" = Uuid, Path, description = "Account UUID")),
+    request_body(content = Object, description = "Send an empty JSON object"),
+    responses((status = 200, body = PairingInvitation), (status = 401, body = crate::openapi::ErrorBody), (status = 403, description = "Cross-origin admin request rejected"), (status = 404, body = crate::openapi::ErrorBody))
+)]
 pub(crate) async fn create(
     State(ctx): State<AppContext>,
     Path(account): Path<Uuid>,
     headers: HeaderMap,
     Json(_): Json<serde_json::Map<String, JsonValue>>,
-) -> Result<SecretResponse, ApiError> {
+) -> Result<SecretResponse<PairingInvitation>, ApiError> {
     authenticate_admin(&ctx.db, &headers)
         .await
         .map_err(ApiError)?;
@@ -51,23 +70,34 @@ pub(crate) async fn create(
     let needs_key: bool = row.try_get("", "needs_key")?;
     Ok((
         [(header::CACHE_CONTROL, "no-store")],
-        Json(json!({
-            "code": code, "account": account, "needs_key": needs_key, "expires_in": TTL_SECONDS,
-        })),
+        Json(PairingInvitation {
+            code,
+            account,
+            needs_key,
+            expires_in: TTL_SECONDS,
+        }),
     ))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct Redemption {
     account: Uuid,
+    #[schema(pattern = "^[a-f0-9]{64}$")]
     code: String,
+    #[schema(pattern = "^[a-f0-9]{64}$")]
     key_check: String,
 }
 
+#[utoipa::path(
+    post, path = "/api/v1/pairing/redeem", tag = "Pairing",
+    summary = "Redeem a QR pairing code for a device token",
+    request_body = Redemption,
+    responses((status = 200, body = DeviceToken), (status = 400, body = crate::openapi::ErrorBody), (status = 401, description = "Pairing code expired, used or invalid", body = crate::openapi::ErrorBody), (status = 409, description = "Recovery key check does not match", body = crate::openapi::ErrorBody))
+)]
 pub(crate) async fn redeem(
     State(ctx): State<AppContext>,
     Json(body): Json<Redemption>,
-) -> Result<SecretResponse, ApiError> {
+) -> Result<SecretResponse<DeviceToken>, ApiError> {
     if !valid_id(&body.code) || !valid_id(&body.key_check) {
         return Err(ApiError(StatusCode::BAD_REQUEST));
     }
@@ -115,8 +145,6 @@ pub(crate) async fn redeem(
     tx.commit().await?;
     Ok((
         [(header::CACHE_CONTROL, "no-store")],
-        Json(json!({
-            "id": device, "token": token,
-        })),
+        Json(DeviceToken { id: device, token }),
     ))
 }
