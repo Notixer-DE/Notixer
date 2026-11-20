@@ -138,7 +138,11 @@ class _LiveHostPageState extends State<LiveHostPage> {
     try {
       await operation();
     } catch (error) {
-      if (mounted) setState(() => _error = '$error');
+      if (mounted) {
+        setState(
+          () => _error = error is FormatException ? error.message : '$error',
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }

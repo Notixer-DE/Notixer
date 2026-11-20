@@ -389,6 +389,8 @@ class _ServerHttp {
           403 => 'Device access is invalid or revoked. Please reconnect.',
           409 =>
             'The key or sync state does not match the server. Do not reset automatically.',
+          502 || 503 || 504 =>
+            'The sync server is unavailable (${response.statusCode}). Check that the server and its database are running.',
           507 => 'Storage or revision quota exceeded.',
           _ =>
             'Server request failed (${response.statusCode}). Please try again later.',

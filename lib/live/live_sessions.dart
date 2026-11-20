@@ -18,9 +18,17 @@ class LiveSessions {
       data: {'account_viewers': true},
     );
     if (response.statusCode != 200) {
-      throw const FormatException(
-        'The server could not start a Live Canvas session.',
-      );
+      throw FormatException(switch (response.statusCode) {
+        401 || 403 =>
+          'Device access is invalid or revoked. Reconnect in Sync settings.',
+        404 || 405 => 'Update the sync server to use Live Canvas.',
+        429 =>
+          'The Live Canvas session limit is reached. Stop another session or try again later.',
+        502 || 503 || 504 =>
+          'The sync server is unavailable (${response.statusCode}). Check that the server and its database are running.',
+        _ =>
+          'The server could not start a Live Canvas session (${response.statusCode}).',
+      });
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     final id = _roomId(body['id']);

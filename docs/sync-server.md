@@ -4,7 +4,7 @@ A self-hosted synchronization server for Notixer using Loco/Rust, PostgreSQL and
 
 ## Setup with Docker Compose
 
-Compose uses `notixer` as both the PostgreSQL role and database name. PostgreSQL creates them when it initializes an empty volume. To start a fresh instance alongside an older installation, stop the old stack to free the host port, then use `docker compose -p notixer-fresh up -d --build --wait`. This creates separate database and file volumes while preserving the old volumes. Use `-p notixer-fresh` on subsequent Compose commands for that instance.
+Compose uses `notixer` as both the PostgreSQL role and database name. PostgreSQL creates them when it initializes an empty volume. To keep an existing database, follow the [in-place upgrade](#upgrade-a-database-initialized-as-noter). To start a fresh instance alongside an older installation, stop the old stack to free the host port, then use `docker compose -p notixer-fresh up -d --build --wait`. This creates separate database and file volumes while preserving the old volumes. Use `-p notixer-fresh` on subsequent Compose commands for that instance.
 
 1. Create the configuration and set a random database password (hexadecimal characters) in `.env`:
 
@@ -34,6 +34,42 @@ Compose uses `notixer` as both the PostgreSQL role and database name. PostgreSQL
 4. The API binds to `127.0.0.1:5150` by default. To connect other devices, place a reverse proxy with a valid TLS certificate in front of it. Support streaming, request bodies of at least **4 MiB + 28 bytes**, and suitable upload timeouts. Avoid logging Authorization headers or request bodies, and configure rate limits.
 
    For deliberate LAN tests without TLS, enable **Allow HTTP for this new connection** in the app. Device tokens and connection metadata are then unencrypted in transit. Use HTTPS for production.
+
+## Upgrade a database initialized as `noter`
+
+PostgreSQL creates the configured role and database when it initializes an empty volume. If an upgrade logs `Role "notixer" does not exist`, the existing volume may still have the `noter` role and database. That leaves the sync API unreachable through the reverse proxy and can produce HTTP 502 for both sync and Live Canvas.
+
+Run these commands in the directory for the existing Compose project. If you used `-p` to select that project, use the same option on every command. Keep the database and blob volumes attached. Stop the sync server, back up the existing database, and rename its database and role in one transaction.
+
+```sh
+(
+  set -euC
+  umask 077
+  docker compose stop server
+  docker compose exec -T postgres pg_dump -U noter -d noter -Fc > noter-before-rename.dump
+  docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U noter -d postgres <<'SQL'
+BEGIN;
+ALTER DATABASE noter RENAME TO notixer;
+CREATE ROLE notixer_rename_helper NOLOGIN SUPERUSER;
+SET SESSION AUTHORIZATION notixer_rename_helper;
+ALTER ROLE noter RENAME TO notixer;
+RESET SESSION AUTHORIZATION;
+DROP ROLE notixer_rename_helper;
+COMMIT;
+SQL
+)
+```
+
+The temporary role allows PostgreSQL to rename the authenticated role within the transaction. The rename preserves database contents, ownership and the SCRAM password used by the standard Compose setup. Keep the same `POSTGRES_PASSWORD` in `.env`. If it was changed or the database used an MD5 password, connect with `docker compose exec postgres psql -X -U notixer -d postgres`, run `\password notixer` with the password from `.env`, and quit with `\q`.
+
+After the transaction succeeds, start the updated server and verify the local API.
+
+```sh
+docker compose up -d --build --wait
+curl --fail http://127.0.0.1:5150/api/v1/health
+```
+
+Existing dashboard and sync accounts are retained.
 
 ## Accounts and devices
 
