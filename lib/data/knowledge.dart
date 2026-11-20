@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -333,47 +334,103 @@ class KnowledgeStore {
     return result;
   }
 
-  Future<Notebook> journal(DateTime date, {String? templateId}) async {
-    await load();
-    // Serialize date lookup and creation, including concurrent Today actions.
-    final journalKey = repository.directory.absolute.path;
-    final result = (_journalQueues[journalKey] ?? Future<void>.value()).then((
-      _,
-    ) async {
-      final key = journalDate(date);
-      final existing = (await repository.list()).where(
-        (n) => n.id == 'journal-$key' || journalEntryDate(n) == key,
-      );
-      if (existing.isNotEmpty) {
-        final original = existing.where((note) => note.id == 'journal-$key');
-        return original.isNotEmpty ? original.first : existing.first;
-      }
-      final selected = templates.where(
-        (t) => t.id == (templateId ?? journalTemplate),
-      );
-      final source = selected.isEmpty
-          ? '# $key\n\n'
-          : selected.first.render(date, key);
-      final now = DateTime.now();
-      return repository.save(
-        Notebook(
-          id: 'journal-$key',
-          title: key,
-          paper: 'markdown',
-          created: now,
-          modified: now,
-          tags: const ['Journal'],
-          linkPath: 'journals/$key.md',
-        ),
-        MarkdownDocument(source).encode(),
-      );
-    });
-    _journalQueues[journalKey] = result.then<void>(
+  Future<T> _writeJournal<T>(Future<T> Function() write) {
+    final key = repository.directory.absolute.path;
+    final result = (_journalQueues[key] ?? Future<void>.value()).then(
+      (_) => write(),
+    );
+    final tail = result.then<void>(
       (_) {},
       onError: (Object _, StackTrace _) {},
     );
+    _journalQueues[key] = tail;
+    unawaited(
+      tail.whenComplete(() {
+        if (identical(_journalQueues[key], tail)) _journalQueues.remove(key);
+      }),
+    );
     return result;
   }
+
+  Future<Notebook?> _journalNote(String day) async {
+    final notes = await repository.list();
+    return notes.where((note) => note.id == 'journal-$day').firstOrNull ??
+        notes.where((note) => journalEntryDate(note) == day).firstOrNull;
+  }
+
+  Notebook _newJournalNote(String day, DateTime now) => Notebook(
+    id: 'journal-$day',
+    title: day,
+    paper: 'markdown',
+    created: now,
+    modified: now,
+    tags: const ['Journal'],
+    linkPath: 'journals/$day.md',
+  );
+
+  MarkdownDocument _newJournalDocument(DateTime date, {String? templateId}) {
+    final day = journalDate(date);
+    final template = templates
+        .where((entry) => entry.id == (templateId ?? journalTemplate))
+        .firstOrNull;
+    return MarkdownDocument(template?.render(date, day) ?? '# $day\n\n');
+  }
+
+  Future<Notebook> journal(DateTime date, {String? templateId}) =>
+      _writeJournal(() async {
+        await reload();
+        final day = journalDate(date);
+        final existing = await _journalNote(day);
+        if (existing != null) return existing;
+        return repository.save(
+          _newJournalNote(day, DateTime.now()),
+          _newJournalDocument(date, templateId: templateId).encode(),
+        );
+      });
+
+  Future<Notebook> appendJournal(
+    DateTime day,
+    String text, {
+    required String entryId,
+    required DateTime recordedAt,
+  }) => _writeJournal(() async {
+    if (text.trim().isEmpty ||
+        !RegExp(r'^[a-zA-Z0-9_-]{1,100}$').hasMatch(entryId)) {
+      throw const FormatException('Enter a journal entry.');
+    }
+    await reload();
+    final date = journalDate(day);
+    final existing = await _journalNote(date);
+    final snapshot = existing == null
+        ? null
+        : await repository.snapshotForSync(existing.id);
+    if (existing != null && snapshot == null) {
+      throw const FormatException('The journal day was removed. Try again.');
+    }
+    final (note, document) = snapshot == null
+        ? (_newJournalNote(date, recordedAt), _newJournalDocument(day))
+        : await LocalNotebookRepository.decodeValidated(snapshot.archive).then(
+            (decoded) async =>
+                (decoded.$1, await decodeMarkdownAsync(decoded.$2)),
+          );
+    final marker = '<!-- notixer-journal:$entryId -->';
+    if (document.source.split('\n').contains(marker)) return note;
+    final hour = recordedAt.hour.toString().padLeft(2, '0');
+    final minute = recordedAt.minute.toString().padLeft(2, '0');
+    final updated = note.copy(modified: DateTime.now());
+    final archive = await LocalNotebookRepository.encodeAsync(
+      updated,
+      document
+          .copy(
+            source:
+                '${document.source.trimRight()}\n\n$marker\n\n'
+                '### $hour:$minute\n\n${text.trim()}\n',
+          )
+          .encode(),
+    );
+    await repository.applySync(updated.id, snapshot?.raw, archive);
+    return updated;
+  });
 
   Future<Notebook> capture(String title, String source) async {
     if (title.trim().isEmpty && source.trim().isEmpty) {

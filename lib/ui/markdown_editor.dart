@@ -40,8 +40,10 @@ class MarkdownEditorPage extends StatefulWidget {
     this.initialAnchor,
     this.tabController,
     this.onLibrary,
+    this.backLabel = 'Back to library',
     this.onOpenNotebook,
     this.onQuickTodosChanged,
+    this.onJournalChanged,
   });
   final Notebook note;
   final Uint8List bytes;
@@ -49,8 +51,10 @@ class MarkdownEditorPage extends StatefulWidget {
   final String? initialAnchor;
   final DocumentTabController? tabController;
   final Future<void> Function()? onLibrary;
+  final String backLabel;
   final OpenNotebookTab? onOpenNotebook;
   final Future<void> Function()? onQuickTodosChanged;
+  final Future<void> Function(Notebook?)? onJournalChanged;
 
   @override
   State<MarkdownEditorPage> createState() => _MarkdownLoaderState();
@@ -82,8 +86,10 @@ class _MarkdownLoaderState extends State<MarkdownEditorPage> {
         initialAnchor: widget.initialAnchor,
         tabController: widget.tabController,
         onLibrary: widget.onLibrary,
+        backLabel: widget.backLabel,
         onOpenNotebook: widget.onOpenNotebook,
         onQuickTodosChanged: widget.onQuickTodosChanged,
+        onJournalChanged: widget.onJournalChanged,
       );
     },
   );
@@ -97,8 +103,10 @@ class _LoadedMarkdownEditor extends StatefulWidget {
     required this.initialAnchor,
     this.tabController,
     this.onLibrary,
+    this.backLabel = 'Back to library',
     this.onOpenNotebook,
     this.onQuickTodosChanged,
+    this.onJournalChanged,
   });
   final Notebook note;
   final MarkdownDocument document;
@@ -106,8 +114,10 @@ class _LoadedMarkdownEditor extends StatefulWidget {
   final String? initialAnchor;
   final DocumentTabController? tabController;
   final Future<void> Function()? onLibrary;
+  final String backLabel;
   final OpenNotebookTab? onOpenNotebook;
   final Future<void> Function()? onQuickTodosChanged;
+  final Future<void> Function(Notebook?)? onJournalChanged;
   @override
   State<_LoadedMarkdownEditor> createState() => _MarkdownEditorPageState();
 }
@@ -299,7 +309,33 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
         if (!mounted) return;
         final current = notes.where((n) => n.id == _session.note.id);
         if (current.isNotEmpty) {
-          _session.note = current.first;
+          final note = current.first;
+          if (note.modified != _session.note.modified &&
+              !_session.dirty &&
+              !_session.saving) {
+            final document = await decodeMarkdownAsync(
+              await widget.repository.load(note.id),
+            );
+            if (!mounted ||
+                _session.note.id != note.id ||
+                _session.dirty ||
+                _session.saving) {
+              return;
+            }
+            final offset = _text.selection.extentOffset.clamp(
+              0,
+              document.source.length,
+            );
+            _updating = true;
+            _session.document = document;
+            _text.value = TextEditingValue(
+              text: document.source,
+              selection: TextSelection.collapsed(offset: offset),
+            );
+            _title.text = note.title;
+            _updating = false;
+          }
+          _session.note = note;
           _changed();
           await _reload();
         }
@@ -685,6 +721,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
           initialSection: section,
           shortcuts: widget.tabController?.shortcuts,
           onQuickTodosChanged: widget.onQuickTodosChanged,
+          onJournalChanged: widget.onJournalChanged,
           onTaskPlanned: (note) async {
             if (mounted && note.id == _session.note.id) {
               _session.note = note;
@@ -1439,7 +1476,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
               TextButton.icon(
                 onPressed: _leave,
                 icon: const Icon(Icons.arrow_back),
-                label: const Text('Back to library'),
+                label: Text(widget.backLabel),
               ),
             ],
           ),
@@ -1636,7 +1673,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                       leadingWidth: DocumentTabsChrome.leadingWidth(context),
                       leading: DocumentNavigation(
                         child: IconButton(
-                          tooltip: 'Back to library',
+                          tooltip: widget.backLabel,
                           icon: const Icon(Icons.arrow_back),
                           onPressed: _leave,
                         ),

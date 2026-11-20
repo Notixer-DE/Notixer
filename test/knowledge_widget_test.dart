@@ -6,6 +6,7 @@ import 'package:noter/data/knowledge.dart';
 import 'package:noter/data/markdown_document.dart';
 import 'package:noter/data/notebook.dart';
 import 'package:noter/ui/knowledge_page.dart';
+import 'package:noter/ui/journal_calendar.dart';
 import 'package:noter/ui/library.dart';
 import 'package:noter/ui/noter_theme.dart';
 
@@ -475,50 +476,108 @@ void main() {
   );
 
   testWidgets(
-    'journal creates a dated template entry and returns its destination',
+    'journal opens past days and applies an edited template only to new entries',
     (tester) async {
-      KnowledgeDestination? selected;
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final today = DateUtils.dateOnly(DateTime.now());
+      final past = DateTime(today.year, today.month - 1, 10);
+      final previous = (await tester.runAsync(() async {
+        final journal = await KnowledgeStore(repository).journal(past);
+        await repository.save(
+          journal,
+          MarkdownDocument('# Earlier entry\n').encode(),
+        );
+        return journal;
+      }))!;
       await tester.pumpWidget(
         MaterialApp(
           theme: NoterTheme.light,
-          home: Builder(
-            builder: (context) => Scaffold(
-              body: TextButton(
-                child: const Text('Open journal'),
-                onPressed: () async {
-                  selected = await Navigator.push<KnowledgeDestination>(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => KnowledgePage(
-                        repository: repository,
-                        initialSection: 'Journal',
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
+          home: KnowledgePage(
+            repository: repository,
+            initialSection: 'Journal',
           ),
         ),
       );
-      await tester.tap(find.text('Open journal'));
       await waitKnowledge(
         tester,
-        () => find.text('Open day').evaluate().isNotEmpty,
+        () => find.byTooltip('Previous month').evaluate().isNotEmpty,
       );
-      await tester.tap(find.text('Open day'));
-      await waitKnowledge(tester, () => selected != null);
-      expect(selected!.note.tags, contains('Journal'));
-      final document = await tester.runAsync(
-        () async =>
-            MarkdownDocument.decode(await repository.load(selected!.note.id)),
+      await tester.tap(find.byTooltip('Previous month'));
+      await tester.pumpAndSettle();
+      final pastDay = find.byKey(ValueKey('journal-day-${journalDate(past)}'));
+      await tester.tap(pastDay);
+      await waitKnowledge(
+        tester,
+        () => find.text('Earlier entry').evaluate().isNotEmpty,
       );
-      expect(document!.source, contains('## Reflection'));
-      expect(document.source, isNot(contains('{{date}}')));
+      expect(find.text('Formatted'), findsOneWidget);
+      await tester.tap(find.byTooltip('Back to journal'));
+      await waitKnowledge(tester, () => pastDay.evaluate().isNotEmpty);
+      expect(
+        tester
+            .widget<JournalCalendar>(find.byType(JournalCalendar))
+            .month
+            .month,
+        past.month,
+      );
+
+      await tester.tap(find.text('Journal template'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Template Markdown'),
+        '# Daily {{date}}\n',
+      );
+      await tester.tap(find.text('Preview'));
+      await tester.pumpAndSettle();
+      expect(find.text('Daily ${journalDate(past)}'), findsOneWidget);
+      await tester.tap(find.text('Save template'));
+      await waitKnowledge(
+        tester,
+        () => find.byType(JournalCalendar).evaluate().isNotEmpty,
+      );
+
+      await tester.tap(find.text('Today'));
+      await tester.pumpAndSettle();
+      expect(find.text('No journal entry for this day.'), findsOneWidget);
+      expect(
+        await tester.runAsync(
+          () async => (await repository.list())
+              .where((note) => journalEntryDate(note) == journalDate(today))
+              .isEmpty,
+        ),
+        isTrue,
+      );
+      await tester.ensureVisible(find.text('Add entry'));
+      await tester.tap(find.text('Add entry'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Journal entry'),
+        'Write it down',
+      );
+      await tester.pump();
+      await tester.tap(find.text('Save entry'));
+      await waitKnowledge(
+        tester,
+        () => find.text(journalDate(today)).evaluate().isNotEmpty,
+      );
+      final saved = (await tester.runAsync(
+        () async => MarkdownDocument.decode(
+          await repository.load('journal-${journalDate(today)}'),
+        ),
+      ))!;
+      expect(saved.source, contains('# Daily ${journalDate(today)}'));
+      expect(saved.source, contains('Write it down'));
+      final old = await tester.runAsync(
+        () async => MarkdownDocument.decode(await repository.load(previous.id)),
+      );
+      expect(old!.source, '# Earlier entry\n');
       expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
     },
   );
+
   testWidgets('templates are editable and persist in the hub', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

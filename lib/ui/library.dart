@@ -96,6 +96,7 @@ class _LibraryPageState extends State<LibraryPage> {
     if (widget.workspaceController case final workspace?) {
       workspace.refresh = _refresh;
       workspace.syncQuickTodos = _syncQuickTodos;
+      workspace.syncJournal = _syncChangedNote;
       workspace.commands = {
         AppShortcut.knowledgeSearch: () => _knowledge(autofocusSearch: true),
         AppShortcut.importFile: _import,
@@ -175,9 +176,14 @@ class _LibraryPageState extends State<LibraryPage> {
     };
   }
 
-  Future<void> _syncQuickTodos() async {
-    if (mounted && !_busy && _sync.enabled && _sync.automatic) {
+  Future<void> _syncQuickTodos() => _syncChangedNote(null);
+
+  Future<void> _syncChangedNote(Notebook? note) async {
+    if (!mounted || _busy || !_sync.enabled || !_sync.automatic) return;
+    if (note == null) {
       await _sync.synchronizePreferences();
+    } else if (!_isOpen(note)) {
+      await _sync.synchronize(noteId: note.id, onlyIfChanged: true);
     }
   }
 
@@ -220,6 +226,7 @@ class _LibraryPageState extends State<LibraryPage> {
   void dispose() {
     widget.workspaceController?.refresh = null;
     widget.workspaceController?.syncQuickTodos = null;
+    widget.workspaceController?.syncJournal = null;
     widget.workspaceController?.commands = const {};
     _sync.removeListener(_syncChanged);
     MediaGateway.recoveredCapture.removeListener(_captureRecovered);
@@ -627,15 +634,8 @@ class _LibraryPageState extends State<LibraryPage> {
           onImportFile: (onImported) => _import(onImported: onImported),
           onQuickTodo: _quickTodo,
           onQuickTodosChanged: _syncQuickTodos,
-          onTaskPlanned: (note) async {
-            if (mounted &&
-                !_busy &&
-                _sync.enabled &&
-                _sync.automatic &&
-                !_isOpen(note)) {
-              await _sync.synchronize(noteId: note.id, onlyIfChanged: true);
-            }
-          },
+          onJournalChanged: _syncChangedNote,
+          onTaskPlanned: _syncChangedNote,
         ),
       ),
     );

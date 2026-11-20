@@ -7,6 +7,9 @@ import '../data/knowledge.dart';
 import '../data/keyboard_shortcuts.dart';
 import '../data/library_backup.dart';
 import '../data/notebook.dart';
+import 'journal_calendar.dart';
+import 'journal_template_dialog.dart';
+import 'markdown_editor.dart';
 import 'noter_theme.dart';
 import 'plan_todo_dialog.dart';
 import 'quick_todo_dialog.dart';
@@ -25,6 +28,7 @@ class KnowledgePage extends StatefulWidget {
     this.onQuickTodo,
     this.onTaskPlanned,
     this.onQuickTodosChanged,
+    this.onJournalChanged,
   });
   final LocalNotebookRepository repository;
   final String initialSection;
@@ -36,6 +40,7 @@ class KnowledgePage extends StatefulWidget {
   final Future<bool> Function()? onQuickTodo;
   final Future<void> Function(Notebook)? onTaskPlanned;
   final Future<void> Function()? onQuickTodosChanged;
+  final Future<void> Function(Notebook?)? onJournalChanged;
   @override
   State<KnowledgePage> createState() => _KnowledgePageState();
 }
@@ -75,7 +80,8 @@ class _KnowledgePageState extends State<KnowledgePage> {
   bool _scannedQuickTodosOnly = false;
   List<Notebook> _notes = [];
   List<File> _backups = [];
-  DateTime _date = DateTime.now();
+  DateTime _date = DateUtils.dateOnly(DateTime.now());
+  late DateTime _journalMonth = DateTime(_date.year, _date.month);
   bool get _taskSection => _section == 'Tasks';
   bool get _fixedTag => _section == 'Inbox';
   bool get _autoSearch => _taskSection || _section == 'Inbox';
@@ -843,151 +849,184 @@ class _KnowledgePageState extends State<KnowledgePage> {
     );
   }
 
-  Future<void> _openJournalDay(DateTime date) => _work(() async {
-    final note = await _store.journal(date);
-    if (mounted) _open(note, 'edit:end');
-  });
-  Future<void> _journalSettings() async {
-    final selected = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Journal template'),
-        content: SizedBox(
-          width: 400,
-          height: MediaQuery.sizeOf(context).height * .45,
-          child: ListView(
-            children: [
-              ListTile(
-                title: const Text('Blank entry'),
-                trailing: _store.journalTemplate == null
-                    ? const Icon(Icons.check)
-                    : null,
-                onTap: () => Navigator.pop(context, ''),
-              ),
-              for (final template in _store.templates)
-                ListTile(
-                  title: Text(template.name),
-                  trailing: _store.journalTemplate == template.id
-                      ? const Icon(Icons.check)
-                      : null,
-                  onTap: () => Navigator.pop(context, template.id),
-                ),
-            ],
-          ),
+  Future<void> _showJournalNote(Notebook note) => _work(() async {
+    if (!await FileGateway.prepareClose() || !mounted) return;
+    final bytes = await widget.repository.load(note.id);
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+    final route = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => MarkdownEditorPage(
+          note: note,
+          bytes: bytes,
+          repository: widget.repository,
+          initialAnchor: '',
+          backLabel: 'Back to journal',
+          onQuickTodosChanged: widget.onQuickTodosChanged,
+          onJournalChanged: widget.onJournalChanged,
+          onLibrary: () async => Navigator.pop(context, true),
         ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              setState(() => _section = 'Templates');
-            },
-            child: const Text('Manage templates'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-        ],
       ),
     );
-    if (selected != null && mounted) {
-      await _work(() async {
-        _store.journalTemplate = selected.isEmpty ? null : selected;
-        await _store.save();
-      });
-    }
+    if (!mounted) return;
+    await FileGateway.refreshOpenDocuments?.call();
+    if (route == true && mounted) await widget.onJournalChanged?.call(note);
+    final notes = await widget.repository.list();
+    if (mounted) setState(() => _notes = notes);
+  });
+
+  Future<void> _appendJournal() async {
+    if (!await FileGateway.prepareClose() || !mounted) return;
+    final day = _date;
+    final note = await showDialog<Notebook>(
+      context: context,
+      builder: (_) => _JournalEntryDialog(
+        date: day,
+        onSave: (text, id, at) =>
+            _store.appendJournal(day, text, entryId: id, recordedAt: at),
+      ),
+    );
+    if (note == null || !mounted) return;
+    await FileGateway.refreshOpenDocuments?.call();
+    await _load();
+    if (mounted) await widget.onJournalChanged?.call(note);
+  }
+
+  Future<void> _journalSettings() async {
+    final selection = await showDialog<(String, String)>(
+      context: context,
+      builder: (_) => JournalTemplateDialog(
+        templates: _store.templates,
+        templateId: _store.journalTemplate,
+        date: _date,
+      ),
+    );
+    if (selection == null || !mounted) return;
+    await _work(() async {
+      await _store.reload();
+      final (id, source) = selection;
+      if (source.trim().isEmpty) {
+        _store.journalTemplate = null;
+      } else {
+        final template = _store.templates
+            .where((entry) => entry.id == id)
+            .firstOrNull;
+        final updated = MarkdownTemplate(
+          template?.id ?? LocalNotebookRepository.newId(),
+          template?.name ?? 'Custom journal',
+          source,
+        );
+        _store.templates = [
+          for (final entry in _store.templates)
+            entry.id == updated.id ? updated : entry,
+          if (template == null) updated,
+        ];
+        _store.journalTemplate = updated.id;
+      }
+      await _store.save();
+      if (mounted) await widget.onJournalChanged?.call(null);
+    });
   }
 
   Widget _journal() {
-    final entries =
-        _notes.where((note) => journalEntryDate(note) != null).toList()..sort(
-          (a, b) => journalEntryDate(b)!.compareTo(journalEntryDate(a)!),
-        );
+    final byDay = <String, Notebook>{};
+    for (final note in _notes) {
+      final day = journalEntryDate(note);
+      if (day == null) continue;
+      if (note.id == 'journal-$day' || !byDay.containsKey(day)) {
+        byDay[day] = note;
+      }
+    }
+    final selectedNote = byDay[journalDate(_date)];
+    void selectDay(DateTime day) {
+      setState(() {
+        _date = day;
+        _journalMonth = DateTime(day.year, day.month);
+      });
+      final note = byDay[journalDate(day)];
+      if (note != null) unawaited(_showJournalNote(note));
+    }
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Row(
-          children: [
-            IconButton(
-              tooltip: 'Previous day',
-              onPressed: _busy
-                  ? null
-                  : () => setState(
-                      () => _date = DateTime(
-                        _date.year,
-                        _date.month,
-                        _date.day - 1,
-                      ),
-                    ),
-              icon: const Icon(Icons.chevron_left),
-            ),
-            Expanded(
-              child: TextButton(
-                onPressed: _busy
-                    ? null
-                    : () async {
-                        final date = await showDatePicker(
-                          context: context,
-                          initialDate: _date,
-                          firstDate: DateTime(1900),
-                          lastDate: DateTime(2200),
-                        );
-                        if (date != null && mounted) {
-                          setState(() => _date = date);
-                        }
-                      },
-                child: Text(journalDate(_date)),
-              ),
-            ),
-            IconButton(
-              tooltip: 'Next day',
-              onPressed: _busy
-                  ? null
-                  : () => setState(
-                      () => _date = DateTime(
-                        _date.year,
-                        _date.month,
-                        _date.day + 1,
-                      ),
-                    ),
-              icon: const Icon(Icons.chevron_right),
-            ),
-          ],
-        ),
         Wrap(
           spacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
+          runSpacing: 8,
           children: [
-            FilledButton(
-              onPressed: _busy ? null : () => _openJournalDay(_date),
-              child: const Text('Open day'),
+            OutlinedButton.icon(
+              onPressed: _busy
+                  ? null
+                  : () => selectDay(DateUtils.dateOnly(DateTime.now())),
+              icon: const Icon(Icons.today_outlined),
+              label: const Text('Today'),
             ),
-            TextButton(
-              onPressed: _busy ? null : () => _openJournalDay(DateTime.now()),
-              child: const Text('Today'),
-            ),
-            IconButton(
-              tooltip: 'Journal template',
+            OutlinedButton.icon(
               onPressed: _busy ? null : _journalSettings,
               icon: const Icon(Icons.tune),
+              label: const Text('Journal template'),
             ),
           ],
         ),
         const SizedBox(height: 16),
-        for (final note in entries)
-          ListTile(
-            leading: const Icon(Icons.calendar_today_outlined),
-            title: Text(note.title),
-            subtitle: note.title == journalEntryDate(note)
-                ? null
-                : Text(journalEntryDate(note)!),
-            onTap: () => _open(note, 'edit:end'),
-          ),
-        if (entries.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(24),
-            child: Text('Open today to start your journal.'),
-          ),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final calendar = JournalCalendar(
+              month: _journalMonth,
+              selected: _date,
+              entryDays: byDay.keys.toSet(),
+              onMonth: _busy
+                  ? null
+                  : (month) => setState(() => _journalMonth = month),
+              onDay: _busy ? null : selectDay,
+            );
+            final details = Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    MaterialLocalizations.of(context).formatFullDate(_date),
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  if (selectedNote == null)
+                    const Text('No journal entry for this day.')
+                  else
+                    TextButton.icon(
+                      onPressed: _busy
+                          ? null
+                          : () => _showJournalNote(selectedNote),
+                      icon: const Icon(Icons.description_outlined),
+                      label: Text(selectedNote.title),
+                    ),
+                  const SizedBox(height: 8),
+                  FilledButton.icon(
+                    onPressed: _busy ? null : _appendJournal,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add entry'),
+                  ),
+                ],
+              ),
+            );
+            if (!NoterTheme.desktopControls(context) ||
+                constraints.maxWidth < 680) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [calendar, const Divider(height: 32), details],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: calendar),
+                const SizedBox(width: 32),
+                Expanded(child: details),
+              ],
+            );
+          },
+        ),
       ],
     );
   }
@@ -1502,5 +1541,77 @@ class _KnowledgePageState extends State<KnowledgePage> {
         ),
       ),
     ],
+  );
+}
+
+class _JournalEntryDialog extends StatefulWidget {
+  const _JournalEntryDialog({required this.date, required this.onSave});
+
+  final DateTime date;
+  final Future<Notebook> Function(String text, String id, DateTime at) onSave;
+
+  @override
+  State<_JournalEntryDialog> createState() => _JournalEntryDialogState();
+}
+
+class _JournalEntryDialogState extends State<_JournalEntryDialog> {
+  final _id = LocalNotebookRepository.newId();
+  final _recordedAt = DateTime.now();
+  String _text = '';
+  String? _error;
+  bool _saving = false;
+
+  Future<void> _save() async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final note = await widget.onSave(_text, _id, _recordedAt);
+      if (mounted) Navigator.pop(context, note);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = '$error';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_saving,
+    child: AlertDialog(
+      scrollable: true,
+      title: const Text('Add journal entry'),
+      content: SizedBox(
+        width: 420,
+        child: TextField(
+          autofocus: true,
+          readOnly: _saving,
+          minLines: 3,
+          maxLines: 10,
+          onChanged: (value) => setState(() => _text = value),
+          decoration: InputDecoration(
+            labelText: 'Journal entry',
+            helperText: MaterialLocalizations.of(
+              context,
+            ).formatFullDate(widget.date),
+            errorText: _error,
+            errorMaxLines: 3,
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _saving || _text.trim().isEmpty ? null : _save,
+          child: Text(_saving ? 'Saving…' : 'Save entry'),
+        ),
+      ],
+    ),
   );
 }
