@@ -32,8 +32,8 @@ impl Hooks for App {
 
     fn routes(_ctx: &AppContext) -> AppRoutes {
         AppRoutes::empty()
-            .add_route(crate::api::routes())
-            .add_route(crate::admin::routes())
+            .add_route(crate::api::routes().routes)
+            .add_route(crate::admin::routes().routes)
     }
 
     async fn after_context(ctx: AppContext) -> Result<AppContext> {

@@ -51,6 +51,15 @@ def main():
             run("up", "-d", "--build", "--wait", "--wait-timeout", "120", capture=False)
             address = run("port", "server", "5150").strip()
             base = f"http://{address}/api/v1"
+            with urllib.request.urlopen(base + "/openapi.json", timeout=30) as response:
+                assert response.headers.get_content_type() == "application/json"
+                openapi = json.load(response)
+            assert openapi == json.loads(run("exec", "-T", "server", "noter-server", "openapi"))
+            assert openapi["openapi"].startswith("3.")
+            assert openapi["paths"]["/api/v1/commits"]["post"]["security"] == [{"device_token": []}]
+            assert openapi["paths"]["/admin/api/accounts/{id}/pairing"]["post"]["security"] == [{"admin_session": []}]
+            assert "101" in openapi["paths"]["/api/v1/live/{id}"]["get"]["responses"]
+            print("PASS: Loco routes generate the same OpenAPI contract over HTTP and CLI")
             assert admin_users() == [], "A fresh server should start without an admin account"
             init_admin = ("exec", "-T", "server", "noter-server", "admin", "init-admin")
             output = run(*init_admin)
