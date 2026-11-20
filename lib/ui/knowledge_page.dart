@@ -7,7 +7,6 @@ import '../data/knowledge.dart';
 import '../data/keyboard_shortcuts.dart';
 import '../data/library_backup.dart';
 import '../data/notebook.dart';
-import '../data/quick_todos.dart';
 import 'journal_calendar.dart';
 import 'journal_template_dialog.dart';
 import 'markdown_editor.dart';
@@ -16,6 +15,7 @@ import 'plan_todo_dialog.dart';
 import 'quick_todo_dialog.dart';
 import 'workspace_chrome.dart';
 import 'todo_timer.dart';
+import 'task_row_actions.dart';
 import 'inbox_capture_dialog.dart';
 
 class KnowledgePage extends StatefulWidget {
@@ -24,7 +24,7 @@ class KnowledgePage extends StatefulWidget {
     required this.repository,
     this.initialSection = 'Search',
     this.sharedText,
-    this.onCompleteTask,
+    this.onChangeTask,
     this.autofocusSearch = false,
     this.shortcuts,
     this.onImportFile,
@@ -36,7 +36,7 @@ class KnowledgePage extends StatefulWidget {
   final LocalNotebookRepository repository;
   final String initialSection;
   final String? sharedText;
-  final Future<void> Function(KnowledgeTask)? onCompleteTask;
+  final Future<void> Function(KnowledgeTask)? onChangeTask;
   final bool autofocusSearch;
   final KeyboardShortcuts? shortcuts;
   final Future<void> Function(VoidCallback onImported)? onImportFile;
@@ -170,7 +170,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
     kind: _kind,
     openTasks: _taskSection || (_section == 'Search' && _onlyTasks),
   );
-  Future<void> _search() async {
+  Future<void> _search({bool keepResults = false}) async {
     if (_busy) return;
     final generation = ++_generation;
     final onlyQuickTodos =
@@ -180,7 +180,7 @@ class _KnowledgePageState extends State<KnowledgePage> {
     setState(() {
       _busy = true;
       _error = null;
-      _scan = null;
+      if (!keepResults) _scan = null;
       _searching = true;
       _cancelRequested = false;
       _completed = 0;
@@ -358,10 +358,11 @@ class _KnowledgePageState extends State<KnowledgePage> {
     });
   }
 
-  Future<void> _complete(KnowledgeTask task) async {
+  Future<void> _changeTask(KnowledgeTask task) async {
+    if (_busy) return;
     await _work(() async {
       if (task.quickTodo != null) {
-        await _store.changeTaskStatus(task.quickTodo!, !task.quickTodo!.done);
+        await _store.changeTask(task);
         if (mounted) await widget.onQuickTodosChanged?.call();
         return;
       }
@@ -370,32 +371,9 @@ class _KnowledgePageState extends State<KnowledgePage> {
           'Save open documents before changing a task.',
         );
       }
-      if (widget.onCompleteTask != null) {
-        await widget.onCompleteTask!(task);
-      } else {
-        await _store.completeTask(task);
-      }
+      await (widget.onChangeTask ?? _store.changeTask)(task);
     });
-    if (_error == null && mounted) await _search();
-  }
-
-  Future<void> _timer(KnowledgeTask task, TodoTimerAction action) async {
-    await _work(() async {
-      if (task.quickTodo != null) {
-        await _store.changeTaskTimer(task.quickTodo!, action);
-        if (mounted) await widget.onQuickTodosChanged?.call();
-        return;
-      }
-      if (!await FileGateway.prepareClose()) {
-        throw const FormatException(
-          'Save open documents before changing a task.',
-        );
-      }
-      await (widget.onCompleteTask ?? _store.completeTask)(
-        task.withTimer(action),
-      );
-    });
-    if (mounted && _error == null) await _search();
+    if (mounted && _error == null) await _search(keepResults: true);
   }
 
   Future<void> _quickTodo() async {
@@ -532,6 +510,11 @@ class _KnowledgePageState extends State<KnowledgePage> {
     final scan = _scan;
     final today = journalDate(DateTime.now());
     final hits = scan == null ? const <KnowledgeHit>[] : _taskHits(scan, today);
+    final taskIndices = <(String, String), int>{
+      if (_view.openTasks)
+        for (var i = 0; i < hits.length; i++)
+          (hits[i].note.id, hits[i].anchor): i,
+    };
     final filtersVisible =
         _filtersExpanded ?? NoterTheme.desktopControls(context);
     final activeFilters = [
@@ -794,6 +777,9 @@ class _KnowledgePageState extends State<KnowledgePage> {
         else
           SliverList.builder(
             itemCount: hits.length,
+            findChildIndexCallback: (key) => key is ValueKey<(String, String)>
+                ? taskIndices[key.value]
+                : null,
             itemBuilder: (context, index) {
               final hit = hits[index];
               final task = scan.tasksByLocation['${hit.note.id}:${hit.anchor}'];
@@ -802,11 +788,11 @@ class _KnowledgePageState extends State<KnowledgePage> {
                 _view.openTasks ? task : null,
                 today,
               );
-              return ListTile(
+              final row = ListTile(
                 leading: _view.openTasks && task != null
                     ? Checkbox(
                         value: task.done,
-                        onChanged: _busy ? null : (_) => _complete(task),
+                        onChanged: _busy ? null : (_) => _changeTask(task),
                       )
                     : Icon(
                         hit.note.isMedia
@@ -836,7 +822,12 @@ class _KnowledgePageState extends State<KnowledgePage> {
                               todo: todo,
                               onChanged: _busy
                                   ? null
-                                  : (action) => _timer(task, action),
+                                  : ({timer, workTime}) => _changeTask(
+                                      task.withTimer(
+                                        timer: timer,
+                                        workTime: workTime,
+                                      ),
+                                    ),
                             ),
                           if (task.canPlan && !task.done)
                             IconButton(
@@ -855,6 +846,15 @@ class _KnowledgePageState extends State<KnowledgePage> {
                           : () => _planTodo(task)
                     : () => _open(hit.note, hit.anchor),
               );
+              return task == null || !_view.openTasks
+                  ? row
+                  : TaskRowActions(
+                      key: ValueKey((hit.note.id, hit.anchor)),
+                      onDelete: _busy
+                          ? null
+                          : () => _changeTask(task.forDeletion()),
+                      child: row,
+                    );
             },
           ),
       ],

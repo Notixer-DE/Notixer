@@ -65,6 +65,115 @@ void main() {
   tearDown(() async {
     await directory.delete(recursive: true);
   });
+  testWidgets(
+    'swipe deletes a quick to-do and long press deletes a checklist row',
+    (tester) async {
+      await tester.runAsync(
+        () => KnowledgeStore(repository).addQuickTodo('Swipe this'),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: KnowledgePage(repository: repository, initialSection: 'Tasks'),
+        ),
+      );
+      final quick = find.text('Swipe this');
+      await waitKnowledge(tester, () => quick.evaluate().isNotEmpty);
+      await tester.ensureVisible(quick);
+      await tester.drag(quick, const Offset(500, 0));
+      await waitKnowledge(tester, () => quick.evaluate().isEmpty);
+      expect(
+        await tester.runAsync(
+          () => KnowledgeStore(repository).quickTodos.read(),
+        ),
+        isEmpty,
+      );
+
+      final checklist = find.text('Read the chapter');
+      await tester.ensureVisible(checklist);
+      await tester.longPress(checklist);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete to-do'));
+      await waitKnowledge(tester, () => checklist.evaluate().isEmpty);
+      final source = await tester.runAsync(
+        () async =>
+            MarkdownDocument.decode(await repository.load(note.id)).source,
+      );
+      expect(source, '# Outline\n\n- [x] Finished');
+    },
+  );
+
+  testWidgets(
+    'focus starts a task timer and allows a manual correction and reset',
+    (tester) async {
+      final store = KnowledgeStore(repository);
+      final todo = await tester.runAsync(
+        () => store.addQuickTodo('Focused task'),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: KnowledgePage(repository: repository, initialSection: 'Tasks'),
+        ),
+      );
+      final task = find.ancestor(
+        of: find.text('Focused task'),
+        matching: find.byType(ListTile),
+      );
+      await waitKnowledge(tester, () => task.evaluate().isNotEmpty);
+      await tester.tap(
+        find.descendant(of: task, matching: find.byTooltip('Task timer')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Start timer'));
+      await waitKnowledge(
+        tester,
+        () => find.text('Time tracked · Running').evaluate().isNotEmpty,
+      );
+      expect(find.text('Focus timer'), findsOneWidget);
+      await tester.tap(find.text('Set target time'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('remaining'), findsOneWidget);
+
+      await tester.tap(find.text('Pause'));
+      await waitKnowledge(
+        tester,
+        () => find.text('Resume').evaluate().isNotEmpty,
+      );
+      Future<void> timeMenu(String label) async {
+        await tester.tap(find.byTooltip('Time options'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+      }
+
+      await timeMenu('Set tracked time');
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Minutes'),
+        '12',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Seconds'),
+        '0',
+      );
+      await tester.tap(find.text('Save'));
+      await waitKnowledge(
+        tester,
+        () => find.text('12:00').evaluate().isNotEmpty,
+      );
+      await timeMenu('Reset timer');
+      await waitKnowledge(
+        tester,
+        () => find.text('00:00').evaluate().isNotEmpty,
+      );
+      final updated = await tester.runAsync(() => store.quickTodos.read());
+      expect(updated![todo!.id]!.workMilliseconds, 0);
+      expect(updated[todo.id]!.timerStartedAt, isNull);
+      await tester.tap(find.byType(CloseButton));
+      await tester.pumpAndSettle();
+    },
+  );
+
   testWidgets('plan a to-do from Unsorted and review Today and Projects', (
     tester,
   ) async {

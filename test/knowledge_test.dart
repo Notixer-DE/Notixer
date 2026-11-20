@@ -49,7 +49,7 @@ void main() {
       expect(scan.hits.single.snippet, task);
       final open = scan.tasksByLocation['${todo.id}:line=1']!;
       expect(open.canPlan, isFalse);
-      await store.completeTask(open);
+      await store.changeTask(open);
 
       final remote = MemoryRemote();
       final second = LocalNotebookRepository(
@@ -123,7 +123,7 @@ void main() {
       final otherTask = (await secondStore.scan(
         view,
       )).tasks.singleWhere((task) => task.quickTodo?.id == other.id);
-      await secondStore.completeTask(otherTask);
+      await secondStore.changeTask(otherTask);
       final third = await secondStore.addQuickTodo('Send invitations');
       await syncFirst.run();
       await syncSecond.run();
@@ -150,6 +150,42 @@ void main() {
       }
     },
   );
+
+  test('deleting a quick to-do wins over a stale synced edit', () async {
+    final remote = MemoryRemote();
+    final second = LocalNotebookRepository(
+      Directory('${directory.path}/second'),
+    );
+    final firstStore = KnowledgeStore(repository);
+    final secondStore = KnowledgeStore(second);
+    const view = KnowledgeView('', openTasks: true);
+    final todo = await firstStore.addQuickTodo('Remove from all devices');
+    final syncFirst = LibraryExtrasSync(repository, remote);
+    final syncSecond = LibraryExtrasSync(second, remote);
+    await syncFirst.run();
+    await syncSecond.run();
+
+    final firstTask = (await firstStore.scan(view)).tasks.single;
+    await firstStore.changeTask(firstTask.forDeletion());
+    final stale = (await secondStore.scan(view)).tasks.single;
+    await secondStore.changeTask(
+      stale.withTimer(workTime: const Duration(minutes: 7)),
+    );
+    await syncFirst.run();
+    await syncSecond.run();
+    await syncFirst.run();
+
+    for (final store in [firstStore, secondStore]) {
+      expect((await store.quickTodos.read()).containsKey(todo.id), isFalse);
+      expect((await store.scan(view)).tasks, isEmpty);
+    }
+    final backup = await LibraryBackup(repository).snapshot();
+    final restored = LocalNotebookRepository(
+      Directory('${directory.path}/restored'),
+    );
+    await LibraryBackup(restored).restore(backup);
+    expect(await KnowledgeStore(restored).quickTodos.read(), isEmpty);
+  });
 
   test(
     'migration keeps legacy planning and completion and preserves customized notes',
@@ -532,7 +568,7 @@ void main() {
       );
       expect(scan.tasks.map((t) => t.text), ['First', 'Quoted']);
       expect(scan.hits.map((h) => h.anchor), ['line=1', 'line=8']);
-      await store.completeTask(scan.tasks.first);
+      await store.changeTask(scan.tasks.first);
       expect(
         (await store.scan(
           const KnowledgeView('', openTasks: true),
@@ -540,7 +576,7 @@ void main() {
         1,
       );
       await expectLater(
-        store.completeTask(scan.tasks.last),
+        store.changeTask(scan.tasks.last),
         throwsFormatException,
       );
       expect(

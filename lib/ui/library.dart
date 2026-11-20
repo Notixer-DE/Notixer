@@ -54,11 +54,11 @@ class LibraryPage extends StatefulWidget {
     this.isNotebookOpen,
     this.hasOpenDocuments,
     this.onOpenDestination,
-    this.onCompleteTask,
+    this.onChangeTask,
     this.onRefreshDocuments,
   });
   final OpenNotebookTab? onOpenDestination;
-  final Future<void> Function(KnowledgeTask)? onCompleteTask;
+  final Future<void> Function(KnowledgeTask)? onChangeTask;
   final Future<void> Function()? onRefreshDocuments;
   final LocalNotebookRepository repository;
   final SyncController? syncController;
@@ -691,7 +691,11 @@ class _LibraryPageState extends State<LibraryPage> {
           repository: widget.repository,
           initialSection: section,
           sharedText: sharedText,
-          onCompleteTask: widget.onCompleteTask,
+          onChangeTask: (task) async {
+            await (widget.onChangeTask ??
+                KnowledgeStore(widget.repository).changeTask)(task);
+            if (task.deleting) await _syncChangedNote(task.note);
+          },
           autofocusSearch: autofocusSearch,
           shortcuts: widget.shortcuts,
           onImportFile: (onImported) => _import(onImported: onImported),

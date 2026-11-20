@@ -10,6 +10,7 @@ import '../data/knowledge.dart';
 import '../data/keyboard_shortcuts.dart';
 import '../data/markdown_document.dart';
 import '../input/stylus_eraser.dart';
+import '../live/desktop_live_broadcasts.dart';
 import '../sync/sync_controller.dart';
 import 'document_tab.dart';
 import 'workspace_chrome.dart';
@@ -65,12 +66,12 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
   String? get activeNotebookId =>
       _selected < 0 ? null : _tabs[_selected].note.id;
 
-  Future<void> _completeKnowledgeTask(KnowledgeTask task) async {
+  Future<void> _changeKnowledgeTask(KnowledgeTask task) async {
     final tabs = _tabs.where((tab) => tab.note.id == task.note.id);
-    if (tabs.isNotEmpty && tabs.first.controller.completeTask != null) {
-      await tabs.first.controller.completeTask!(task);
+    if (tabs.isNotEmpty && tabs.first.controller.changeTask != null) {
+      await tabs.first.controller.changeTask!(task);
     } else {
-      await KnowledgeStore(widget.repository).completeTask(task);
+      await KnowledgeStore(widget.repository).changeTask(task);
     }
   }
 
@@ -85,7 +86,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
     super.initState();
     unawaited(_shortcuts.load());
     FileGateway.openDocument = openNotebook;
-    FileGateway.completeKnowledgeTask = _completeKnowledgeTask;
+    FileGateway.changeKnowledgeTask = _changeKnowledgeTask;
     FileGateway.refreshOpenDocuments = _refreshOpenDocuments;
     WidgetsBinding.instance.addObserver(this);
     _previousClose = FileGateway.beforeClose;
@@ -389,6 +390,8 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                 ),
               ),
             ),
+          if (Platform.isLinux || Platform.isWindows)
+            DesktopLiveBroadcasts(sync: _sync),
           if (_busy) const LinearProgressIndicator(minHeight: 2),
           Expanded(
             child: Stack(
@@ -421,7 +424,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                                   _tabs.any((tab) => tab.note.id == id),
                               onOpenNotebook: (note) => openNotebook(note),
                               onOpenDestination: openNotebook,
-                              onCompleteTask: _completeKnowledgeTask,
+                              onChangeTask: _changeKnowledgeTask,
                               onRefreshDocuments: _refreshOpenDocuments,
                             ),
                           ),
@@ -499,7 +502,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     FileGateway.openDocument = null;
-    FileGateway.completeKnowledgeTask = null;
+    FileGateway.changeKnowledgeTask = null;
     FileGateway.refreshOpenDocuments = null;
     if (identical(FileGateway.beforeClose, _closeHandler)) {
       FileGateway.beforeClose = _previousClose;

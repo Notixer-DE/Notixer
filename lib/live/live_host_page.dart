@@ -2,20 +2,21 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
 import 'package:pdf_document/pdf_document.dart' show PdfDocument;
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../data/ink.dart';
 import '../data/notebook.dart';
 import '../data/paper.dart';
-import '../sync/server_remote.dart';
+import '../input/stylus_eraser.dart';
+import '../input/stylus_input.dart';
 import '../sync/sync_controller.dart';
-import '../sync/sync_crypto.dart';
 import 'live_canvas.dart';
 import 'live_channel.dart';
+import 'live_sessions.dart';
 
 enum _CanvasTool { pen, marker, eraser }
 
@@ -35,10 +36,14 @@ class _LiveHostPageState extends State<LiveHostPage> {
   WebSocketChannel? _socket;
   LiveChannel? _session;
   Uri? _invite;
-  String? _token, _error;
+  LiveSessions? _sharing;
+  String? _error;
   String _status = 'Drawing locally';
   int _sequence = 0, _viewers = 0, _attempts = 0;
   int? _pointer;
+  bool _touchContact = false, _fingerDrawing = false;
+  bool _pressureSensitive = true;
+  _CanvasTool? _contactTool;
   bool _sending = false, _busy = false, _leaving = false;
   int? _savedSequence;
   Notebook? _savedNote;
@@ -58,48 +63,69 @@ class _LiveHostPageState extends State<LiveHostPage> {
     final socket = _socket;
     if (socket != null) unawaited(socket.sink.close());
     final session = _session;
-    final token = _token;
-    if (session != null && token != null) {
-      unawaited(_endRemote(session, token).catchError((Object _) {}));
+    final sharing = _sharing;
+    if (session != null && sharing != null) {
+      unawaited(sharing.end(session.id).catchError((Object _) {}));
     }
     super.dispose();
   }
 
   void _input(PointerEvent event, Offset point) {
-    if (event is PointerDownEvent && _pointer == null) {
-      _pointer = event.pointer;
-      switch (_tool) {
-        case _CanvasTool.pen:
-          _model.begin(0xff17232c, 3);
-        case _CanvasTool.marker:
-          _model.begin(0x75f4ca22, 15);
-        case _CanvasTool.eraser:
-          _model.erase(point, 11);
-      }
-    }
-    if (event.pointer != _pointer) return;
-    if (event is PointerDownEvent || event is PointerMoveEvent) {
-      if (_tool == _CanvasTool.eraser) {
-        if (event is PointerMoveEvent) _model.erase(point, 11);
+    final touch = event.kind == PointerDeviceKind.touch;
+    if (event is PointerDownEvent) {
+      if (touch && (!_fingerDrawing || NoterBinding.stylusContactActive)) {
         return;
       }
-      final range = event.pressureMax - event.pressureMin;
-      final pressure = range > 0
-          ? (event.pressure - event.pressureMin) / range
-          : 0.5;
-      _model.point(point.dx, point.dy, pressure);
-      _flush ??= Timer(const Duration(milliseconds: 16), () {
-        _flush = null;
-        _model.flush();
-      });
-    } else if (event is PointerUpEvent || event is PointerCancelEvent) {
+      if (_pointer != null) {
+        if (!_touchContact || !isStylus(event)) return;
+        _model.cancel();
+      }
+      _pointer = event.pointer;
+      _touchContact = touch;
+      _contactTool = null;
+    }
+    if (event.pointer != _pointer) return;
+    if (event is PointerUpEvent || event is PointerCancelEvent) {
       _pointer = null;
+      _contactTool = null;
       if (event is PointerCancelEvent) {
         _model.cancel();
       } else {
         _model.finish();
       }
       setState(() {});
+      return;
+    }
+    if (event is! PointerDownEvent && event is! PointerMoveEvent) return;
+
+    final tool = usesStylusEraser(event) ? _CanvasTool.eraser : _tool;
+    if (_contactTool != tool) {
+      _model.finish();
+      _contactTool = tool;
+      _pressureSensitive = widget.repository.catalog.drawingPreferences
+          .pressureSensitive(tool == _CanvasTool.marker ? 'highlight' : 'ink');
+      switch (tool) {
+        case _CanvasTool.pen:
+          _model.begin(0xff17232c, 3);
+        case _CanvasTool.marker:
+          _model.begin(0x75f4ca22, 15);
+        case _CanvasTool.eraser:
+          break;
+      }
+      setState(() {});
+    }
+    if (tool == _CanvasTool.eraser) {
+      _model.erase(point, 11);
+    } else {
+      _model.point(
+        point.dx,
+        point.dy,
+        drawingPressure(event, sensitive: _pressureSensitive),
+      );
+      _flush ??= Timer(const Duration(milliseconds: 16), () {
+        _flush = null;
+        _model.flush();
+      });
     }
   }
 
@@ -125,39 +151,19 @@ class _LiveHostPageState extends State<LiveHostPage> {
         'Connect a Notixer sync server in Settings first.',
       );
     }
-    final server = validateServerUrl(credentials.server.toString());
-    final response = await _request(
-      'POST',
-      server.resolve('/api/v1/live'),
-      credentials.token,
-    );
-    if (response.statusCode != 200) {
-      throw const FormatException(
-        'The server could not start a Live Canvas session. Check that it is up to date.',
-      );
-    }
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    final id = body['id'] as String;
-    final invite = body['invite'] as String;
-    if (!liveTokenPattern.hasMatch(id) || !liveTokenPattern.hasMatch(invite)) {
-      throw const FormatException('Invalid Live Canvas session.');
-    }
-    final key = await SyncCrypto.generateRecoveryKey();
-    final session = LiveChannel(server, id, await SyncCrypto.create(key, id));
+    if (!mounted) return;
+    final sharing = LiveSessions(credentials);
+    final result = await sharing.start();
     if (!mounted) {
-      await _endRemote(session, credentials.token);
+      await sharing.end(result.channel.id);
       return;
     }
-    _session = session;
-    _token = credentials.token;
+    _session = result.channel;
+    _sharing = sharing;
     _sequence = 0;
     _attempts = 0;
-    _invite = server.replace(
-      path: '/',
-      fragment:
-          'live?${Uri(queryParameters: {'room': id, 'invite': invite, 'key': key}).query}',
-    );
-    await _connect(session, credentials.token);
+    _invite = result.invitation;
+    await _connect(result.channel, credentials.token);
   });
 
   Future<void> _connect(LiveChannel session, String token) async {
@@ -209,7 +215,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
     setState(() => _status = 'Reconnecting…');
     _retry?.cancel();
     _retry = Timer(const Duration(seconds: 2), () {
-      final token = _token;
+      final token = _sharing?.credentials.token;
       if (token != null) unawaited(_connect(session, token));
     });
   }
@@ -247,46 +253,25 @@ class _LiveHostPageState extends State<LiveHostPage> {
     }
   }
 
-  Future<http.Response> _request(String method, Uri url, String token) async {
-    final client = http.Client();
-    try {
-      final request = http.Request(method, url)
-        ..followRedirects = false
-        ..headers['Authorization'] = 'Bearer $token';
-      return await (() async => http.Response.fromStream(
-        await client.send(request),
-      ))().timeout(const Duration(seconds: 8));
-    } finally {
-      client.close();
-    }
-  }
-
-  Future<void> _endRemote(LiveChannel session, String token) async {
-    final response = await _request(
-      'DELETE',
-      session.server.resolve('/api/v1/live/${session.id}'),
-      token,
-    );
-    if (response.statusCode != 204) {
-      throw const FormatException('Could not end the sharing session.');
-    }
-  }
-
   void _clear(String status) {
     _retry?.cancel();
     _queue.clear();
     final socket = _socket;
     _socket = null;
     _session = null;
-    _token = null;
+    _sharing = null;
+    _viewers = 0;
     _invite = null;
     if (socket != null) unawaited(socket.sink.close());
     if (mounted) setState(() => _status = status);
   }
 
   Future<void> _stop() => _work(() async {
-    await _endRemote(_session!, _token!);
-    _clear('Sharing ended · Drawing locally');
+    final session = _session;
+    final sharing = _sharing;
+    if (session == null || sharing == null) return;
+    await sharing.end(session.id);
+    if (_session == session) _clear('Sharing ended · Drawing locally');
   });
 
   Future<void> _copyLink() async {
@@ -416,22 +401,33 @@ class _LiveHostPageState extends State<LiveHostPage> {
                 ])
                   IconButton(
                     tooltip: label,
-                    isSelected: _tool == tool,
+                    isSelected: (_contactTool ?? _tool) == tool,
                     onPressed: _pointer != null
                         ? null
                         : () => setState(() => _tool = tool),
                     icon: Icon(icon),
                   ),
                 IconButton(
+                  tooltip: _fingerDrawing
+                      ? 'Disable finger drawing'
+                      : 'Enable finger drawing',
+                  isSelected: _fingerDrawing,
+                  onPressed: _pointer != null
+                      ? null
+                      : () => setState(() => _fingerDrawing = !_fingerDrawing),
+                  icon: const Icon(Icons.touch_app_outlined),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
                   tooltip: 'Undo',
-                  onPressed: _model.canUndo
+                  onPressed: _pointer == null && _model.canUndo
                       ? () => setState(_model.undo)
                       : null,
                   icon: const Icon(Icons.undo),
                 ),
                 IconButton(
                   tooltip: 'Redo',
-                  onPressed: _model.canRedo
+                  onPressed: _pointer == null && _model.canRedo
                       ? () => setState(_model.redo)
                       : null,
                   icon: const Icon(Icons.redo),

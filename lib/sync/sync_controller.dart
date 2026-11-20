@@ -10,6 +10,8 @@ import 'server_remote.dart';
 import 'sync_crypto.dart';
 import 'sync_revision.dart';
 
+typedef LiveCredentials = ({Uri server, String token, SyncCrypto crypto});
+
 class SyncController extends ChangeNotifier {
   SyncController(this.repository, {FlutterSecureStorage? storage})
     : _storage = storage ?? const FlutterSecureStorage();
@@ -288,10 +290,12 @@ class SyncController extends ChangeNotifier {
         'Disconnected. Notes are preserved; server access has not been revoked.';
   });
 
-  Future<({Uri server, String token})?> liveCredentials() async {
+  Future<LiveCredentials?> liveCredentials() async {
     await load();
     final remote = _remote;
-    return remote == null ? null : (server: remote.server, token: remote.token);
+    return !enabled || remote == null
+        ? null
+        : (server: remote.server, token: remote.token, crypto: remote.crypto);
   }
 
   Future<String?> recoveryKey() async {

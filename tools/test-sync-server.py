@@ -228,11 +228,13 @@ def main():
             print("PASS: auth, isolation, integrity, quota-safe retry, concurrent cursors, pagination, persistence, revocation")
 
             _, token_for_live = device(owner)
+            _, desktop_for_live = device(owner)
             subprocess.run(
                 ["node", str(ROOT / "tools" / "test-live-canvas.cjs")],
                 cwd=ROOT,
                 env=dict(env, NOTIXER_LIVE_ORIGIN=f"http://{address}",
-                         NOTIXER_LIVE_HOST=token_for_live, NOTIXER_LIVE_OTHER=foreign),
+                         NOTIXER_LIVE_HOST=token_for_live, NOTIXER_LIVE_OTHER=foreign,
+                         NOTIXER_LIVE_DESKTOP=desktop_for_live),
                 check=True,
             )
 

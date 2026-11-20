@@ -98,7 +98,7 @@ class _TodoListEditorState extends State<_TodoListEditor> {
     _items = todoListItems(_source);
     if (_page.tabController case final tab?) {
       tab.attach(this, save: _session.save, anchor: _reveal);
-      tab.completeTask = _completeTask;
+      tab.changeTask = _changeTask;
       tab.commandFor = (action) =>
           action == AppShortcut.export ? _export : null;
       tab.refreshMetadata = () async {
@@ -202,7 +202,7 @@ class _TodoListEditorState extends State<_TodoListEditor> {
     );
   }
 
-  Future<void> _completeTask(KnowledgeTask task) async {
+  Future<void> _changeTask(KnowledgeTask task) async {
     if (task.note.id != _session.note.id) {
       throw const FormatException('The task changed. Reload the task list.');
     }
@@ -374,11 +374,14 @@ class _TodoListEditorState extends State<_TodoListEditor> {
                                         ),
                                         onChanged: _leaving
                                             ? null
-                                            : (action) => _replace(
+                                            : ({timer, workTime}) => _replace(
                                                 updateDocumentTask(
                                                   _source,
                                                   item.offset,
-                                                  timer: action,
+                                                  timer: timer,
+                                                  workTime: workTime,
+                                                  previousModified:
+                                                      _session.note.modified,
                                                 ),
                                               ),
                                       ),

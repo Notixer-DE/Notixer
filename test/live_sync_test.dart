@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/io_client.dart';
 import 'package:noter/data/notebook.dart';
 import 'package:noter/data/paper.dart';
+import 'package:noter/live/live_sessions.dart';
 import 'package:noter/sync/notebook_sync.dart';
 import 'package:noter/sync/server_remote.dart';
 import 'package:noter/sync/sync_crypto.dart';
@@ -67,6 +69,76 @@ void main() {
         await root.delete(recursive: true);
       }
     },
+    skip: url == null
+        ? 'Run tools/test-sync-server.py with FLUTTER_BIN'
+        : false,
+  );
+
+  test(
+    'Two real devices discover and decrypt a same-account broadcast',
+    () => HttpOverrides.runWithHttpOverrides(() async {
+      final server = Uri.parse(url!);
+      final account = Platform.environment['NOTER_TEST_ACCOUNT']!;
+      final key = await SyncCrypto.generateRecoveryKey();
+      final host = LiveSessions((
+        server: server,
+        token: Platform.environment['NOTER_TEST_TOKEN_A']!,
+        crypto: await SyncCrypto.create(key, account),
+      ));
+      final desktop = LiveSessions((
+        server: server,
+        token: Platform.environment['NOTER_TEST_TOKEN_B']!,
+        crypto: await SyncCrypto.create(key, account),
+      ));
+      final result = await host.start();
+      final channel = result.channel;
+      addTearDown(
+        () => HttpOverrides.runWithHttpOverrides(
+          () => host.end(channel.id),
+          _RealNetwork(),
+        ),
+      );
+      final hostSocket = await channel.join('host', host.credentials.token);
+      addTearDown(() => hostSocket.sink.close());
+      final hostEvents = StreamIterator(
+        hostSocket.stream.timeout(const Duration(seconds: 5)),
+      );
+      addTearDown(hostEvents.cancel);
+      expect(await hostEvents.moveNext(), isTrue);
+
+      final plans = await desktop.active();
+      expect(plans.single.id, channel.id);
+      final receiver = await desktop.channel(plans.single.id);
+      final viewer = await receiver.join(
+        'account-viewer',
+        desktop.credentials.token,
+      );
+      addTearDown(() => viewer.sink.close());
+      final viewerEvents = StreamIterator(
+        viewer.stream.timeout(const Duration(seconds: 5)),
+      );
+      addTearDown(viewerEvents.cancel);
+      expect(await viewerEvents.moveNext(), isTrue);
+      expect(viewerEvents.current, 'joined');
+      expect(await hostEvents.moveNext(), isTrue);
+      expect(hostEvents.current, '{"viewers":1}');
+
+      hostSocket.sink.add(
+        await channel.encode({'type': 'snapshot', 'add': []}, 1),
+      );
+      expect(await viewerEvents.moveNext(), isTrue);
+      expect(await receiver.decode(viewerEvents.current), {
+        'type': 'snapshot',
+        'add': [],
+        'v': 1,
+        'seq': 1,
+      });
+
+      await host.end(channel.id);
+      expect(await viewerEvents.moveNext(), isTrue);
+      expect(viewerEvents.current, 'ended');
+      expect(await desktop.active(), isEmpty);
+    }, _RealNetwork()),
     skip: url == null
         ? 'Run tools/test-sync-server.py with FLUTTER_BIN'
         : false,

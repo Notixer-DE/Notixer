@@ -40,10 +40,14 @@ class SyncCrypto {
     );
   }
 
-  String identify(String value) => hashes.Hmac(
-    hashes.sha256,
-    _identity,
-  ).convert(utf8.encode(value)).toString();
+  hashes.Digest _sign(String value) =>
+      hashes.Hmac(hashes.sha256, _identity).convert(utf8.encode(value));
+
+  String identify(String value) => _sign(value).toString();
+
+  /// Share a single room with another device without revealing the vault key.
+  String liveRoomKey(String room) =>
+      base64UrlEncode(_sign('noter:live-room:v1:$room').bytes);
   String get keyCheck => identify('noter:key-check:v1:$account');
   String wireRevision(String id) => identify('noter:revision:v1:$id');
 

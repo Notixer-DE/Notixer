@@ -120,26 +120,42 @@ class KnowledgeTask {
     this.quickTodo,
     this.documentTodo,
     this.timerAction,
+    this.workTime,
+    this.deleting = false,
   });
   final Notebook note;
   final int offset, line;
   final String text, revision;
-  final bool canPlan;
+  final bool canPlan, deleting;
   final QuickTodo? quickTodo, documentTodo;
   final TodoTimerAction? timerAction;
+  final Duration? workTime;
   QuickTodo? get todo => quickTodo ?? documentTodo;
   bool get done => todo?.done ?? false;
 
-  KnowledgeTask withTimer(TodoTimerAction action) => KnowledgeTask(
+  KnowledgeTask withTimer({TodoTimerAction? timer, Duration? workTime}) =>
+      KnowledgeTask(
+        note,
+        offset,
+        line,
+        text,
+        revision,
+        canPlan: canPlan,
+        quickTodo: quickTodo,
+        documentTodo: documentTodo,
+        timerAction: timer,
+        workTime: workTime,
+      );
+
+  KnowledgeTask forDeletion() => KnowledgeTask(
     note,
     offset,
     line,
     text,
     revision,
-    canPlan: canPlan,
     quickTodo: quickTodo,
     documentTodo: documentTodo,
-    timerAction: action,
+    deleting: true,
   );
 
   String editDocument(String source) {
@@ -148,11 +164,14 @@ class KnowledgeTask {
         (source[offset] != ' ') != done) {
       throw const FormatException('The task changed. Reload the task list.');
     }
+    if (deleting) return deleteDocumentTaskLine(source, offset);
     return updateDocumentTask(
       source,
       offset,
-      done: timerAction == null ? !done : null,
+      done: timerAction == null && workTime == null ? !done : null,
       timer: timerAction,
+      workTime: workTime,
+      previousModified: note.modified,
     );
   }
 
@@ -621,9 +640,6 @@ class KnowledgeStore {
   Future<void> changeTaskStatus(QuickTodo todo, bool done) =>
       _changeQuickTodo(todo, complete: done);
 
-  Future<void> changeTaskTimer(QuickTodo todo, TodoTimerAction action) =>
-      _changeQuickTodo(todo, timer: action);
-
   Future<void> _changeQuickTodo(
     QuickTodo expected, {
     String? project,
@@ -631,12 +647,20 @@ class KnowledgeStore {
     String? text,
     bool? complete,
     TodoTimerAction? timer,
+    Duration? workTime,
+    bool delete = false,
   }) => quickTodos.change((tasks) {
     final current = tasks[expected.id];
-    if (current == null || current.revision != expected.revision) {
+    if (current == null ||
+        current.deleted ||
+        current.revision != expected.revision) {
       throw const FormatException('The to-do changed. Reload the task list.');
     }
-    final preservePlan = complete != null || timer != null;
+    if (delete) {
+      tasks[current.id] = current.delete(DateTime.now());
+      return;
+    }
+    final preservePlan = complete != null || timer != null || workTime != null;
     tasks[current.id] = current.update(
       DateTime.now(),
       project: preservePlan ? current.project : project,
@@ -644,6 +668,7 @@ class KnowledgeStore {
       text: text,
       done: complete,
       timer: timer,
+      workTime: workTime,
     );
   });
 
@@ -862,14 +887,16 @@ class KnowledgeStore {
     return KnowledgeScan(hits, tasks, warnings);
   }
 
-  Future<void> completeTask(KnowledgeTask task) async {
+  Future<void> changeTask(KnowledgeTask task) async {
     final todo = task.quickTodo;
     if (todo != null) {
       final timer = task.timerAction;
-      if (timer == null) {
+      if (task.deleting) {
+        await _changeQuickTodo(todo, delete: true);
+      } else if (timer == null && task.workTime == null) {
         await changeTaskStatus(todo, !todo.done);
       } else {
-        await changeTaskTimer(todo, timer);
+        await _changeQuickTodo(todo, timer: timer, workTime: task.workTime);
       }
       return;
     }
