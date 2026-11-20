@@ -78,7 +78,6 @@ pub(crate) async fn create(
     let owner = authenticate(&ctx.db, &headers).await?.device;
     let store = store(&ctx)?;
     let mut rooms = store.rooms.lock().await;
-    rooms.retain(|_, room| active(room));
     if rooms.len() >= 32 || rooms.values().filter(|room| room.owner == owner).count() >= 2 {
         return Err(ApiError(StatusCode::TOO_MANY_REQUESTS));
     }

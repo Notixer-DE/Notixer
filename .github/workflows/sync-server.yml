@@ -26,5 +26,12 @@ jobs:
       - run: flutter pub get --enforce-lockfile
       - run: cargo fmt --manifest-path server/Cargo.toml --check
       - run: cargo test --manifest-path server/Cargo.toml --locked
-      - run: cargo clippy --manifest-path server/Cargo.toml --locked --all-targets -- -D warnings
+      - name: Check server lints
+        run: |
+          if ! cargo clippy --manifest-path server/Cargo.toml --locked --all-targets --message-format=short -- -D warnings 2>&1 | tee "$RUNNER_TEMP/server-clippy.log"; then
+            while IFS= read -r message; do
+              echo "::error title=Clippy::${message//%/%25}"
+            done < <(grep -E '(^error:|: error:)' "$RUNNER_TEMP/server-clippy.log")
+            exit 1
+          fi
       - run: FLUTTER_BIN="$(command -v flutter)" python3 tools/test-sync-server.py
