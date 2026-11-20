@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../data/file_gateway.dart';
+import '../data/document_task.dart';
 import '../data/keyboard_shortcuts.dart';
 import '../data/knowledge.dart';
 import '../data/markdown_document.dart';
@@ -12,6 +13,7 @@ import '../data/notebook.dart';
 import '../data/todo_list.dart';
 import 'document_tab.dart';
 import 'noter_theme.dart';
+import 'todo_timer.dart';
 import 'workspace_chrome.dart';
 
 class TodoListPage extends StatefulWidget {
@@ -201,15 +203,10 @@ class _TodoListEditorState extends State<_TodoListEditor> {
   }
 
   Future<void> _completeTask(KnowledgeTask task) async {
-    final item = _items
-        .where((item) => item.offset == task.offset && !item.done)
-        .firstOrNull;
-    if (task.note.id != _session.note.id ||
-        item == null ||
-        task.revision != markdownRevision(_source)) {
+    if (task.note.id != _session.note.id) {
       throw const FormatException('The task changed. Reload the task list.');
     }
-    _replace(item.check(_source, true));
+    _replace(task.editDocument(_source));
     if (!await _session.save()) throw StateError(_session.error!);
   }
 
@@ -365,13 +362,34 @@ class _TodoListEditorState extends State<_TodoListEditor> {
                                               : null,
                                         ),
                                   ),
-                                  trailing: IconButton(
-                                    tooltip: 'Edit task',
-                                    visualDensity: VisualDensity.compact,
-                                    onPressed: _leaving
-                                        ? null
-                                        : () => _edit(item),
-                                    icon: const Icon(Icons.edit_outlined),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      TodoTimer(
+                                        todo: documentTask(
+                                          _source,
+                                          item.offset,
+                                          item.text,
+                                          fallback: _session.note.modified,
+                                        ),
+                                        onChanged: _leaving
+                                            ? null
+                                            : (action) => _replace(
+                                                updateDocumentTask(
+                                                  _source,
+                                                  item.offset,
+                                                  timer: action,
+                                                ),
+                                              ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Edit task',
+                                        onPressed: _leaving
+                                            ? null
+                                            : () => _edit(item),
+                                        icon: const Icon(Icons.edit_outlined),
+                                      ),
+                                    ],
                                   ),
                                 );
                               },

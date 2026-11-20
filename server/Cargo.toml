@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 loco-rs = { version = "=1.3.1", default-features = false, features = ["cli", "with-db", "db-postgres"] }
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 async-trait = "0.1"
 argon2 = "0.5"
 sea-orm = { version = "=2.0.4", features = ["sqlx-postgres", "runtime-tokio-rustls"] }

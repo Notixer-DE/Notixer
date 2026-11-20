@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'journal_template.dart';
+import 'document_task.dart';
 import 'markdown_document.dart';
 import 'markdown_library.dart';
 import 'notebook.dart';
@@ -117,12 +118,44 @@ class KnowledgeTask {
     this.revision, {
     this.canPlan = false,
     this.quickTodo,
+    this.documentTodo,
+    this.timerAction,
   });
   final Notebook note;
   final int offset, line;
   final String text, revision;
   final bool canPlan;
-  final QuickTodo? quickTodo;
+  final QuickTodo? quickTodo, documentTodo;
+  final TodoTimerAction? timerAction;
+  QuickTodo? get todo => quickTodo ?? documentTodo;
+  bool get done => todo?.done ?? false;
+
+  KnowledgeTask withTimer(TodoTimerAction action) => KnowledgeTask(
+    note,
+    offset,
+    line,
+    text,
+    revision,
+    canPlan: canPlan,
+    quickTodo: quickTodo,
+    documentTodo: documentTodo,
+    timerAction: action,
+  );
+
+  String editDocument(String source) {
+    if (markdownRevision(source) != revision ||
+        !markdownTaskOffsets(source).contains(offset) ||
+        (source[offset] != ' ') != done) {
+      throw const FormatException('The task changed. Reload the task list.');
+    }
+    return updateDocumentTask(
+      source,
+      offset,
+      done: timerAction == null ? !done : null,
+      timer: timerAction,
+    );
+  }
+
   String get anchor => quickTodo == null ? 'line=$line' : 'task';
   String? get due => quickTodo?.due ?? quickTodoDueDate(note);
 }
@@ -134,12 +167,13 @@ List<({int offset, int line, String text})> markdownOpenTasks(String source) =>
 
 List<({int offset, int line, String text})> _openTasks(
   String source,
-  List<int> offsets,
-) {
+  List<int> offsets, {
+  bool completed = false,
+}) {
   final tasks = <({int offset, int line, String text})>[];
   var line = 1, nextBreak = source.indexOf('\n');
   for (final offset in offsets) {
-    if (source[offset] != ' ') continue;
+    if ((source[offset] != ' ') != completed) continue;
     while (nextBreak >= 0 && nextBreak < offset) {
       line++;
       nextBreak = source.indexOf('\n', nextBreak + 1);
@@ -148,7 +182,9 @@ List<({int offset, int line, String text})> _openTasks(
     tasks.add((
       offset: offset,
       line: line,
-      text: source.substring(offset + 2, end < 0 ? source.length : end).trim(),
+      text: visibleTaskText(
+        source.substring(offset + 2, end < 0 ? source.length : end).trim(),
+      ),
     ));
   }
   return tasks;
@@ -179,42 +215,46 @@ Future<
     bool singleTask,
   })
 >
-_scanMarkdown(String source, String query, {required bool plainTasks}) =>
-    Isolate.run(() {
-      final offsets = markdownTaskOffsets(source);
-      final tasks = [
-        for (final task in _openTasks(source, offsets))
-          (
-            offset: task.offset,
-            line: task.line,
-            text: plainTasks ? todoItemText(task.text) : task.text,
+_scanMarkdown(
+  String source,
+  String query, {
+  required bool plainTasks,
+  bool completed = false,
+}) => Isolate.run(() {
+  final offsets = markdownTaskOffsets(source);
+  final tasks = [
+    for (final task in _openTasks(source, offsets, completed: completed))
+      (
+        offset: task.offset,
+        line: task.line,
+        text: plainTasks ? todoItemText(task.text) : task.text,
+      ),
+  ];
+  final matches = <({String snippet, int line})>[];
+  if (query.isNotEmpty) {
+    final lines = const LineSplitter().convert(source);
+    for (var i = 0; i < lines.length && matches.length < 50; i++) {
+      final line = plainTasks ? todoItemText(lines[i]) : lines[i];
+      if (line.toLowerCase().contains(query.toLowerCase())) {
+        final offset = line.toLowerCase().indexOf(query.toLowerCase());
+        final start = (offset - 60).clamp(0, line.length);
+        matches.add((
+          snippet: line.substring(
+            start,
+            (offset + query.length + 120).clamp(start, line.length),
           ),
-      ];
-      final matches = <({String snippet, int line})>[];
-      if (query.isNotEmpty) {
-        final lines = const LineSplitter().convert(source);
-        for (var i = 0; i < lines.length && matches.length < 50; i++) {
-          final line = plainTasks ? todoItemText(lines[i]) : lines[i];
-          if (line.toLowerCase().contains(query.toLowerCase())) {
-            final offset = line.toLowerCase().indexOf(query.toLowerCase());
-            final start = (offset - 60).clamp(0, line.length);
-            matches.add((
-              snippet: line.substring(
-                start,
-                (offset + query.length + 120).clamp(start, line.length),
-              ),
-              line: i + 1,
-            ));
-          }
-        }
+          line: i + 1,
+        ));
       }
-      return (
-        tasks: tasks,
-        matches: matches,
-        revision: markdownRevision(source),
-        singleTask: offsets.length == 1,
-      );
-    });
+    }
+  }
+  return (
+    tasks: tasks,
+    matches: matches,
+    revision: markdownRevision(source),
+    singleTask: offsets.length == 1,
+  );
+});
 
 /// Shared, local preferences. Notes, journal entries and tags remain ordinary
 /// portable notebook documents; this file contains only views and templates.
@@ -578,37 +618,32 @@ class KnowledgeStore {
     return updated;
   }
 
+  Future<void> changeTaskStatus(QuickTodo todo, bool done) =>
+      _changeQuickTodo(todo, complete: done);
+
+  Future<void> changeTaskTimer(QuickTodo todo, TodoTimerAction action) =>
+      _changeQuickTodo(todo, timer: action);
+
   Future<void> _changeQuickTodo(
     QuickTodo expected, {
     String? project,
     String? due,
     String? text,
-    bool complete = false,
+    bool? complete,
+    TodoTimerAction? timer,
   }) => quickTodos.change((tasks) {
     final current = tasks[expected.id];
-    if (current == null ||
-        current.revision != expected.revision ||
-        current.done) {
+    if (current == null || current.revision != expected.revision) {
       throw const FormatException('The to-do changed. Reload the task list.');
     }
-    final updatedText = text ?? current.text;
-    if (!complete &&
-        project == current.project &&
-        due == current.due &&
-        updatedText == current.text) {
-      return;
-    }
-    final now = DateTime.now();
-    tasks[current.id] = QuickTodo(
-      id: current.id,
-      text: updatedText,
-      created: current.created,
-      modified: now.isAfter(current.modified)
-          ? now
-          : current.modified.add(const Duration(microseconds: 1)),
+    final preservePlan = complete != null || timer != null;
+    tasks[current.id] = current.update(
+      DateTime.now(),
+      project: preservePlan ? current.project : project,
+      due: preservePlan ? current.due : due,
+      text: text,
       done: complete,
-      project: complete ? current.project : project,
-      due: complete ? current.due : due,
+      timer: timer,
     );
   });
 
@@ -637,6 +672,7 @@ class KnowledgeStore {
   Future<KnowledgeScan> scan(
     KnowledgeView view, {
     bool onlyQuickTodos = false,
+    bool completedTasks = false,
     bool Function()? cancelled,
     void Function(int, int)? onProgress,
   }) async {
@@ -662,10 +698,16 @@ class KnowledgeStore {
     if (view.openTasks || view.query.trim().isNotEmpty) {
       try {
         final inbox = (await quickTodos.read()).values.toList()
-          ..sort((a, b) => b.created.compareTo(a.created));
+          ..sort(
+            (a, b) => completedTasks
+                ? (b.completionTime ?? b.modified).compareTo(
+                    a.completionTime ?? a.modified,
+                  )
+                : b.created.compareTo(a.created),
+          );
         for (final todo in inbox) {
           if (cancelled?.call() == true) break;
-          if (todo.done ||
+          if (todo.done != completedTasks ||
               !todo.text.toLowerCase().contains(
                 view.query.trim().toLowerCase(),
               )) {
@@ -726,6 +768,7 @@ class KnowledgeStore {
             document.source,
             view.query.trim(),
             plainTasks: note.isTodoList,
+            completed: completedTasks,
           );
           if (view.query.trim().isEmpty ||
               note.title.toLowerCase().contains(view.query.toLowerCase()) ||
@@ -739,6 +782,12 @@ class KnowledgeStore {
                   task.text,
                   result.revision,
                   canPlan: result.singleTask && _isQuickTodo(note),
+                  documentTodo: documentTask(
+                    document.source,
+                    task.offset,
+                    task.text,
+                    fallback: note.modified,
+                  ),
                 ),
               ),
             );
@@ -799,41 +848,45 @@ class KnowledgeStore {
       }
       onProgress?.call(i + 1, notes.length);
     }
+    if (completedTasks && view.openTasks) {
+      final completedByLocation = {
+        for (final task in tasks)
+          '${task.note.id}:${task.anchor}': task.todo!.completionTime!,
+      };
+      hits.sort(
+        (a, b) => completedByLocation['${b.note.id}:${b.anchor}']!.compareTo(
+          completedByLocation['${a.note.id}:${a.anchor}']!,
+        ),
+      );
+    }
     return KnowledgeScan(hits, tasks, warnings);
   }
 
   Future<void> completeTask(KnowledgeTask task) async {
     final todo = task.quickTodo;
     if (todo != null) {
-      await _changeQuickTodo(todo, complete: true);
+      final timer = task.timerAction;
+      if (timer == null) {
+        await changeTaskStatus(todo, !todo.done);
+      } else {
+        await changeTaskTimer(todo, timer);
+      }
       return;
     }
-    final current = (await repository.list())
-        .where((n) => n.id == task.note.id)
-        .single;
-    final document = await decodeMarkdownAsync(
-      await repository.load(current.id),
-    );
-    if (markdownRevision(document.source) != task.revision ||
-        !markdownOpenTasks(
-          document.source,
-        ).any((t) => t.offset == task.offset)) {
-      throw const FormatException(
-        'The task changed. Reload the task list before editing it.',
-      );
+    final snapshot = await repository.snapshotForSync(task.note.id);
+    if (snapshot == null) {
+      throw const FormatException('The task no longer exists.');
     }
-    await repository.save(
-      current,
-      document
-          .copy(
-            source: document.source.replaceRange(
-              task.offset,
-              task.offset + 1,
-              'x',
-            ),
-          )
-          .encode(),
+    final (note, bytes) = await LocalNotebookRepository.decodeValidated(
+      snapshot.archive,
     );
+    final document = await decodeMarkdownAsync(bytes);
+    final source = task.editDocument(document.source);
+    final archive = await LocalNotebookRepository.encodeAsync(
+      note.copy(modified: DateTime.now()),
+      document.copy(source: source).encode(),
+    );
+    await repository.applySync(note.id, snapshot.raw, archive);
   }
 
   Future<void> renameTag(String from, String to) async {

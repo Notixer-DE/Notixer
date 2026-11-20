@@ -258,6 +258,12 @@ class SyncController extends ChangeNotifier {
         'Disconnected. Notes are preserved; server access has not been revoked.';
   });
 
+  Future<({Uri server, String token})?> liveCredentials() async {
+    await load();
+    final remote = _remote;
+    return remote == null ? null : (server: remote.server, token: remote.token);
+  }
+
   Future<String?> recoveryKey() async {
     final value = await _storage.read(key: 'noter.sync.credentials');
     return value == null

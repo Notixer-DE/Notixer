@@ -245,6 +245,54 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('library captures Markdown straight into the Inbox', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: NoterTheme.light,
+        home: LibraryPage(repository: repository),
+      ),
+    );
+    await waitKnowledge(
+      tester,
+      () => find.text('Source note').evaluate().isNotEmpty,
+    );
+    await tester.tap(find.byTooltip('Capture to Inbox'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(AlertDialog, 'Quick capture'), findsOneWidget);
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Title (optional)'),
+      'Library capture',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Text or Markdown'),
+      '**Draft**',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Capture'));
+    await waitKnowledge(
+      tester,
+      () => find.text('Saved to Inbox').evaluate().isNotEmpty,
+    );
+    await tester.tap(find.text('Open Inbox'));
+    await waitKnowledge(
+      tester,
+      () => find
+          .descendant(
+            of: find.byType(KnowledgePage),
+            matching: find.text('Library capture'),
+          )
+          .evaluate()
+          .isNotEmpty,
+    );
+    final notes = await tester.runAsync(repository.list);
+    expect(
+      notes!.singleWhere((n) => n.title == 'Library capture').tags,
+      contains('Inbox'),
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('shared text survives a failed save and capture can be retried', (
     tester,
   ) async {

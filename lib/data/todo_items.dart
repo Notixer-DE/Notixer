@@ -1,4 +1,5 @@
 import 'markdown_document.dart';
+import 'document_task.dart';
 
 final _punctuation = RegExp(r'[\\`*_{}\[\]()<>#+\-.!|~]');
 final _escapedPunctuation = RegExp(r'\\([\\`*_{}\[\]()<>#+\-.!|~])');
@@ -25,11 +26,14 @@ class TodoListItem {
   final String text;
   final bool done;
 
-  String rename(String source, String value) =>
-      source.replaceRange(_start, _end, ' ${_encodeText(value)}');
+  String rename(String source, String value) {
+    final previous = source.substring(_start, _end);
+    final metadata = previous.substring(visibleTaskText(previous).length);
+    return source.replaceRange(_start, _end, ' ${_encodeText(value)}$metadata');
+  }
 
   String check(String source, bool done) =>
-      source.replaceRange(offset, offset + 1, done ? 'x' : ' ');
+      updateDocumentTask(source, offset, done: done);
 }
 
 List<TodoListItem> todoListItems(String source) {
@@ -49,7 +53,7 @@ List<TodoListItem> todoListItems(String source) {
         offset,
         start,
         end,
-        todoItemText(source.substring(start, end).trim()),
+        todoItemText(visibleTaskText(source.substring(start, end)).trim()),
         source[offset] != ' ',
       ),
     );

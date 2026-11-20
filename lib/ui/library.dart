@@ -4,6 +4,7 @@ import 'media_acquisition.dart';
 import 'media_page.dart';
 import '../data/media.dart';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
@@ -33,6 +34,8 @@ import 'document_tab.dart';
 import 'library_graph_page.dart';
 import 'knowledge_page.dart';
 import 'quick_todo_dialog.dart';
+import 'inbox_capture_dialog.dart';
+import '../live/live_host_page.dart';
 import '../data/knowledge.dart';
 import '../data/markdown_document.dart';
 import '../editor/operations.dart' show exportPdfBytesAsync;
@@ -609,6 +612,66 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
+  Future<void> _captureInbox() async {
+    final capture = await showInboxCaptureDialog(context);
+    if (capture == null || !mounted) return;
+    Notebook? captured;
+    await _perform(() async {
+      captured = await KnowledgeStore(
+        widget.repository,
+      ).capture(capture.$1, capture.$2);
+      await _refresh();
+    });
+    if (!mounted || captured == null) return;
+    await _syncChangedNote(captured);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Saved to Inbox'),
+        action: SnackBarAction(
+          label: 'Open Inbox',
+          onPressed: () => _knowledge(section: 'Inbox'),
+        ),
+      ),
+    );
+  }
+
+  Widget _knowledgeLinks() {
+    final inbox = _notes
+        .where((note) => note.tags.any((tag) => tag.toLowerCase() == 'inbox'))
+        .length;
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          ActionChip(
+            avatar: const Icon(Icons.inbox_outlined),
+            label: Text(inbox == 0 ? 'Inbox' : 'Inbox · $inbox'),
+            onPressed: _busy ? null : () => _knowledge(section: 'Inbox'),
+          ),
+          const SizedBox(width: 8),
+          ActionChip(
+            avatar: const Icon(Icons.checklist),
+            label: const Text('Tasks'),
+            onPressed: _busy ? null : () => _knowledge(section: 'Tasks'),
+          ),
+          const SizedBox(width: 8),
+          ActionChip(
+            avatar: const Icon(Icons.calendar_today_outlined),
+            label: const Text('Journal'),
+            onPressed: _busy ? null : () => _knowledge(section: 'Journal'),
+          ),
+          const SizedBox(width: 8),
+          ActionChip(
+            avatar: const Icon(Icons.sell_outlined),
+            label: const Text('Tags'),
+            onPressed: _busy ? null : () => _knowledge(section: 'Tags'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _knowledge({
     String section = 'Search',
     String? sharedText,
@@ -1069,6 +1132,11 @@ class _LibraryPageState extends State<LibraryPage> {
                       onPressed: _busy ? null : _quickTodo,
                       icon: const Icon(Icons.playlist_add),
                     ),
+                    IconButton(
+                      tooltip: 'Capture to Inbox',
+                      onPressed: _busy ? null : _captureInbox,
+                      icon: const Icon(Icons.move_to_inbox_outlined),
+                    ),
                     if (!_hasOpenDocuments)
                       SyncButton(
                         controller: _sync,
@@ -1109,6 +1177,10 @@ class _LibraryPageState extends State<LibraryPage> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   _libraryHeading(context, visible.length),
+                                  if (!_selecting) ...[
+                                    const SizedBox(height: 10),
+                                    _knowledgeLinks(),
+                                  ],
                                   const SizedBox(height: 16),
                                   Row(
                                     children: [
@@ -1444,10 +1516,26 @@ class _LibraryPageState extends State<LibraryPage> {
     );
   }
 
+  Future<void> _liveCanvas() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) =>
+            LiveHostPage(repository: widget.repository, sync: _sync),
+      ),
+    );
+    if (mounted) await _refresh();
+  }
+
   Widget _libraryActions() => PopupMenuButton<VoidCallback>(
     tooltip: 'Library actions',
     onSelected: (action) => action(),
     itemBuilder: (_) => [
+      if (Platform.isAndroid)
+        PopupMenuItem(
+          value: _liveCanvas,
+          enabled: !_busy,
+          child: const Text('Live Canvas'),
+        ),
       PopupMenuItem(
         value: _searchPdfs,
         enabled: !_busy && _notes.any((n) => n.isPdf),

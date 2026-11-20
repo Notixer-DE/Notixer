@@ -1,6 +1,7 @@
 mod admin;
 mod api;
 mod app;
+mod live;
 mod migration;
 
 #[tokio::main]

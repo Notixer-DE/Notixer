@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../data/journal_template.dart';
+import '../data/document_task.dart';
 import '../data/markdown_document.dart';
 import '../data/markdown_library.dart';
 import '../data/media.dart';
@@ -19,6 +20,7 @@ import '../ui/journal_calendar.dart';
 import '../ui/journal_template_dialog.dart';
 import '../ui/markdown_preview.dart';
 import '../ui/noter_theme.dart';
+import '../ui/todo_timer.dart';
 import 'web_library.dart';
 import 'web_note_archive.dart';
 import 'web_document_page.dart';
@@ -74,7 +76,7 @@ class _WorkspaceState extends State<_Workspace> {
   final _random = Random.secure();
   List<WebNote> _notes = [];
   List<QuickTodo> _quickTodos = [];
-  bool _onlyOpenTasks = true;
+  bool _completedTasks = false;
   int _section = 0;
   String _query = '';
   String? _folder;
@@ -775,16 +777,13 @@ class _WorkspaceState extends State<_Workspace> {
     String? text,
     String? project,
     String? due,
+    TodoTimerAction? timer,
   }) => _perform(() async {
-    final modified = DateTime.now();
-    final updated = QuickTodo(
-      id: previous.id,
-      text: text ?? previous.text,
-      done: done ?? previous.done,
-      created: previous.created,
-      modified: modified.isAfter(previous.modified)
-          ? modified
-          : previous.modified.add(const Duration(microseconds: 1)),
+    final updated = previous.update(
+      DateTime.now(),
+      text: text,
+      done: done,
+      timer: timer,
       project: project == '' ? null : project ?? previous.project,
       due: due == '' ? null : due ?? previous.due,
     );
@@ -794,10 +793,47 @@ class _WorkspaceState extends State<_Workspace> {
     );
   });
 
+  Future<void> _changeDocumentTodo(
+    WebNote note,
+    int offset, {
+    bool? done,
+    TodoTimerAction? timer,
+  }) => _perform(() async {
+    final source = updateDocumentTask(
+      note.source,
+      offset,
+      done: done,
+      timer: timer,
+    );
+    await widget.library.write(note.edit(note.title, source), previous: note);
+  });
+
   Widget _tasks() {
-    final visible = _quickTodos
-        .where((task) => !_onlyOpenTasks || !task.done)
-        .toList();
+    final visible = <(QuickTodo, WebNote?, int?)>[
+      for (final task in _quickTodos)
+        if (task.done == _completedTasks) (task, null, null),
+      for (final note in _notes)
+        if (note.kind == WebNoteKind.markdown ||
+            note.kind == WebNoteKind.todo ||
+            note.kind == WebNoteKind.journal)
+          for (final item in todoListItems(note.source))
+            if (item.done == _completedTasks)
+              (
+                documentTask(
+                  note.source,
+                  item.offset,
+                  item.text,
+                  fallback: note.modified,
+                ),
+                note,
+                item.offset,
+              ),
+    ];
+    if (_completedTasks) {
+      visible.sort(
+        (a, b) => b.$1.completionTime!.compareTo(a.$1.completionTime!),
+      );
+    }
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -812,34 +848,58 @@ class _WorkspaceState extends State<_Workspace> {
               label: const Text('Add task'),
               onPressed: _busy ? null : _addTodo,
             ),
-            FilterChip(
-              label: const Text('Open only'),
-              selected: _onlyOpenTasks,
-              onSelected: (value) => setState(() => _onlyOpenTasks = value),
-            ),
+            for (final completed in [false, true])
+              ChoiceChip(
+                label: Text(completed ? 'Completed' : 'Open'),
+                selected: completed == _completedTasks,
+                onSelected: (_) => setState(() => _completedTasks = completed),
+              ),
           ],
         ),
         const SizedBox(height: 8),
         if (visible.isEmpty)
-          Text(_onlyOpenTasks ? 'No open tasks.' : 'No tasks yet.'),
-        for (final todo in visible)
+          Text(_completedTasks ? 'No completed tasks.' : 'No open tasks.'),
+        for (final (todo, note, offset) in visible)
           ListTile(
             dense: true,
+            onTap: note == null || _busy ? null : () => _open(note),
             leading: Checkbox(
               value: todo.done,
               semanticLabel: todo.text,
               onChanged: _busy
                   ? null
-                  : (value) => _changeQuickTodo(todo, done: value),
+                  : (value) => note == null
+                        ? _changeQuickTodo(todo, done: value)
+                        : _changeDocumentTodo(note, offset!, done: value),
             ),
             title: Text(todo.text),
-            subtitle: todo.project == null && todo.due == null
-                ? null
-                : Text([?todo.project, ?todo.due].join(' · ')),
-            trailing: IconButton(
-              tooltip: 'Plan to-do',
-              icon: const Icon(Icons.edit_calendar_outlined),
-              onPressed: _busy ? null : () => _editQuickTodo(todo),
+            subtitle: Text(
+              [
+                ?note?.title,
+                ?todo.project,
+                ?todo.due,
+                if (todo.completionTime case final completed?)
+                  completedTaskLabel(context, completed),
+              ].join(' · '),
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TodoTimer(
+                  todo: todo,
+                  onChanged: _busy
+                      ? null
+                      : (action) => note == null
+                            ? _changeQuickTodo(todo, timer: action)
+                            : _changeDocumentTodo(note, offset!, timer: action),
+                ),
+                if (note == null && !todo.done)
+                  IconButton(
+                    tooltip: 'Plan to-do',
+                    icon: const Icon(Icons.edit_calendar_outlined),
+                    onPressed: _busy ? null : () => _editQuickTodo(todo),
+                  ),
+              ],
             ),
           ),
       ],
@@ -1145,6 +1205,7 @@ class _EditorState extends State<_Editor> {
                               _save(appendTodoItem(_source.text, text)),
                           onChange: _save,
                           heading: _title.text,
+                          modified: (_saved ?? widget.note).modified,
                         )
                       : _editing
                       ? _sourceEditor()
@@ -1200,13 +1261,7 @@ class _EditorState extends State<_Editor> {
           scrollController: _scroll,
           onToggle: (offset, checked) {
             if (!_busy) {
-              _save(
-                _source.text.replaceRange(
-                  offset,
-                  offset + 1,
-                  checked ? 'x' : ' ',
-                ),
-              );
+              _save(updateDocumentTask(_source.text, offset, done: checked));
             }
           },
           onFollow: _follow,
@@ -1223,9 +1278,11 @@ class _TaskList extends StatelessWidget {
     required this.onAdd,
     required this.onChange,
     required this.heading,
+    required this.modified,
   });
 
   final String source, heading;
+  final DateTime modified;
   final bool enabled;
   final ValueChanged<String> onAdd, onChange;
 
@@ -1277,22 +1334,40 @@ class _TaskList extends StatelessWidget {
                 ? const TextStyle(decoration: TextDecoration.lineThrough)
                 : null,
           ),
-          trailing: IconButton(
-            tooltip: 'Edit task',
-            icon: const Icon(Icons.edit_outlined),
-            onPressed: !enabled
-                ? null
-                : () async {
-                    final text = await _askText(
-                      context,
-                      'Edit task',
-                      'Task',
-                      initial: item.text,
-                    );
-                    if (text != null && context.mounted) {
-                      onChange(item.rename(source, text));
-                    }
-                  },
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TodoTimer(
+                todo: documentTask(
+                  source,
+                  item.offset,
+                  item.text,
+                  fallback: modified,
+                ),
+                onChanged: enabled
+                    ? (action) => onChange(
+                        updateDocumentTask(source, item.offset, timer: action),
+                      )
+                    : null,
+              ),
+              IconButton(
+                tooltip: 'Edit task',
+                icon: const Icon(Icons.edit_outlined),
+                onPressed: !enabled
+                    ? null
+                    : () async {
+                        final text = await _askText(
+                          context,
+                          'Edit task',
+                          'Task',
+                          initial: item.text,
+                        );
+                        if (text != null && context.mounted) {
+                          onChange(item.rename(source, text));
+                        }
+                      },
+              ),
+            ],
           ),
         );
       },

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:noter/data/document_task.dart';
 import 'package:noter/data/file_gateway.dart';
 import 'package:noter/data/markdown_document.dart';
 import 'package:noter/data/markdown_library.dart';
@@ -111,7 +112,9 @@ void main() {
       );
       final bytes = await tester.runAsync(() => repository.load(a.id));
       expect(
-        MarkdownDocument.decode(bytes!).source,
+        MarkdownDocument.decode(
+          bytes!,
+        ).source.split('\r\n').map(visibleTaskText).join('\r\n'),
         original.replaceFirst('- [ ] First item', '- [x] First item'),
       );
       await tester.tap(find.text('Markdown'));
