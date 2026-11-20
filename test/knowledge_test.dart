@@ -455,6 +455,37 @@ void main() {
   );
 
   test(
+    'journal append retries keep one entry and preserve another device-safe revision',
+    () async {
+      final day = DateTime(2026, 11, 19);
+      final recorded = DateTime(2026, 11, 20, 9, 5);
+      await Future.wait([
+        store.appendJournal(
+          day,
+          'First',
+          entryId: 'first',
+          recordedAt: recorded,
+        ),
+        KnowledgeStore(
+          repository,
+        ).appendJournal(day, 'First', entryId: 'first', recordedAt: recorded),
+        store.appendJournal(
+          day,
+          'Second',
+          entryId: 'second',
+          recordedAt: recorded,
+        ),
+      ]);
+      final note = (await repository.list()).single;
+      final document = MarkdownDocument.decode(await repository.load(note.id));
+      expect(journalEntryDate(note), '2026-11-19');
+      expect('First'.allMatches(document.source), hasLength(1));
+      expect(document.source, contains('Second'));
+      expect(document.source, contains('09:05'));
+    },
+  );
+
+  test(
     'journal membership survives a changed title, tag and restored namespace',
     () async {
       final note = await store.journal(DateTime(2026, 11, 18));

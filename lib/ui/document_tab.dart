@@ -83,6 +83,7 @@ class DocumentTabController extends ChangeNotifier {
 class LibraryWorkspaceController {
   Future<void> Function()? refresh;
   Future<void> Function()? syncQuickTodos;
+  Future<void> Function(Notebook?)? syncJournal;
   Map<AppShortcut, ShortcutAction> commands = const {};
 }
 

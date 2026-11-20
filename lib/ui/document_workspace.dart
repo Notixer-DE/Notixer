@@ -464,6 +464,8 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                                           onOpenNotebook: openNotebook,
                                           onQuickTodosChanged: () async =>
                                               _library.syncQuickTodos?.call(),
+                                          onJournalChanged: (note) async =>
+                                              _library.syncJournal?.call(note),
                                         )
                                       : EditorPage(
                                           note: _tabs[i].note,
