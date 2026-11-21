@@ -10,6 +10,7 @@ import 'package:noter/data/markdown_document.dart';
 import 'package:noter/data/markdown_library.dart';
 import 'package:noter/data/notebook.dart';
 import 'package:noter/data/paper.dart';
+import 'package:noter/data/quick_todos.dart';
 import 'package:noter/ui/editor_pane.dart';
 import 'package:noter/main.dart';
 import 'package:noter/ui/markdown_editor.dart';
@@ -125,6 +126,26 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 35)),
   );
+
+  testWidgets('formatted task hides saved timer data', (tester) async {
+    final tracked = updateDocumentTask(
+      source,
+      markdownTaskOffsets(source).first,
+      timer: TodoTimerAction.start,
+      countdown: const Duration(minutes: 5),
+    );
+    expect(tracked, contains('<!-- notixer-task'));
+    await tester.runAsync(
+      () => repository.save(a, MarkdownDocument(tracked).encode()),
+    );
+    await open(tester, const Size(390, 844));
+    expect(find.text('First task', findRichText: true), findsOneWidget);
+    expect(
+      find.textContaining('notixer-task', findRichText: true),
+      findsNothing,
+    );
+    expect(find.byType(Checkbox), findsNWidgets(2));
+  });
 
   testWidgets(
     'formatted Markdown zoom rebuilds blocks without reparsing source',

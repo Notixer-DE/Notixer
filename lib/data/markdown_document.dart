@@ -6,6 +6,7 @@ import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:path/path.dart' as p;
+import 'document_task.dart';
 import 'media.dart';
 
 /// Markdown is the source of truth. Assets travel with it, never as host paths.
@@ -164,7 +165,7 @@ Future<(MarkdownDocument, String)> addMarkdownAttachmentAsync(
 
 List<md.Node> parseMarkdown(String source) => md.Document(
   extensionSet: md.ExtensionSet.gitHubFlavored,
-  inlineSyntaxes: [WikiLinkSyntax()],
+  inlineSyntaxes: [WikiLinkSyntax(), TaskMetadataSyntax()],
   encodeHtml: false,
 ).parseLines(const LineSplitter().convert(source));
 

@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'media_page.dart';
 import 'package:dart_pdf_editor/dart_pdf_editor.dart';
 import 'package:flutter/material.dart';
+import '../data/document_task.dart';
 import '../data/notebook.dart';
 import '../data/markdown_document.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
@@ -325,6 +326,7 @@ class _RecoveryPreviewState extends State<_RecoveryPreview> {
                     ? SingleChildScrollView(
                         padding: const EdgeInsets.all(24),
                         child: MarkdownBody(
+                          inlineSyntaxes: [TaskMetadataSyntax()],
                           styleSheet: noterMarkdownStyle(context),
                           data: (snapshot.data! as MarkdownDocument).source,
                           selectable: true,

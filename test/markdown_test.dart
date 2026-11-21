@@ -101,6 +101,19 @@ void main() {
     },
   );
 
+  test('task tracking comments are hidden in preview and literal in code', () {
+    const comment = '<!-- notixer-task eyJ3b3JrTWlsbGlzZWNvbmRzIjo2MDB9 -->';
+    const source =
+        '- [ ] Tracked task $comment\n\n'
+        '`$comment`\n\n'
+        '```text\n$comment\n```\n';
+    final preview = parseMarkdownForPreview(source);
+    expect(preview.first.textContent, 'Tracked task');
+    expect(preview[1].textContent, comment);
+    expect(preview[2].textContent.trim(), comment);
+    expect(markdownTaskOffsets(source), [3]);
+  });
+
   test(
     'parser discovers reference links, not fenced examples; headings are stable',
     () {

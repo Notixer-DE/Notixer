@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import '../data/document_task.dart';
 import '../data/file_gateway.dart';
 import '../data/knowledge.dart';
 import '../data/keyboard_shortcuts.dart';
@@ -1088,9 +1089,9 @@ class KnowledgePageState extends State<KnowledgePage> {
     );
   }
 
-  Future<void> _showJournalNote(Notebook note) async {
+  Future<void> _showJournalNote(Notebook note, {String anchor = ''}) async {
     if (widget.onOpenDestination case final open?) {
-      await open((note: note, anchor: ''));
+      await open((note: note, anchor: anchor));
       return;
     }
     await _work(() async {
@@ -1104,7 +1105,7 @@ class KnowledgePageState extends State<KnowledgePage> {
             note: note,
             bytes: bytes,
             repository: widget.repository,
-            initialAnchor: '',
+            initialAnchor: anchor,
             backLabel: 'Back to journal',
             onQuickTodosChanged: widget.onQuickTodosChanged,
             onJournalChanged: widget.onJournalChanged,
@@ -1118,6 +1119,22 @@ class KnowledgePageState extends State<KnowledgePage> {
       final notes = await widget.repository.list();
       if (mounted) setState(() => _notes = notes);
     });
+  }
+
+  Future<void> _createJournalPage() async {
+    final day = _date;
+    Notebook? note;
+    await _work(() async {
+      if (!await FileGateway.prepareClose() || !mounted || !widget.active) {
+        return;
+      }
+      note = await _store.journal(day);
+      final notes = await widget.repository.list();
+      if (mounted) setState(() => _notes = notes);
+    });
+    if (mounted && widget.active && note != null) {
+      await _showJournalNote(note!, anchor: 'edit:end');
+    }
   }
 
   Future<void> _appendJournal() async {
@@ -1252,10 +1269,22 @@ class KnowledgePageState extends State<KnowledgePage> {
                       label: Text(selectedNote.title),
                     ),
                   const SizedBox(height: 8),
-                  FilledButton.icon(
-                    onPressed: _busy ? null : _appendJournal,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add entry'),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      if (selectedNote == null)
+                        FilledButton.icon(
+                          onPressed: _busy ? null : _createJournalPage,
+                          icon: const Icon(Icons.note_add_outlined),
+                          label: const Text('Create journal page'),
+                        ),
+                      FilledButton.tonalIcon(
+                        onPressed: _busy ? null : _appendJournal,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add entry'),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -1304,13 +1333,22 @@ class KnowledgePageState extends State<KnowledgePage> {
         if (snapshot.hasError) return const Text('Could not load the entry.');
         final document = snapshot.data;
         if (document == null) return const LinearProgressIndicator();
+        final source = document.source;
+        const limit = 2400;
+        final cutoff = source.length <= limit
+            ? -1
+            : source.lastIndexOf('\n', limit);
+        final excerpt = source.length <= limit
+            ? source
+            : cutoff > 0
+            ? '${source.substring(0, cutoff)}…'
+            : '${visibleTaskText(source.split('\n').first).characters.take(limit)}…';
         return Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: MarkdownBody(
-              data: document.source.length <= 2400
-                  ? document.source
-                  : '${document.source.substring(0, 2400)}…',
+              inlineSyntaxes: [TaskMetadataSyntax()],
+              data: excerpt,
               imageBuilder: (_, _, alt) => Text(alt ?? 'Attachment'),
             ),
           ),

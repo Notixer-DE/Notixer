@@ -809,6 +809,38 @@ void main() {
         ),
         isTrue,
       );
+      final create = find.text('Create journal page');
+      await tester.scrollUntilVisible(
+        create,
+        180,
+        scrollable: find
+            .ancestor(
+              of: find.byType(JournalCalendar),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.pump();
+      await tester.tap(create.hitTestable());
+      final source = find.byKey(const ValueKey('markdown-source'));
+      await waitKnowledge(tester, () => source.evaluate().isNotEmpty);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(
+        tester.widget<TextField>(source).controller!.text,
+        '# Daily ${journalDate(today)}\n',
+      );
+      await tester.tap(find.byTooltip('Back to journal'));
+      await tester.pump(const Duration(milliseconds: 400));
+      await waitKnowledge(
+        tester,
+        () =>
+            find.byType(JournalCalendar).evaluate().isNotEmpty &&
+            tester
+                .widget<JournalCalendar>(find.byType(JournalCalendar))
+                .entryDays
+                .contains(journalDate(today)),
+      );
+      expect(create, findsNothing);
       await tester.ensureVisible(find.text('Add entry'));
       await tester.tap(find.text('Add entry'));
       await tester.pumpAndSettle();
