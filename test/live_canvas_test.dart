@@ -123,9 +123,9 @@ void main() {
       expect(tester.getSize(layer).width, greaterThan(initialWidth));
       expect(model.ink.index.strokes, hasLength(1));
 
-      await tester.tap(find.byTooltip('Marker'));
+      await tester.tap(find.byTooltip('Highlighter'));
       await tester.pump();
-      await tester.tap(find.byTooltip('Marker color'));
+      await tester.tap(find.byTooltip('Highlighter color'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Green'));
       await tester.pumpAndSettle();
@@ -191,10 +191,10 @@ void main() {
       await tester.pump();
       await draw();
 
-      await tester.tap(find.byTooltip('Marker'));
+      await tester.tap(find.byTooltip('Highlighter'));
       await tester.pump();
       expect(find.text('20 px'), findsOneWidget);
-      await openWidth('Marker');
+      await openWidth('Highlighter');
       await applyWidth('32');
       await draw();
 

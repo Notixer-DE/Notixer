@@ -355,21 +355,35 @@ void main() {
 
   for (final size in [const Size(390, 844), const Size(1100, 900)]) {
     testWidgets(
-      'mobile opens page thumbnails as a dismissible sheet at $size',
+      'Android uses a page sheet or sidebar based on available width $size',
       (tester) async {
         tester.view.physicalSize = size;
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
         await open(tester);
-        expect(find.byKey(const ValueKey('editor-page-sidebar')), findsNothing);
-        await tester.tap(find.byTooltip('Page overview'));
-        await tester.pumpAndSettle();
-        final sheet = find.byKey(const ValueKey('editor-page-sheet'));
-        expect(sheet, findsOneWidget);
-        await tester.tap(find.descendant(of: sheet, matching: find.text('1')));
-        await tester.pumpAndSettle();
-        expect(sheet, findsNothing);
+        final sidebar = find.byKey(const ValueKey('editor-page-sidebar'));
+        final overview = find.byTooltip('Page overview');
+        if (size.width < 600) {
+          expect(sidebar, findsNothing);
+          await tester.tap(overview);
+          await tester.pumpAndSettle();
+          final sheet = find.byKey(const ValueKey('editor-page-sheet'));
+          expect(sheet, findsOneWidget);
+          await tester.tap(
+            find.descendant(of: sheet, matching: find.text('1')),
+          );
+          await tester.pumpAndSettle();
+          expect(sheet, findsNothing);
+        } else {
+          expect(sidebar, findsOneWidget);
+          await tester.tap(overview);
+          await tester.pumpAndSettle();
+          expect(sidebar, findsNothing);
+          await tester.tap(overview);
+          await tester.pumpAndSettle();
+          expect(sidebar, findsOneWidget);
+        }
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pumpAndSettle();

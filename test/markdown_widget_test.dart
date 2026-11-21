@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'widget_test.dart' show openWorkspaceFiles;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -531,6 +532,7 @@ void main() {
         await repository.save(b, MarkdownDocument('').encode());
       });
       await tester.pumpWidget(NoterApp(repository: repository));
+      await openWorkspaceFiles(tester);
       await markdownIo(tester, () => find.text(a.title).evaluate().isNotEmpty);
       await tester.tap(find.text(a.title));
       final link = find.text('Open target');
@@ -545,7 +547,7 @@ void main() {
       );
       expect(source, findsNothing);
 
-      await tester.tap(find.text('Markdown'));
+      await tester.tap(find.text('Edit'));
       await tester.pump();
       await tester.enterText(source, '# Edited target');
       await tester.tap(find.byKey(ValueKey('document-tab-${a.id}')));
@@ -722,11 +724,14 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(NoterApp(repository: repository));
+    await openWorkspaceFiles(tester);
     await markdownIo(
       tester,
       () => find.text('My text note').evaluate().isNotEmpty,
     );
-    await tester.tap(find.widgetWithText(FilledButton, 'New note'));
+    await tester.tap(find.byTooltip('Create'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New file'));
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextField, 'Title'), 'Errands');
     await tester.tap(find.byType(DropdownButtonFormField<String>));
@@ -889,6 +894,7 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(NoterApp(repository: repository));
+    await openWorkspaceFiles(tester);
     await markdownIo(
       tester,
       () => find.text('My text note').evaluate().isNotEmpty,

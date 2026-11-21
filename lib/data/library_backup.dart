@@ -303,7 +303,8 @@ class LibraryBackup {
               existing.tag.toLowerCase() == view.tag.toLowerCase() &&
               existing.folder == folder &&
               existing.kind == view.kind &&
-              existing.openTasks == view.openTasks,
+              existing.openTasks == view.openTasks &&
+              existing.completedTasks == view.completedTasks,
         );
         if (duplicate) continue;
         var name = view.name;
@@ -322,6 +323,7 @@ class LibraryBackup {
             folder: folder,
             kind: view.kind,
             openTasks: view.openTasks,
+            completedTasks: view.completedTasks,
           ),
         );
       }

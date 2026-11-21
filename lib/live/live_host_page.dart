@@ -462,7 +462,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
     final marker = _tool == _CanvasTool.marker;
     final current = marker ? _markerColor : _penColor;
     return PopupMenuButton<Color>(
-      tooltip: marker ? 'Marker color' : 'Pen color',
+      tooltip: marker ? 'Highlighter color' : 'Pen color',
       enabled: !_editingCanvas,
       initialValue: current,
       onSelected: (color) => setState(() {
@@ -508,7 +508,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
 
         return AlertDialog(
           scrollable: true,
-          title: Text(marker ? 'Marker width' : 'Pen width'),
+          title: Text(marker ? 'Highlighter width' : 'Pen width'),
           content: Form(
             key: form,
             child: TextFormField(
@@ -563,7 +563,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
     final width = marker ? _markerWidthPx : _penWidthPx;
     final value = width % 1 == 0 ? width.toStringAsFixed(0) : width.toString();
     return Tooltip(
-      message: marker ? 'Marker width' : 'Pen width',
+      message: marker ? 'Highlighter width' : 'Pen width',
       child: TextButton.icon(
         onPressed: !_editingCanvas
             ? () => _editWidth(marker: marker, current: value)
@@ -625,8 +625,8 @@ class _LiveHostPageState extends State<LiveHostPage> {
             Wrap(
               children: [
                 for (final (tool, label, icon) in [
-                  (_CanvasTool.pen, 'Pen', Icons.draw_outlined),
-                  (_CanvasTool.marker, 'Marker', Icons.border_color_outlined),
+                  (_CanvasTool.pen, 'Pen', Icons.edit_outlined),
+                  (_CanvasTool.marker, 'Highlighter', Icons.highlight_outlined),
                   (_CanvasTool.eraser, 'Eraser', Icons.auto_fix_off),
                   (_CanvasTool.lasso, 'Lasso selection', Icons.gesture),
                 ])

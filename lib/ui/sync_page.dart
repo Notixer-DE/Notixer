@@ -10,9 +10,15 @@ import '../sync/sync_crypto.dart';
 import '../sync/server_remote.dart';
 
 class SyncPage extends StatefulWidget {
-  const SyncPage({super.key, required this.controller, this.shortcuts});
+  const SyncPage({
+    super.key,
+    required this.controller,
+    this.shortcuts,
+    this.hasOpenDocuments = false,
+  });
   final SyncController controller;
   final KeyboardShortcuts? shortcuts;
+  final bool hasOpenDocuments;
   @override
   State<SyncPage> createState() => _SyncPageState();
 }
@@ -131,7 +137,7 @@ class _SyncPageState extends State<SyncPage> {
 
   Future<void> _synchronize() async {
     final sync = widget.controller;
-    if (_validating || sync.busy) return;
+    if (_validating || sync.busy || widget.hasOpenDocuments) return;
     setState(() => _validating = true);
     try {
       if (_noteId != null) {
@@ -287,7 +293,7 @@ class _SyncPageState extends State<SyncPage> {
           canPop: !sync.busy && !_validating,
           child: Scaffold(
             appBar: AppBar(
-              title: const Text('Self-hosted sync server'),
+              title: const Text('Sync settings'),
               automaticallyImplyLeading: !sync.busy,
             ),
             body: Center(
@@ -313,7 +319,21 @@ class _SyncPageState extends State<SyncPage> {
                     ),
                     if (sync.busy || _validating)
                       const LinearProgressIndicator(),
-                    if (sync.enabled) ...[
+                    if (widget.hasOpenDocuments)
+                      const ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.info_outline),
+                        title: Text(
+                          'Close open documents to change sync settings or sync manually.',
+                        ),
+                      ),
+                    if (sync.enabled && widget.hasOpenDocuments)
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Connected server'),
+                        subtitle: Text(sync.serverUrl),
+                      ),
+                    if (sync.enabled && !widget.hasOpenDocuments) ...[
                       const SizedBox(height: 12),
                       if (sync.usesHttp)
                         Material(
@@ -450,140 +470,147 @@ class _SyncPageState extends State<SyncPage> {
                         child: const Text('Disconnect this device'),
                       ),
                     ],
-                    const Divider(height: 40),
-                    const Text(
-                      'Set up a new connection',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    const Text(
-                      'Ask the server operator for a separate access token for each device. '
-                      'Use the same recovery key on all devices belonging to the same account. '
-                      'Only generate new keys for an empty account.',
-                    ),
-                    if (defaultTargetPlatform == TargetPlatform.android) ...[
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        onPressed: sync.busy ? null : _scanPairing,
-                        icon: const Icon(Icons.qr_code_scanner),
-                        label: const Text('Scan pairing QR code'),
+                    if (!widget.hasOpenDocuments) ...[
+                      const Divider(height: 40),
+                      const Text(
+                        'Set up a new connection',
+                        style: TextStyle(fontWeight: FontWeight.w600),
                       ),
-                      const SizedBox(height: 8),
-                    ],
-                    TextField(
-                      controller: _server,
-                      enabled: !sync.busy,
-                      keyboardType: TextInputType.url,
-                      autocorrect: false,
-                      onChanged: (_) => setState(() => _allowHttp = false),
-                      decoration: const InputDecoration(
-                        labelText: 'Server address',
-                        hintText: 'https://sync.example.org',
+                      const Text(
+                        'Ask the server operator for a separate access token for each device. '
+                        'Use the same recovery key on all devices belonging to the same account. '
+                        'Only generate new keys for an empty account.',
                       ),
-                    ),
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Allow HTTP for this new connection'),
-                      subtitle: const Text(
-                        'Insecure: requires explicit confirmation. HTTPS is recommended. Confirm again if the server address changes. HTTP remains available on localhost.',
+                      if (defaultTargetPlatform == TargetPlatform.android) ...[
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          onPressed: sync.busy ? null : _scanPairing,
+                          icon: const Icon(Icons.qr_code_scanner),
+                          label: const Text('Scan pairing QR code'),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      TextField(
+                        controller: _server,
+                        enabled: !sync.busy,
+                        keyboardType: TextInputType.url,
+                        autocorrect: false,
+                        onChanged: (_) => setState(() => _allowHttp = false),
+                        decoration: const InputDecoration(
+                          labelText: 'Server address',
+                          hintText: 'https://sync.example.org',
+                        ),
                       ),
-                      value: _allowHttp,
-                      onChanged:
-                          sync.busy ||
-                              Uri.tryParse(_server.text.trim())?.scheme !=
-                                  'http'
-                          ? null
-                          : _setHttpAllowed,
-                    ),
-                    TextField(
-                      controller: _token,
-                      enabled: !sync.busy,
-                      obscureText: true,
-                      autocorrect: false,
-                      enableSuggestions: false,
-                      decoration: const InputDecoration(
-                        labelText: 'Device access token',
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Allow HTTP for this new connection'),
+                        subtitle: const Text(
+                          'Insecure: requires explicit confirmation. HTTPS is recommended. Confirm again if the server address changes. HTTP remains available on localhost.',
+                        ),
+                        value: _allowHttp,
+                        onChanged:
+                            sync.busy ||
+                                Uri.tryParse(_server.text.trim())?.scheme !=
+                                    'http'
+                            ? null
+                            : _setHttpAllowed,
                       ),
-                    ),
-                    TextField(
-                      controller: _key,
-                      enabled: !sync.busy,
-                      obscureText: !_showKey,
-                      autocorrect: false,
-                      enableSuggestions: false,
-                      decoration: InputDecoration(
-                        labelText: 'Recovery key',
-                        suffixIcon: IconButton(
-                          onPressed: () => setState(() => _showKey = !_showKey),
-                          icon: Icon(
-                            _showKey ? Icons.visibility_off : Icons.visibility,
+                      TextField(
+                        controller: _token,
+                        enabled: !sync.busy,
+                        obscureText: true,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        decoration: const InputDecoration(
+                          labelText: 'Device access token',
+                        ),
+                      ),
+                      TextField(
+                        controller: _key,
+                        enabled: !sync.busy,
+                        obscureText: !_showKey,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        decoration: InputDecoration(
+                          labelText: 'Recovery key',
+                          suffixIcon: IconButton(
+                            onPressed: () =>
+                                setState(() => _showKey = !_showKey),
+                            icon: Icon(
+                              _showKey
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    TextButton(
-                      onPressed: sync.busy || sync.enabled
-                          ? null
-                          : () async {
-                              final key =
-                                  await SyncCrypto.generateRecoveryKey();
-                              if (!mounted) return;
-                              setState(() {
-                                _key.text = key;
-                                _showKey = true;
-                              });
-                            },
-                      child: const Text('Generate key for a new account'),
-                    ),
-                    const SizedBox(height: 16),
-                    FilledButton(
-                      onPressed: sync.busy
-                          ? null
-                          : () async {
-                              final confirmed = await showDialog<bool>(
-                                context: context,
-                                builder: (context) => AlertDialog(
-                                  title: const Text('Recovery key backed up?'),
-                                  content: const Text(
-                                    'Without this key or a configured device, your notes cannot be recovered. '
-                                    'Store it safely outside this device. The server operator cannot reset it. '
-                                    'The next sync will merge all local notes with this server account.',
+                      TextButton(
+                        onPressed: sync.busy || sync.enabled
+                            ? null
+                            : () async {
+                                final key =
+                                    await SyncCrypto.generateRecoveryKey();
+                                if (!mounted) return;
+                                setState(() {
+                                  _key.text = key;
+                                  _showKey = true;
+                                });
+                              },
+                        child: const Text('Generate key for a new account'),
+                      ),
+                      const SizedBox(height: 16),
+                      FilledButton(
+                        onPressed: sync.busy
+                            ? null
+                            : () async {
+                                final confirmed = await showDialog<bool>(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    title: const Text(
+                                      'Recovery key backed up?',
+                                    ),
+                                    content: const Text(
+                                      'Without this key or a configured device, your notes cannot be recovered. '
+                                      'Store it safely outside this device. The server operator cannot reset it. '
+                                      'The next sync will merge all local notes with this server account.',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, false),
+                                        child: const Text('Back'),
+                                      ),
+                                      FilledButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, true),
+                                        child: const Text('Safely saved'),
+                                      ),
+                                    ],
                                   ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () =>
-                                          Navigator.pop(context, false),
-                                      child: const Text('Back'),
-                                    ),
-                                    FilledButton(
-                                      onPressed: () =>
-                                          Navigator.pop(context, true),
-                                      child: const Text('Safely saved'),
-                                    ),
-                                  ],
-                                ),
-                              );
-                              if (confirmed != true || !mounted) return;
-                              await sync.connect(
-                                _server.text,
-                                _token.text,
-                                _key.text,
-                                allowHttp: _allowHttp,
-                              );
-                              if (mounted && sync.error == null) {
-                                _token.clear();
-                                _key.clear();
-                                setState(() => _allowHttp = false);
-                              }
-                            },
-                      child: const Text('Connect to server'),
-                    ),
-                    const SizedBox(height: 24),
-                    const Text(
-                      'Concurrent changes are preserved as conflict copies. '
-                      'Deletions, pen presets and empty folders are also synced. '
-                      'Existing cloud copies are neither imported nor deleted. '
-                      'Create local .noter backups before switching.',
-                    ),
+                                );
+                                if (confirmed != true || !mounted) return;
+                                await sync.connect(
+                                  _server.text,
+                                  _token.text,
+                                  _key.text,
+                                  allowHttp: _allowHttp,
+                                );
+                                if (mounted && sync.error == null) {
+                                  _token.clear();
+                                  _key.clear();
+                                  setState(() => _allowHttp = false);
+                                }
+                              },
+                        child: const Text('Connect to server'),
+                      ),
+                      const SizedBox(height: 24),
+                      const Text(
+                        'Concurrent changes are preserved as conflict copies. '
+                        'Deletions, pen presets and empty folders are also synced. '
+                        'Existing cloud copies are neither imported nor deleted. '
+                        'Create local .noter backups before switching.',
+                      ),
+                    ],
                   ],
                 ),
               ),

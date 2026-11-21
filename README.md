@@ -10,16 +10,18 @@ Notixer is an offline-first notes and knowledge management app for Android, Linu
 ## Library and workspace
 
 - Create multipage notebooks with blank, ruled or grid paper; import PDFs; create Markdown text notes and checklists.
-- Select **To-do list** when creating a note to open a dedicated task editor. Type a task and press Enter or tap **Add task**. Check off tasks in the list or in Knowledge Hub. Export the list as a `.noter` file to reopen it as a to-do list.
-- Use **New note** or **Import file** above the library list. Open **Show folders** to browse folders, filter by tag or manage folders. The list/grid toggle is next to the title search. Find **Search PDFs**, **Study today**, **Trash** and **Sync settings** under **Library actions**.
+- **Today** is the start page. See due tasks, study reviews, recently opened documents and today's journal in one place.
+- Use **Create → New file** or **Create → Import file** in the workspace header. **Files** holds folders, tags, the Inbox and Trash. Use the title filter to narrow the visible list or use **Search** (**Ctrl+K**) to search content across the library.
+- Select **To-do list** as the file type to open a dedicated task editor. Type a task and press Enter or tap **Add task**. These checkboxes also appear in **Tasks → All tasks**. Use **File menu → Save file to device** to export the list as a `.noter` file.
 - Use **Select notes** next to the title search, or long-press a list row or grid card. Select different file types together and move them to a folder or to Trash. **Select all visible notes** respects the current filters.
 - Keep several documents open in tabs. Hide or show the tab strip without closing documents or losing their state. Use the restore button or **Ctrl+Alt+T** (**Cmd+Alt+T** on macOS).
 - Open two views side by side or stacked, including two views of the same note. Each view keeps its own navigation position.
-- Android starts with editor toolbars hidden. The toolbar toggle remains available to return to the full workspace.
+- The workspace uses bottom navigation on small displays and a navigation rail when there is room. The rail can collapse on wide displays. Inside a document, **Hide toolbars** gives the page more space.
 
 ## Handwriting and PDF editing
 
 - Draw using a pressure-sensitive stylus, a desktop mouse, or optional finger drawing. Hold the stylus side button to erase temporarily, then release it to return to the selected tool.
+- **Read** puts search, page navigation, bookmarks and zoom within reach. Use **Draw** for pen, highlighter, eraser, lasso and presets. **Pages** opens page management and templates. Export and file organization are in **File menu**.
 - Use three customizable pen presets, a freehand highlighter, straight strokes, fixed or pressure-sensitive widths, point erasing and whole-stroke erasing.
 - Open **Tool settings** to change color, stroke width, opacity, pressure behavior, eraser diameter and eraser mode. Eraser diameter is independent of pen width and also applies to the stylus side button.
 - Use the lasso to select handwriting and PDF annotations together. Drag inside the selection to move it, use corner or edge grips to resize, and use the rotation grip to rotate. Each completed gesture is one undo step; cancelled gestures preserve the original content. **Transform selection** also accepts exact scale and angle values.
@@ -28,32 +30,30 @@ Notixer is an offline-first notes and knowledge management app for Android, Linu
 - Single-page view fits an unzoomed page initially. A manually chosen zoom is retained when moving to the next or previous page. Mouse/trackpad scrolling stays within the active page; use page controls or a horizontal touch swipe at fit zoom to change pages.
 - The writing magnifier provides a second view over the original page.
 
-Open **Settings → Keyboard shortcuts** to change tool and navigation bindings. The defaults are **Ctrl+Alt+D** for the pen, **Ctrl+Alt+H** for the highlighter, **Ctrl+Alt+E** for the eraser, and **Ctrl+Page Down / Page Up** for the next or previous page. Tooltips show the assigned keys.
+Open **More → Settings → Keyboard shortcuts** to change tool and navigation bindings. The defaults are **Ctrl+Alt+D** for the pen, **Ctrl+Alt+H** for the highlighter, **Ctrl+Alt+E** for the eraser, and **Ctrl+Page Down / Page Up** for the next or previous page. Tooltips show the assigned keys.
 
 ## Markdown
 
 - Switch between editable CommonMark/GFM source and a formatted reading view with interactive checklists.
-- Use **Markdown** to edit the title or source. Links to Markdown notes open **Formatted**, including links to headings. Checklist boxes remain interactive in the formatted view.
+- Use **Edit** to update the title or source. Links to Markdown notes open **Read**, including links to headings. Checklist boxes remain interactive in the formatted view.
 - **Tab** inserts four spaces, or indents all selected lines. **Shift+Tab** removes one indentation level. Selection direction and existing line endings are preserved.
 - In both source and formatted Markdown views, **Ctrl+Plus**, **Ctrl+Minus**, and **Ctrl+0** enlarge, reduce or reset the font. Number-pad equivalents and Cmd shortcuts are supported. Toolbar controls offer the same actions. The formatted view also supports two-finger pinch zoom. Each view retains its own zoom level; zoom does not change note contents.
 - Insert inline code or fenced code blocks. The code-block action safely wraps selections that already contain backticks.
 - Use **Insert link** to link entire files, headings in this note or another Markdown note, or a specific PDF page. Examples: `[Section](#study-plan)`, `[Other section](notes.md#study-plan)`, `[PDF page](reference.pdf#page=12)`. PDF page numbers start at 1. Duplicate heading names receive suffixes such as `-1`.
-- Open **Graph view** from library actions or the Markdown editor's **Note actions** menu. Pan and zoom connections between files, search to highlight names, tap a file to open it, or tap a tag to focus its files. Search and graph options are available from the app bar; **Show tags** in **Graph options** toggles tag nodes. Multiple heading/page links to one file share a single connection; external links and embedded images are excluded.
-- Assign tags through **Folders and tags** in a file's library menu or the Markdown editor's **Note actions** menu. Tag names are matched without case differences. Automatic backlinks remain available in Markdown notes.
+- Open **Graph view** from **Search → Graph view** or the Markdown editor's **File menu**. Pan and zoom connections between files, search to highlight names, tap a file to open it, or tap a tag to focus its files. Search and graph options are available from the app bar; **Show tags** in **Graph options** toggles tag nodes. Multiple heading/page links to one file share a single connection; external links and embedded images are excluded.
+- Assign tags through **Folders and tags** in a file's library menu or the Markdown editor's **File menu**. Tag names are matched without case differences. Automatic backlinks remain available in Markdown notes.
 - Embed local PNG/JPEG/WebP/GIF images and attach local audio/video files. On Android, the image/media attachment menu can take a photo, record video or record a voice message. Import/export individual `.md` files or linked collections as ZIP archives. External images are not downloaded automatically.
 
-## Knowledge hub, journals and tasks
+## Search, tasks and journal
 
-Open **Knowledge hub** from the library toolbar or a Markdown note's **Note actions** menu.
-
-- **Search** searches Markdown content and PDF text with snippets. Results open at the matching source line or PDF page. Combine text, file type, folder, tag and open-task filters; save combinations in **Views**. Searches run file by file with background text/PDF processing and can be cancelled after the current file finishes. PDF matches are limited to 50 per file with an explicit warning. Image-only scans require an existing PDF text layer; this is not OCR.
+- **Search** searches Markdown content and PDF text with snippets. Results open at the matching source line or PDF page. Combine text, file type, folder, tag and open-task filters; save combinations in **Saved views**. Searches run file by file with background text/PDF processing and can be cancelled after the current file finishes. PDF matches are limited to 50 per file with an explicit warning. PDF text search uses the text layers embedded in the files.
 - **Tasks** shows open quick to-dos and unchecked Markdown checkboxes, including journal entries. Tap a checklist task to open its source line, or check it off directly.
-- Use **Add to-do** in the library or Knowledge Hub to add an item to a shared collection under **Tasks → Unsorted**. The default shortcut is **Ctrl+Alt+N**. Earlier quick to-dos stored as single-checkbox files are copied into the collection with their status, project and due date. Their original files move to local Trash. Quick to-do files with custom content are kept in the library.
-- In **Tasks**, use **Today**, **Unsorted**, **Projects**, or **All tasks**. Open **Plan to-do** to edit a quick to-do, assign it to a project folder or set a due date. **Today** shows open to-dos due today or overdue, with the oldest due dates first. Checklists in other notes appear in **All tasks**.
+- Use **Create → Quick to-do** to add an item under **Tasks → Unsorted**. Expand **Project and due date** to plan it while adding it. The default shortcut is **Ctrl+Alt+N**. Earlier quick to-dos stored as single-checkbox files are copied into the collection with their status, project and due date. Their original files move to local Trash. Quick to-do files with custom content are kept in the library.
+- In **Tasks**, use **Today**, **Unsorted**, **Projects**, **All tasks**, or **Completed**. Start the focus timer with the play button. The task row shows its running or paused state and offers **Time options** for manual corrections and reset. Open **Plan to-do** to edit a quick to-do, assign it to a project folder or set a due date. **Today** shows open to-dos due today or overdue, with the oldest due dates first. Checklists in other notes appear in **All tasks**.
 - **Journal** marks days with entries in a monthly calendar. Open a marked day in formatted Markdown and go back to the same month. **Add entry** appends a time-stamped entry to the selected day and creates its Markdown note on first save. Under **Journal template**, choose a template or edit its Markdown and preview it. Templates apply when saving a new day. Journal notes participate in search, links, tags, backups and sync.
-- **Templates** creates, edits and deletes reusable Markdown text templates. Supported placeholders are `{{date}}` (YYYY-MM-DD), `{{weekday}}`, `{{year}}` and `{{title}}`. A Markdown note's menu can save its source as a template or insert a rendered template at the cursor. Journal templates are chosen from the same collection; image attachments are not copied into text templates.
-- **Inbox** lists quick captures. Use **Quick capture** to save text or Markdown before organizing it with folders and tags. Android's Share sheet accepts shared text and URLs into the same capture dialog.
-- **Tags** renames tags, merges them case-insensitively, or removes a tag from every file. Corresponding saved-view filters are updated too.
+- **More → Templates** creates, edits and deletes reusable Markdown text templates. Supported placeholders are `{{date}}` (YYYY-MM-DD), `{{weekday}}`, `{{year}}` and `{{title}}`. A Markdown note's menu can save its source as a template or insert a rendered template at the cursor. Journal templates are chosen from the same collection; image attachments are not copied into text templates.
+- **Files → Inbox** lists quick captures. Use **Create → Capture to Inbox** to save text or Markdown before organizing it with folders and tags. Android's Share sheet accepts shared text and URLs into the same capture dialog.
+- **Files → Tags** renames tags, merges them case-insensitively, or removes a tag from every file. Corresponding saved-view filters are updated too.
 
 Type `[[` in Markdown source for file suggestions, or `[[File title#` / `[[#` for heading suggestions. Arrow keys select, Enter inserts, and Escape dismisses suggestions. Completion inserts standard relative Markdown links, which remain stable when titles change. Literal `[[Title]]`, `[[Title#Heading]]` and `[[Title|Label]]` also render as wiki links, resolving only unique file titles; code examples stay literal. Literal title links need an unambiguous current title.
 
@@ -61,7 +61,7 @@ Use **Outline** in a Markdown note's menu to jump to a heading. Opening the grap
 
 ### Library backups
 
-**Backups** creates complete checksummed snapshots of notes (including ink, attachments, tags and study state), Markdown templates, saved views and PDF templates. Automatic backups are enabled by default: while the app is running, a first check occurs after 30 seconds and further checks every 15 minutes, saving only changed nonempty libraries. The latest seven snapshots are retained locally, and the backup screen reports the last automatic result. Automatic scheduling is not an Android background service.
+**More → Backups and recovery** creates complete checksummed snapshots of notes (including ink, attachments, tags and study state), Markdown templates, saved views and PDF templates. Automatic backups are enabled by default: while the app is running, a first check occurs after 30 seconds and further checks every 15 minutes, saving only changed nonempty libraries. The latest seven snapshots are retained locally, and the backup screen reports the last automatic result. Automatic scheduling is not an Android background service.
 
 Export snapshots to separate storage through the system save dialog. Local snapshots alone do not protect against device loss. Restore validates archive paths, checksums and notebook payloads before importing, then adds namespaced copies; existing notes remain intact and relative links within the restored collection keep working. Templates and views are merged. Library backups are limited to 512 MB; credentials and sync secrets are excluded. Saved views, text templates and journal preferences also participate in full-library sync.
 
@@ -101,9 +101,11 @@ Notixer works completely offline. The cloud button can connect a self-hosted Not
 - Quick to-do backups and sync include completed items. Sync merges separate to-dos by ID. Update the app on each connected device before syncing the new collection.
 - See [Self-hosted sync server](docs/sync-server.md) for setup and operation.
 
+See the [workspace walkthrough and acceptance checklist](docs/workspace.md) for a seeded interactive preview, the location of existing actions and the device test matrix.
+
 ## Install and build
 
-Download Android APKs, Debian packages, Windows and Web ZIPs, and checksums from [GitHub Releases](https://github.com/Notixer-DE/Notixer/releases/latest).
+Download Android APKs, Debian packages, Windows ZIPs, and checksums from [GitHub Releases](https://github.com/Notixer-DE/Notixer/releases/latest).
 
 Use Flutter **3.44.0** / Dart **3.12**:
 
@@ -115,16 +117,6 @@ flutter test
 # Optional dashboard behavior checks (Node.js):
 node tools/test-admin-ui.cjs
 ```
-
-### Web
-
-Download the `*_web.zip` release asset, extract it and serve the contents from the root of an HTTPS site. For a local check, use `python3 -m http.server 8000 --directory <extracted-directory>` and open `http://localhost:8000`.
-
-Notixer Web supports Markdown notes and checklists, dedicated to-do lists, quick tasks, the journal calendar, PDFs and media files. Import files with **Import file** and download individual files from their viewer or their **Note actions** menu. The browser stores your library in IndexedDB and works offline after the first online load. Use **Library actions → Export web backup** to keep a separate copy.
-
-Open **Sync** to exchange documents and quick tasks with your self-hosted Notixer vault. Use a device token for the browser and the vault's recovery key. See the [web sync setup](docs/sync-server.md#connect-notixer-web) for hosting and connection instructions. PDFs with separate handwriting from the installed app can be viewed and downloaded in the browser.
-
-To build and package locally after fetching dependencies, run `bash tools/build-web.sh`. The package is written to `dist/`.
 
 ### Android
 

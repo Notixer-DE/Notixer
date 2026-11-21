@@ -18,10 +18,7 @@ abstract final class NoterTheme {
   static const markupPink = Color(0xFFF4BBD0);
   static const markupGreen = Color(0xFFBCE9C9);
 
-  static bool mobileLayout(double width) =>
-      width < 600 ||
-      defaultTargetPlatform == TargetPlatform.android ||
-      defaultTargetPlatform == TargetPlatform.iOS;
+  static bool mobileLayout(double width) => width < 600;
 
   static bool desktopControls(BuildContext context) =>
       (defaultTargetPlatform == TargetPlatform.linux ||

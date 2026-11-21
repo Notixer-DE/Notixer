@@ -13,6 +13,7 @@ import '../data/notebook.dart';
 import '../data/todo_list.dart';
 import 'document_tab.dart';
 import 'noter_theme.dart';
+import 'organize_dialog.dart';
 import 'todo_timer.dart';
 import 'workspace_chrome.dart';
 
@@ -239,6 +240,18 @@ class _TodoListEditorState extends State<_TodoListEditor> {
     }
   }
 
+  Future<void> _organize() async {
+    final note = await showDialog<Notebook>(
+      context: context,
+      builder: (_) =>
+          OrganizeDialog(note: _session.note, repository: _page.repository),
+    );
+    if (note != null && mounted) {
+      _session.organize(note);
+      await _session.save();
+    }
+  }
+
   Future<void> _leave() async {
     if (_leaving) return;
     if (_page.onLibrary case final showLibrary?) {
@@ -277,10 +290,21 @@ class _TodoListEditorState extends State<_TodoListEditor> {
           leadingWidth: DocumentTabsChrome.leadingWidth(context),
           leading: DocumentNavigation(child: BackButton(onPressed: _leave)),
           actions: [
-            IconButton(
-              tooltip: 'Save file to device',
-              onPressed: _exporting ? null : _export,
-              icon: const Icon(Icons.save_alt),
+            PopupMenuButton<String>(
+              tooltip: 'File menu',
+              enabled: !_exporting,
+              onSelected: (action) =>
+                  action == 'organize' ? _organize() : _export(),
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'organize',
+                  child: Text('Folders and tags'),
+                ),
+                PopupMenuItem(
+                  value: 'export',
+                  child: Text('Save file to device'),
+                ),
+              ],
             ),
           ],
         ),
@@ -374,16 +398,25 @@ class _TodoListEditorState extends State<_TodoListEditor> {
                                         ),
                                         onChanged: _leaving
                                             ? null
-                                            : ({timer, workTime}) => _replace(
-                                                updateDocumentTask(
+                                            : ({timer, workTime}) {
+                                                _replace(
+                                                  updateDocumentTask(
+                                                    _source,
+                                                    item.offset,
+                                                    timer: timer,
+                                                    workTime: workTime,
+                                                    previousModified:
+                                                        _session.note.modified,
+                                                  ),
+                                                );
+                                                return documentTask(
                                                   _source,
                                                   item.offset,
-                                                  timer: timer,
-                                                  workTime: workTime,
-                                                  previousModified:
+                                                  item.text,
+                                                  fallback:
                                                       _session.note.modified,
-                                                ),
-                                              ),
+                                                );
+                                              },
                                       ),
                                       IconButton(
                                         tooltip: 'Edit task',

@@ -1,3 +1,4 @@
+import 'dart:async';
 import '../data/media_gateway.dart';
 import 'notebook_cover.dart';
 import 'media_acquisition.dart';
@@ -56,7 +57,9 @@ class LibraryPage extends StatefulWidget {
     this.onOpenDestination,
     this.onChangeTask,
     this.onRefreshDocuments,
+    this.onWorkspaceSection,
   });
+  final void Function(String)? onWorkspaceSection;
   final OpenNotebookTab? onOpenDestination;
   final Future<void> Function(KnowledgeTask)? onChangeTask;
   final Future<void> Function()? onRefreshDocuments;
@@ -82,10 +85,13 @@ class _LibraryPageState extends State<LibraryPage> {
   String _kind = 'all';
   bool _grid = false;
   bool _showNavigation = true;
+  String? _previewId;
+  bool _canPreview = false;
   ImportedMedia? _pendingMedia;
   List<String> _recoverableCaptures = [];
   final _scaffold = GlobalKey<ScaffoldState>();
   final _searchFocus = FocusNode();
+  final _searchText = TextEditingController();
   final _selectedNotes = <String>{};
   bool _selecting = false;
   String? _error;
@@ -100,6 +106,13 @@ class _LibraryPageState extends State<LibraryPage> {
       workspace.refresh = _refresh;
       workspace.syncQuickTodos = _syncQuickTodos;
       workspace.syncJournal = _syncChangedNote;
+      workspace.addQuickTodo = _quickTodo;
+      workspace.actions = {
+        LibraryWorkspaceAction.capture: _captureInbox,
+        if (Platform.isAndroid) LibraryWorkspaceAction.liveCanvas: _liveCanvas,
+        LibraryWorkspaceAction.conflicts: _showConflicts,
+        LibraryWorkspaceAction.recoverMedia: _recoverCapture,
+      };
       workspace.commands = {
         AppShortcut.knowledgeSearch: () => _knowledge(autofocusSearch: true),
         AppShortcut.importFile: _import,
@@ -231,13 +244,31 @@ class _LibraryPageState extends State<LibraryPage> {
     widget.workspaceController?.syncQuickTodos = null;
     widget.workspaceController?.syncJournal = null;
     widget.workspaceController?.commands = const {};
+    widget.workspaceController?.actions = const {};
+    widget.workspaceController?.addQuickTodo = null;
     _sync.removeListener(_syncChanged);
     MediaGateway.recoveredCapture.removeListener(_captureRecovered);
     FileGateway.sharedText.removeListener(_sharedCapture);
     if (widget.syncController == null) _sync.dispose();
     _previews.dispose();
+    _searchText.dispose();
     _searchFocus.dispose();
     super.dispose();
+  }
+
+  static bool _isConflict(Notebook note) =>
+      (note.isSettingsConflict && !note.isArchivedSettingsConflict) ||
+      note.id.startsWith('conflict_');
+
+  void _showConflicts() {
+    _searchFocus.unfocus();
+    setState(() {
+      _query = '';
+      _searchText.clear();
+      _folderFilter = null;
+      _tagFilter = null;
+      _kind = 'conflicts';
+    });
   }
 
   Future<void> _refresh() async {
@@ -245,12 +276,12 @@ class _LibraryPageState extends State<LibraryPage> {
       await widget.repository.catalog.load();
       var notes = await widget.repository.list();
       String? migrationWarning;
+      var migrated = false;
       try {
-        final migrated = await KnowledgeStore(widget.repository)
-            .migrateQuickTodos(
-              notes,
-              isOpen: (id) => widget.isNotebookOpen?.call(id) ?? false,
-            );
+        migrated = await KnowledgeStore(widget.repository).migrateQuickTodos(
+          notes,
+          isOpen: (id) => widget.isNotebookOpen?.call(id) ?? false,
+        );
         if (migrated) notes = await widget.repository.list();
       } catch (error) {
         notes = await widget.repository.list();
@@ -260,6 +291,10 @@ class _LibraryPageState extends State<LibraryPage> {
           ? await MediaGateway.pendingCaptures()
           : const <String>[];
       if (mounted) {
+        final conflicts = widget.workspaceController?.conflicts;
+        if (conflicts != null) {
+          conflicts.value = notes.where(_isConflict).length;
+        }
         setState(() {
           _notes = notes;
           final available = {for (final note in notes) note.id};
@@ -278,6 +313,7 @@ class _LibraryPageState extends State<LibraryPage> {
               ? migrationWarning ?? widget.repository.catalog.loadWarning
               : 'Some note files could not be read: ${widget.repository.readErrors.join(', ')}';
         });
+        if (migrated) widget.workspaceController?.onLegacyTasksMigrated?.call();
       }
     } catch (e) {
       if (mounted) {
@@ -630,10 +666,18 @@ class _LibraryPageState extends State<LibraryPage> {
         content: const Text('Saved to Inbox'),
         action: SnackBarAction(
           label: 'Open Inbox',
-          onPressed: () => _knowledge(section: 'Inbox'),
+          onPressed: () => _openWorkspaceSection('Inbox'),
         ),
       ),
     );
+  }
+
+  void _openWorkspaceSection(String section) {
+    if (widget.onWorkspaceSection case final open?) {
+      open(section);
+    } else {
+      unawaited(_knowledge(section: section));
+    }
   }
 
   Widget _knowledgeLinks() {
@@ -647,26 +691,36 @@ class _LibraryPageState extends State<LibraryPage> {
           ActionChip(
             avatar: const Icon(Icons.inbox_outlined),
             label: Text(inbox == 0 ? 'Inbox' : 'Inbox · $inbox'),
-            onPressed: _busy ? null : () => _knowledge(section: 'Inbox'),
+            onPressed: _busy ? null : () => _openWorkspaceSection('Inbox'),
           ),
-          const SizedBox(width: 8),
-          ActionChip(
-            avatar: const Icon(Icons.checklist),
-            label: const Text('Tasks'),
-            onPressed: _busy ? null : () => _knowledge(section: 'Tasks'),
-          ),
-          const SizedBox(width: 8),
-          ActionChip(
-            avatar: const Icon(Icons.calendar_today_outlined),
-            label: const Text('Journal'),
-            onPressed: _busy ? null : () => _knowledge(section: 'Journal'),
-          ),
+          if (widget.onWorkspaceSection == null) ...[
+            const SizedBox(width: 8),
+            ActionChip(
+              avatar: const Icon(Icons.checklist),
+              label: const Text('Tasks'),
+              onPressed: _busy ? null : () => _openWorkspaceSection('Tasks'),
+            ),
+            const SizedBox(width: 8),
+            ActionChip(
+              avatar: const Icon(Icons.calendar_today_outlined),
+              label: const Text('Journal'),
+              onPressed: _busy ? null : () => _openWorkspaceSection('Journal'),
+            ),
+          ],
           const SizedBox(width: 8),
           ActionChip(
             avatar: const Icon(Icons.sell_outlined),
             label: const Text('Tags'),
-            onPressed: _busy ? null : () => _knowledge(section: 'Tags'),
+            onPressed: _busy ? null : () => _openWorkspaceSection('Tags'),
           ),
+          if (widget.onWorkspaceSection != null) ...[
+            const SizedBox(width: 8),
+            ActionChip(
+              avatar: const Icon(Icons.delete_outline),
+              label: const Text('Trash'),
+              onPressed: _busy ? null : _recovery,
+            ),
+          ],
         ],
       ),
     );
@@ -770,7 +824,7 @@ class _LibraryPageState extends State<LibraryPage> {
           content: const Text('To-do added.'),
           action: SnackBarAction(
             label: 'View to-dos',
-            onPressed: () => _knowledge(section: unsortedTodos),
+            onPressed: () => _openWorkspaceSection(unsortedTodos),
           ),
         ),
       );
@@ -1056,6 +1110,7 @@ class _LibraryPageState extends State<LibraryPage> {
         .where(
           (n) =>
               _kind == 'all' ||
+              (_kind == 'conflicts' && _isConflict(n)) ||
               (_kind == 'markdown' && n.isMarkdown && !n.isTodoList) ||
               (_kind == 'todo' && n.isTodoList) ||
               (_kind == 'pdf' && n.paper == 'pdf') ||
@@ -1068,8 +1123,14 @@ class _LibraryPageState extends State<LibraryPage> {
         visible.where((note) => _selectedNotes.contains(note.id)).length;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final wide = NoterTheme.desktopControls(context);
+        final wide =
+            constraints.maxWidth >= 760 && constraints.maxHeight >= 440;
         final phone = NoterTheme.mobileLayout(constraints.maxWidth);
+        _canPreview =
+            constraints.maxWidth >= 1000 && constraints.maxHeight >= 480;
+        final preview = _canPreview && !_selecting
+            ? visible.where((note) => note.id == _previewId).firstOrNull
+            : null;
         return Scaffold(
           key: _scaffold,
           drawer: wide ? null : Drawer(child: SafeArea(child: _navigation())),
@@ -1110,21 +1171,34 @@ class _LibraryPageState extends State<LibraryPage> {
                     '${_selectedNotes.length} selected',
                     overflow: TextOverflow.ellipsis,
                   )
-                : const Row(
+                : Row(
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.draw_outlined,
                         color: NoterTheme.accent,
                         size: 20,
                       ),
-                      SizedBox(width: 8),
+                      const SizedBox(width: 8),
                       Flexible(
-                        child: Text('Notixer', overflow: TextOverflow.ellipsis),
+                        child: Text(
+                          widget.onWorkspaceSection == null
+                              ? 'Notixer'
+                              : 'Files',
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ],
                   ),
             actions: _selecting
                 ? _selectionActions(visible)
+                : widget.onWorkspaceSection != null
+                ? [
+                    IconButton(
+                      tooltip: 'Reload files',
+                      onPressed: _busy ? null : _refresh,
+                      icon: const Icon(Icons.refresh),
+                    ),
+                  ]
                 : [
                     IconButton(
                       tooltip:
@@ -1190,6 +1264,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                     children: [
                                       Expanded(
                                         child: TextField(
+                                          controller: _searchText,
                                           focusNode: _searchFocus,
                                           decoration: const InputDecoration(
                                             hintText: 'Search note titles',
@@ -1236,6 +1311,9 @@ class _LibraryPageState extends State<LibraryPage> {
                                         ('notes', 'Notebooks'),
                                         ('pdf', 'PDFs'),
                                         ('media', 'Media'),
+                                        if (_notes.any(_isConflict) ||
+                                            _kind == 'conflicts')
+                                          ('conflicts', 'Conflicts'),
                                       ])
                                         ChoiceChip(
                                           label: Text(label),
@@ -1430,6 +1508,45 @@ class _LibraryPageState extends State<LibraryPage> {
                     ),
                   ),
                 ),
+                if (preview != null)
+                  WorkspaceSidebar(
+                    child: SizedBox(
+                      width: 262,
+                      child: ListView(
+                        padding: const EdgeInsets.all(12),
+                        children: [
+                          ListTile(
+                            title: const Text('Preview'),
+                            trailing: IconButton(
+                              tooltip: 'Close file preview',
+                              icon: const Icon(Icons.close),
+                              onPressed: () =>
+                                  setState(() => _previewId = null),
+                            ),
+                          ),
+                          NotebookPreview(
+                            key: ValueKey(preview.id),
+                            note: preview,
+                            cache: _previews,
+                            height: 280,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            preview.title,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton.icon(
+                              onPressed: _noteTap(preview),
+                              icon: const Icon(Icons.open_in_new),
+                              label: const Text('Open file'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -1476,7 +1593,8 @@ class _LibraryPageState extends State<LibraryPage> {
     final theme = Theme.of(context);
     final folder = _folderFilter == ''
         ? 'Unfiled'
-        : widget.repository.catalog.folderName(_folderFilter) ?? 'My notes';
+        : widget.repository.catalog.folderName(_folderFilter) ??
+              (widget.onWorkspaceSection == null ? 'My notes' : 'All files');
     return Wrap(
       spacing: 20,
       runSpacing: 12,
@@ -1500,22 +1618,23 @@ class _LibraryPageState extends State<LibraryPage> {
             ),
           ],
         ),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            FilledButton.icon(
-              onPressed: _busy ? null : _create,
-              icon: const Icon(Icons.add),
-              label: const Text('New note'),
-            ),
-            OutlinedButton.icon(
-              onPressed: _busy ? null : _import,
-              icon: const Icon(Icons.file_open_outlined),
-              label: const Text('Import file'),
-            ),
-          ],
-        ),
+        if (widget.onWorkspaceSection == null)
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                onPressed: _busy ? null : _create,
+                icon: const Icon(Icons.add),
+                label: const Text('New note'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _busy ? null : _import,
+                icon: const Icon(Icons.file_open_outlined),
+                label: const Text('Import file'),
+              ),
+            ],
+          ),
       ],
     );
   }
@@ -1634,6 +1753,7 @@ class _LibraryPageState extends State<LibraryPage> {
       'rename' => _rename(note),
       'organize' => _organize(note),
       'history' => _recovery(note: note),
+      'preview' => setState(() => _previewId = note.id),
       _ => _delete(note),
     },
     itemBuilder: (_) => [
@@ -1647,6 +1767,8 @@ class _LibraryPageState extends State<LibraryPage> {
           child: Text('Keep current setting and archive'),
         ),
       ],
+      if (_canPreview)
+        const PopupMenuItem(value: 'preview', child: Text('Preview')),
       const PopupMenuItem(value: 'export', child: Text('Save file to device')),
       const PopupMenuItem(value: 'rename', child: Text('Rename')),
       const PopupMenuItem(value: 'organize', child: Text('Folders and tags')),

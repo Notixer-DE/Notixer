@@ -101,6 +101,8 @@ class MarkdownPreview extends StatefulWidget {
 
 class MarkdownPreviewState extends State<MarkdownPreview> {
   final _anchors = <String, GlobalKey>{};
+  final _sourceLineKey = GlobalKey();
+  String? _sourceLineBlock;
   final _widgets = <String, Widget>{};
   List<_PreviewBlock>? _blocks;
   SliverChildBuilderDelegate? _delegate;
@@ -208,7 +210,12 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
         while (_widgets.length > 256) {
           _widgets.remove(_widgets.keys.first);
         }
-        return child;
+        return block.key == _sourceLineBlock
+            ? KeyedSubtree(
+                key: ValueKey(block.key),
+                child: KeyedSubtree(key: _sourceLineKey, child: child),
+              )
+            : child;
       },
       childCount: blocks.length,
       addAutomaticKeepAlives: false,
@@ -222,6 +229,57 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
     if (!mounted) return false;
     final key = _anchors[slug];
     if (key == null) return false;
+    return _scrollToTarget(key);
+  }
+
+  Future<bool> scrollToSourceLine(int line) async {
+    await ready;
+    final blocks = _blocks;
+    if (!mounted || blocks == null) return false;
+    final source = widget.document.source;
+    var start = 0;
+    for (var i = 1; i < line; i++) {
+      final next = source.indexOf('\n', start);
+      if (next < 0) return false;
+      start = next + 1;
+    }
+    final end = source.indexOf('\n', start);
+    final stop = end == -1 ? source.length : end;
+    var target = blocks
+        .where(
+          (block) =>
+              block.offsets.any((offset) => offset >= start && offset < stop),
+        )
+        .firstOrNull;
+    if (target == null) {
+      String normalize(String value) =>
+          value.replaceAll(RegExp(r'\s+'), ' ').trim();
+      final sourceLine = source.substring(start, stop);
+      final plain = normalize(
+        parseMarkdownForPreview(
+          sourceLine,
+        ).map((node) => node.textContent).join(' '),
+      );
+      if (plain.isEmpty) return false;
+      final prefix = const LineSplitter().convert(source.substring(0, start));
+      final occurrence = prefix
+          .where((line) => line.trim() == sourceLine.trim())
+          .length;
+      target = blocks
+          .where((block) => normalize(block.node.textContent).contains(plain))
+          .skip(occurrence)
+          .firstOrNull;
+    }
+    if (target == null) return false;
+    setState(() {
+      _sourceLineBlock = target!.key;
+      _makeDelegate();
+    });
+    await WidgetsBinding.instance.endOfFrame;
+    return _scrollToTarget(_sourceLineKey);
+  }
+
+  Future<bool> _scrollToTarget(GlobalKey key) async {
     final navigation = ++_navigation;
     final scroll = widget.scrollController;
     if (!scroll.hasClients) return false;

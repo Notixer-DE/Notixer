@@ -41,9 +41,11 @@ class KnowledgeView {
     this.folder = '',
     this.kind = 'all',
     this.openTasks = false,
+    this.completedTasks = false,
   });
   final String name, query, tag, folder, kind;
-  final bool openTasks;
+  final bool openTasks, completedTasks;
+  bool get tasksOnly => openTasks || completedTasks;
   Map<String, Object> toJson() => {
     'name': name,
     'query': query,
@@ -51,17 +53,19 @@ class KnowledgeView {
     'folder': folder,
     'kind': kind,
     'openTasks': openTasks,
+    if (completedTasks) 'completedTasks': true,
   };
   factory KnowledgeView.fromJson(Map<String, dynamic> value) {
     if (value['name'] is! String ||
         (value['name'] as String).trim().isEmpty ||
-        !['all', 'markdown', 'pdf'].contains(value['kind'] ?? 'all') ||
+        !['all', 'markdown', 'pdf', 'media'].contains(value['kind'] ?? 'all') ||
         [
           'query',
           'tag',
           'folder',
         ].any((key) => value[key] != null && value[key] is! String) ||
-        (value['openTasks'] != null && value['openTasks'] is! bool)) {
+        (value['openTasks'] != null && value['openTasks'] is! bool) ||
+        (value['completedTasks'] != null && value['completedTasks'] is! bool)) {
       throw const FormatException('Invalid saved view.');
     }
     return KnowledgeView(
@@ -71,6 +75,7 @@ class KnowledgeView {
       folder: value['folder'] as String? ?? '',
       kind: value['kind'] as String? ?? 'all',
       openTasks: value['openTasks'] as bool? ?? false,
+      completedTasks: value['completedTasks'] as bool? ?? false,
     );
   }
 }
@@ -239,10 +244,15 @@ _scanMarkdown(
   String query, {
   required bool plainTasks,
   bool completed = false,
+  bool includeCompleted = false,
 }) => Isolate.run(() {
   final offsets = markdownTaskOffsets(source);
+  final selected = _openTasks(source, offsets, completed: completed);
+  final additional = includeCompleted
+      ? _openTasks(source, offsets, completed: !completed)
+      : const <({int offset, int line, String text})>[];
   final tasks = [
-    for (final task in _openTasks(source, offsets, completed: completed))
+    for (final task in [...selected, ...additional])
       (
         offset: task.offset,
         line: task.line,
@@ -491,14 +501,29 @@ class KnowledgeStore {
     return text;
   }
 
-  Future<QuickTodo> addQuickTodo(String text) async {
+  Future<QuickTodo> addQuickTodo(
+    String text, {
+    String? projectId,
+    DateTime? due,
+  }) async {
     final task = _quickTodoText(text);
+    if (projectId != null) {
+      await repository.catalog.load();
+      if (!repository.catalog.folders.any((folder) => folder.id == projectId)) {
+        throw const FormatException('The project was removed.');
+      }
+    }
+    if (due != null && (due.year < 1 || due.year > 9999)) {
+      throw const FormatException('Choose a valid due date.');
+    }
     final now = DateTime.now();
     final todo = QuickTodo(
       id: LocalNotebookRepository.newId(),
       text: task,
       created: now,
       modified: now,
+      project: projectId,
+      due: due == null ? null : journalDate(due),
     );
     await quickTodos.change((tasks) => tasks[todo.id] = todo);
     return todo;
@@ -698,11 +723,13 @@ class KnowledgeStore {
     KnowledgeView view, {
     bool onlyQuickTodos = false,
     bool completedTasks = false,
+    bool includeCompletedTasks = false,
     bool Function()? cancelled,
     void Function(int, int)? onProgress,
   }) async {
+    final completed = completedTasks || view.completedTasks;
     bool matchesFilters(Notebook note) =>
-        (!view.openTasks || note.isMarkdown) &&
+        (!view.tasksOnly || note.isMarkdown) &&
         (view.kind == 'all' ||
             (view.kind == 'markdown' && note.isMarkdown) ||
             (view.kind == 'pdf' && note.isPdf) ||
@@ -720,11 +747,11 @@ class KnowledgeStore {
         .toList();
     final hits = <KnowledgeHit>[], tasks = <KnowledgeTask>[];
     final warnings = List<String>.of(repository.readErrors);
-    if (view.openTasks || view.query.trim().isNotEmpty) {
+    if (view.tasksOnly || view.query.trim().isNotEmpty) {
       try {
         final inbox = (await quickTodos.read()).values.toList()
           ..sort(
-            (a, b) => completedTasks
+            (a, b) => completed
                 ? (b.completionTime ?? b.modified).compareTo(
                     a.completionTime ?? a.modified,
                   )
@@ -732,7 +759,7 @@ class KnowledgeStore {
           );
         for (final todo in inbox) {
           if (cancelled?.call() == true) break;
-          if (todo.done != completedTasks ||
+          if ((!includeCompletedTasks && todo.done != completed) ||
               !todo.text.toLowerCase().contains(
                 view.query.trim().toLowerCase(),
               )) {
@@ -793,7 +820,8 @@ class KnowledgeStore {
             document.source,
             view.query.trim(),
             plainTasks: note.isTodoList,
-            completed: completedTasks,
+            completed: completed,
+            includeCompleted: includeCompletedTasks,
           );
           if (view.query.trim().isEmpty ||
               note.title.toLowerCase().contains(view.query.toLowerCase()) ||
@@ -817,7 +845,7 @@ class KnowledgeStore {
               ),
             );
           }
-          if (view.openTasks) {
+          if (view.tasksOnly) {
             for (final task in result.tasks.where(
               (task) =>
                   view.query.isEmpty ||
@@ -826,18 +854,19 @@ class KnowledgeStore {
             )) {
               hits.add(KnowledgeHit(note, task.text, 'line=${task.line}'));
             }
-          } else if (view.query.trim().isEmpty ||
-              note.title.toLowerCase().contains(view.query.toLowerCase())) {
-            hits.add(
-              KnowledgeHit(
-                note,
-                document.source.length > 180
-                    ? document.source.substring(0, 180)
-                    : document.source,
-                '',
-              ),
-            );
           } else {
+            if (view.query.isEmpty ||
+                note.title.toLowerCase().contains(view.query.toLowerCase())) {
+              hits.add(
+                KnowledgeHit(
+                  note,
+                  document.source.length > 180
+                      ? document.source.substring(0, 180)
+                      : document.source,
+                  '',
+                ),
+              );
+            }
             hits.addAll(
               result.matches.map(
                 (match) =>
@@ -845,7 +874,7 @@ class KnowledgeStore {
               ),
             );
           }
-        } else if (!view.openTasks) {
+        } else if (!view.tasksOnly) {
           if (view.query.trim().isEmpty) {
             hits.add(KnowledgeHit(note, 'PDF / handwriting', ''));
           } else {
@@ -861,7 +890,13 @@ class KnowledgeStore {
             );
             if (result.hits.isEmpty &&
                 note.title.toLowerCase().contains(view.query.toLowerCase())) {
-              hits.add(KnowledgeHit(note, 'PDF / handwriting', ''));
+              hits.add(
+                KnowledgeHit(
+                  note,
+                  result.hasText ? 'PDF' : 'PDF · No searchable text',
+                  '',
+                ),
+              );
             }
             if (result.truncated) {
               warnings.add('${note.title}: first 50 matches shown.');
@@ -873,7 +908,7 @@ class KnowledgeStore {
       }
       onProgress?.call(i + 1, notes.length);
     }
-    if (completedTasks && view.openTasks) {
+    if (completed && view.tasksOnly && !includeCompletedTasks) {
       final completedByLocation = {
         for (final task in tasks)
           '${task.note.id}:${task.anchor}': task.todo!.completionTime!,
@@ -946,6 +981,7 @@ class KnowledgeStore {
           folder: view.folder,
           kind: view.kind,
           openTasks: view.openTasks,
+          completedTasks: view.completedTasks,
         );
       }
     }

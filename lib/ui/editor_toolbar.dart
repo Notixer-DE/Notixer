@@ -42,6 +42,9 @@ class EditorToolbar extends StatelessWidget {
     this.learningActive = false,
     this.preferredPreset,
     this.shortcuts,
+    this.onToggleProperties,
+    this.propertiesVisible = false,
+    this.contextualProperties = false,
   });
 
   final DocumentSession session;
@@ -53,6 +56,8 @@ class EditorToolbar extends StatelessWidget {
   final bool lassoActive, tapeActive, learningActive;
   final PenPreset? preferredPreset;
   final KeyboardShortcuts? shortcuts;
+  final VoidCallback? onToggleProperties;
+  final bool propertiesVisible, contextualProperties;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -113,23 +118,6 @@ class EditorToolbar extends StatelessWidget {
                 child: _ScrollableTools(
                   children: [
                     tool(
-                      'Undo',
-                      Icons.undo,
-                      editing.canUndo ? editing.undo : null,
-                    ),
-                    tool(
-                      'Redo',
-                      Icons.redo,
-                      editing.canRedo ? editing.redo : null,
-                    ),
-                    tool(
-                      'Select text',
-                      Icons.text_fields,
-                      onTextSelection,
-                      shortcut: AppShortcut.pdfSelectText,
-                      selected: normal && editing.tool == null,
-                    ),
-                    tool(
                       'Pen',
                       Icons.edit_outlined,
                       () => onTool(PdfEditTool.ink),
@@ -157,6 +145,23 @@ class EditorToolbar extends StatelessWidget {
                       shortcut: AppShortcut.pdfLasso,
                       selected:
                           lassoActive && editing.tool == PdfEditTool.select,
+                    ),
+                    tool(
+                      'Undo',
+                      Icons.undo,
+                      editing.canUndo ? editing.undo : null,
+                    ),
+                    tool(
+                      'Redo',
+                      Icons.redo,
+                      editing.canRedo ? editing.redo : null,
+                    ),
+                    tool(
+                      'Select text',
+                      Icons.text_fields,
+                      onTextSelection,
+                      shortcut: AppShortcut.pdfSelectText,
+                      selected: normal && editing.tool == null,
                     ),
                     tool(
                       'Select',
@@ -270,16 +275,19 @@ class EditorToolbar extends StatelessWidget {
                   ),
               IconButton(
                 tooltip: 'Tool settings',
+                isSelected: onToggleProperties != null && propertiesVisible,
                 onPressed: !session.toolsReady
                     ? null
-                    : () => showDialog<void>(
-                        context: context,
-                        builder: (_) => _ToolStyleDialog(
-                          editing: editing,
-                          preferences: session.preferences,
-                          drawing: catalog.drawingPreferences,
-                        ),
-                      ),
+                    : onToggleProperties ??
+                          () => showDialog<void>(
+                            context: context,
+                            builder: (_) => _ToolStyleDialog(
+                              editing: editing,
+                              preferences: session.preferences,
+                              drawing: catalog.drawingPreferences,
+                              contextual: contextualProperties,
+                            ),
+                          ),
                 icon: Icon(Icons.tune, color: editing.color),
               ),
             ],
@@ -322,12 +330,47 @@ class _ScrollableToolsState extends State<_ScrollableTools> {
   );
 }
 
+class ToolPropertiesPanel extends StatelessWidget {
+  const ToolPropertiesPanel({
+    super.key,
+    required this.session,
+    required this.catalog,
+    required this.onClose,
+  });
+
+  final DocumentSession session;
+  final LibraryCatalog catalog;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([
+      session.editing,
+      session.preferences,
+      catalog.drawingPreferences,
+    ]),
+    builder: (context, _) => _ToolStyleDialog(
+      key: ObjectKey(session),
+      editing: session.editing,
+      preferences: session.preferences,
+      drawing: catalog.drawingPreferences,
+      onClose: onClose,
+      contextual: true,
+    ),
+  );
+}
+
 class _ToolStyleDialog extends StatefulWidget {
   const _ToolStyleDialog({
     required this.preferences,
     required this.editing,
     required this.drawing,
+    super.key,
+    this.onClose,
+    this.contextual = false,
   });
+  final VoidCallback? onClose;
+  final bool contextual;
   final PdfEditingPreferences preferences;
   final PdfEditingController editing;
   final DrawingPreferences drawing;
@@ -363,6 +406,148 @@ class _ToolStyleDialogState extends State<_ToolStyleDialog> {
   @override
   Widget build(BuildContext context) {
     final p = widget.preferences;
+    final tool = widget.editing.tool;
+    final showStroke = !widget.contextual || tool != PdfEditTool.eraser;
+    final showEraser = !widget.contextual || tool == PdfEditTool.eraser;
+    final tools = [
+      if (showStroke) ...[
+        Wrap(
+          children: [
+            for (final c in _editorColors)
+              IconButton(
+                tooltip:
+                    'Color #${(c & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}',
+                onPressed: () => setState(() {
+                  _applyColor(widget.editing, Color(c));
+                  _hex.text = (c & 0xFFFFFF)
+                      .toRadixString(16)
+                      .padLeft(6, '0')
+                      .toUpperCase();
+                  _error = null;
+                }),
+                icon: Icon(Icons.circle, color: Color(c)),
+              ),
+          ],
+        ),
+        TextField(
+          controller: _hex,
+          maxLength: 6,
+          decoration: InputDecoration(
+            labelText: 'Color (hex)',
+            prefixText: '#',
+            errorText: _error,
+          ),
+          onChanged: (value) => setState(() {
+            if (RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(value)) {
+              _applyColor(
+                widget.editing,
+                Color(0xFF000000 | int.parse(value, radix: 16)),
+              );
+              _error = null;
+            } else {
+              _error = 'Enter six hexadecimal digits.';
+            }
+          }),
+        ),
+        Text('Stroke width: ${p.strokeWidth.toStringAsFixed(1)} pt'),
+        Slider(
+          value: p.strokeWidth.clamp(.5, 30),
+          min: .5,
+          max: 30,
+          onChanged: (value) => setState(() {
+            p.strokeWidth = value;
+            widget.editing.restyleSelected(strokeWidth: value);
+          }),
+        ),
+        Text('Opacity: ${(p.opacity * 100).round()} %'),
+        Slider(
+          value: p.opacity.clamp(.05, 1),
+          min: .05,
+          max: 1,
+          onChanged: (value) => setState(() {
+            p.opacity = value;
+            widget.editing.restyleSelected(opacity: value);
+          }),
+        ),
+        if (!widget.contextual || tool == PdfEditTool.ink)
+          SwitchListTile(
+            key: const ValueKey('fixed-pressure-ink'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Fixed width – pen'),
+            value: !widget.drawing.pressureSensitive('ink'),
+            onChanged: (value) => _changeDrawing(
+              widget.drawing.setPressureSensitive('ink', !value),
+            ),
+          ),
+        if (!widget.contextual || tool == PdfEditTool.highlight)
+          SwitchListTile(
+            key: const ValueKey('fixed-pressure-highlight'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Fixed width – highlighter'),
+            value: !widget.drawing.pressureSensitive('highlight'),
+            onChanged: (value) => _changeDrawing(
+              widget.drawing.setPressureSensitive('highlight', !value),
+            ),
+          ),
+      ],
+      if (showEraser) ...[
+        if (!widget.contextual) const Divider(),
+        Text('Eraser diameter: ${(p.eraserRadius * 2).toStringAsFixed(0)} pt'),
+        Slider(
+          key: const ValueKey('eraser-diameter'),
+          value: (p.eraserRadius * 2).clamp(4, 80),
+          min: 4,
+          max: 80,
+          label: '${(p.eraserRadius * 2).round()} pt',
+          onChanged: (diameter) =>
+              setState(() => p.eraserRadius = diameter / 2),
+        ),
+        const Text(
+          'Applies to the eraser and stylus side button. Pen width is independent.',
+        ),
+        SwitchListTile(
+          key: const ValueKey('whole-stroke-eraser'),
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Erase whole strokes'),
+          subtitle: const Text(
+            'Also applies to the stylus side button. Off: erase parts of strokes.',
+          ),
+          value: widget.drawing.wholeStrokeEraser,
+          onChanged: (value) =>
+              _changeDrawing(widget.drawing.setWholeStrokeEraser(value)),
+        ),
+      ],
+      if (_storageError != null)
+        Text(
+          _storageError!,
+          style: TextStyle(color: Theme.of(context).colorScheme.error),
+        ),
+    ];
+    if (widget.onClose case final close?) {
+      return Material(
+        color: Theme.of(context).colorScheme.surface,
+        child: ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(switch (tool) {
+                PdfEditTool.ink => 'Pen',
+                PdfEditTool.highlight => 'Highlighter',
+                PdfEditTool.eraser => 'Eraser',
+                _ => 'Tool settings',
+              }),
+              trailing: IconButton(
+                tooltip: 'Close tool settings',
+                icon: const Icon(Icons.close),
+                onPressed: close,
+              ),
+            ),
+            ...tools,
+          ],
+        ),
+      );
+    }
     return AlertDialog(
       scrollable: true,
       title: const Text('Tool settings'),
@@ -371,116 +556,7 @@ class _ToolStyleDialogState extends State<_ToolStyleDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Wrap(
-              children: [
-                for (final c in _editorColors)
-                  IconButton(
-                    tooltip:
-                        'Color #${(c & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}',
-                    onPressed: () => setState(() {
-                      _applyColor(widget.editing, Color(c));
-                      _hex.text = (c & 0xFFFFFF)
-                          .toRadixString(16)
-                          .padLeft(6, '0')
-                          .toUpperCase();
-                      _error = null;
-                    }),
-                    icon: Icon(Icons.circle, color: Color(c)),
-                  ),
-              ],
-            ),
-            TextField(
-              controller: _hex,
-              maxLength: 6,
-              decoration: InputDecoration(
-                labelText: 'Color (hex)',
-                prefixText: '#',
-                errorText: _error,
-              ),
-              onChanged: (value) => setState(() {
-                if (RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(value)) {
-                  _applyColor(
-                    widget.editing,
-                    Color(0xFF000000 | int.parse(value, radix: 16)),
-                  );
-                  _error = null;
-                } else {
-                  _error = 'Enter six hexadecimal digits.';
-                }
-              }),
-            ),
-            Text('Stroke width: ${p.strokeWidth.toStringAsFixed(1)} pt'),
-            Slider(
-              value: p.strokeWidth.clamp(.5, 30),
-              min: .5,
-              max: 30,
-              onChanged: (value) => setState(() {
-                p.strokeWidth = value;
-                widget.editing.restyleSelected(strokeWidth: value);
-              }),
-            ),
-            Text('Opacity: ${(p.opacity * 100).round()} %'),
-            Slider(
-              value: p.opacity.clamp(.05, 1),
-              min: .05,
-              max: 1,
-              onChanged: (value) => setState(() {
-                p.opacity = value;
-                widget.editing.restyleSelected(opacity: value);
-              }),
-            ),
-            SwitchListTile(
-              key: const ValueKey('fixed-pressure-ink'),
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Fixed width – pen'),
-              value: !widget.drawing.pressureSensitive('ink'),
-              onChanged: (value) => _changeDrawing(
-                widget.drawing.setPressureSensitive('ink', !value),
-              ),
-            ),
-            SwitchListTile(
-              key: const ValueKey('fixed-pressure-highlight'),
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Fixed width – highlighter'),
-              value: !widget.drawing.pressureSensitive('highlight'),
-              onChanged: (value) => _changeDrawing(
-                widget.drawing.setPressureSensitive('highlight', !value),
-              ),
-            ),
-            const Divider(),
-            Text(
-              'Eraser diameter: ${(p.eraserRadius * 2).toStringAsFixed(0)} pt',
-            ),
-            Slider(
-              key: const ValueKey('eraser-diameter'),
-              value: (p.eraserRadius * 2).clamp(4, 80),
-              min: 4,
-              max: 80,
-              label: '${(p.eraserRadius * 2).round()} pt',
-              onChanged: (diameter) =>
-                  setState(() => p.eraserRadius = diameter / 2),
-            ),
-            const Text(
-              'Applies to the eraser and stylus side button. Pen width is independent.',
-            ),
-            SwitchListTile(
-              key: const ValueKey('whole-stroke-eraser'),
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Ganze Striche radieren'),
-              subtitle: const Text(
-                'Also applies to the stylus side button. Off: erase parts of strokes.',
-              ),
-              value: widget.drawing.wholeStrokeEraser,
-              onChanged: (value) =>
-                  _changeDrawing(widget.drawing.setWholeStrokeEraser(value)),
-            ),
-            if (_storageError != null)
-              Text(
-                _storageError!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-          ],
+          children: tools,
         ),
       ),
       actions: [

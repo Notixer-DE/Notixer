@@ -189,32 +189,9 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  web:
-    needs: [metadata, check]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.44.0'
-          cache: true
-      - run: flutter pub get --enforce-lockfile
-      - name: Build Notixer Web package
-        env:
-          NOTER_WEB_VERSION: ${{ needs.metadata.outputs.version }}
-          NOTER_BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
-        run: bash tools/build-web.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: web-package
-          path: dist/*_web.zip
-          if-no-files-found: error
-          retention-days: 14
-
   release:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    needs: [metadata, android, debian, windows, web, sync-server]
+    needs: [metadata, android, debian, windows, sync-server]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -228,7 +205,7 @@ jobs:
           pattern: '*-package'
           path: release-assets
           merge-multiple: true
-      - name: Publish release with Android, Debian, Windows, Web and checksums
+      - name: Publish release with Android, Debian, Windows and checksums
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -242,11 +219,10 @@ jobs:
           cd release-assets
           test "$(find . -maxdepth 1 -name '*.apk' | wc -l)" -eq 1
           test "$(find . -maxdepth 1 -name '*.deb' | wc -l)" -eq 1
-          test "$(find . -maxdepth 1 -name '*.zip' | wc -l)" -eq 2
+          test "$(find . -maxdepth 1 -name '*.zip' | wc -l)" -eq 1
           test -f "notixer_${APP_VERSION}_build-${BUILD_NUMBER}.apk"
           test "$(dpkg-deb -f "notixer_${DEB_VERSION}_amd64.deb" Package)" = notixer
           test -f "notixer_${APP_VERSION}_build-${BUILD_NUMBER}_windows-x64.zip"
-          test -f "notixer_${APP_VERSION}_build-${BUILD_NUMBER}_web.zip"
           sha256sum -- *.apk *.deb *.zip > SHA256SUMS
           notes="$RUNNER_TEMP/release-notes.md"
           cat > "$notes" <<NOTES
@@ -255,7 +231,6 @@ jobs:
           - Android: installable release APK signed with the existing preview key, version code $BUILD_NUMBER.
           - Debian: package for Debian 13, amd64.
           - Windows: x64 ZIP containing notixer.exe and all required runtime files. Extract the entire archive before running notixer.exe.
-          - Web: ZIP with the browser app for Markdown, to-dos and journal. Extract it and serve the contents from the root of an HTTPS site.
           - Optional end-to-end encrypted sync through the self-hosted Notixer server. See docs/sync-server.md.
           - Google Drive support has been removed. Back up existing cloud copies locally; they are not imported or deleted automatically.
           - The sync server is an initial functional release. Large-scale load testing, automatic storage cleanup and key rotation remain future work.

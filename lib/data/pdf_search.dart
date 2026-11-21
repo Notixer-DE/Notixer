@@ -11,9 +11,13 @@ class PdfSearchHit {
 }
 
 class PdfSearchPageResult {
-  const PdfSearchPageResult(this.hits, {required this.truncated});
+  const PdfSearchPageResult(
+    this.hits, {
+    required this.truncated,
+    this.hasText = false,
+  });
   final List<PdfSearchHit> hits;
-  final bool truncated;
+  final bool truncated, hasText;
 }
 
 /// Extract and match away from the UI isolate. Only one document is loaded by
@@ -31,11 +35,13 @@ Future<PdfSearchPageResult> searchPdf(
   return Isolate.run(() {
     final document = PdfDocument.open(bytes);
     final hits = <PdfSearchHit>[];
+    var hasText = false;
     for (var page = 0; page < document.pageCount; page++) {
       final text = PdfTextExtractor.extract(document, page);
+      hasText = hasText || text.text.trim().isNotEmpty;
       for (final match in text.findAll(term, caseSensitive: false)) {
         if (hits.length == limit) {
-          return PdfSearchPageResult(hits, truncated: true);
+          return PdfSearchPageResult(hits, truncated: true, hasText: true);
         }
         final from = (match.start - 40).clamp(0, text.text.length);
         final to = (match.end + 60).clamp(0, text.text.length);
@@ -49,6 +55,6 @@ Future<PdfSearchPageResult> searchPdf(
         );
       }
     }
-    return PdfSearchPageResult(hits, truncated: false);
+    return PdfSearchPageResult(hits, truncated: false, hasText: hasText);
   });
 }

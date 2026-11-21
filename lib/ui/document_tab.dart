@@ -80,7 +80,13 @@ class DocumentTabController extends ChangeNotifier {
   }
 }
 
+enum LibraryWorkspaceAction { capture, liveCanvas, recoverMedia, conflicts }
+
 class LibraryWorkspaceController {
+  final conflicts = ValueNotifier(0);
+  Map<LibraryWorkspaceAction, ShortcutAction> actions = const {};
+  VoidCallback? onLegacyTasksMigrated;
+  Future<bool> Function()? addQuickTodo;
   Future<void> Function()? refresh;
   Future<void> Function()? syncQuickTodos;
   Future<void> Function(Notebook?)? syncJournal;

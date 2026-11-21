@@ -9,13 +9,13 @@ typedef ShortcutAction = FutureOr<void> Function();
 
 enum ShortcutSection {
   navigation('Navigation and tabs'),
-  library('Library and sync'),
+  library('Files and sync'),
   document('Documents'),
   pdf('PDF editor'),
   pdfTools('PDF tools'),
   markdown('Markdown editor'),
   media('Media'),
-  knowledge('Knowledge Hub');
+  knowledge('Tasks, journal and search');
 
   const ShortcutSection(this.label);
   final String label;
@@ -24,7 +24,7 @@ enum ShortcutSection {
 enum AppShortcut {
   knowledgeSearch(
     ShortcutSection.navigation,
-    'Search in Knowledge Hub',
+    'Open global search',
     LogicalKeyboardKey.keyK,
   ),
   importFile(
@@ -231,12 +231,12 @@ enum AppShortcut {
 
   knowledgeSubmit(
     ShortcutSection.knowledge,
-    'Run the Knowledge Hub search',
+    'Run the search',
     LogicalKeyboardKey.enter,
   ),
   knowledgeTasks(
     ShortcutSection.knowledge,
-    'Show open tasks',
+    'Open tasks',
     LogicalKeyboardKey.keyK,
     alt: true,
   ),

@@ -204,6 +204,18 @@ class _MediaPageState extends State<MediaPage> {
     super.dispose();
   }
 
+  Future<void> _organize() => _action(() async {
+    final updated = await showDialog<Notebook>(
+      context: context,
+      builder: (_) =>
+          OrganizeDialog(note: _note!, repository: widget.repository!),
+    );
+    if (updated != null && mounted) {
+      final saved = await widget.repository!.save(updated, widget.bytes);
+      if (mounted) _updateNote(saved);
+    }
+  });
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -222,34 +234,37 @@ class _MediaPageState extends State<MediaPage> {
       ),
       title: Text(_name, maxLines: 1, overflow: TextOverflow.ellipsis),
       actions: [
-        if (widget.note != null && widget.repository != null)
+        if (widget.tabController != null)
+          PopupMenuButton<String>(
+            tooltip: 'File menu',
+            enabled: !_busy,
+            onSelected: (action) =>
+                action == 'organize' ? _organize() : _export(),
+            itemBuilder: (_) => [
+              if (widget.note != null && widget.repository != null)
+                const PopupMenuItem(
+                  value: 'organize',
+                  child: Text('Folders and tags'),
+                ),
+              const PopupMenuItem(
+                value: 'export',
+                child: Text('Save file to device'),
+              ),
+            ],
+          )
+        else ...[
+          if (widget.note != null && widget.repository != null)
+            IconButton(
+              tooltip: 'Organize file',
+              onPressed: _busy ? null : _organize,
+              icon: const Icon(Icons.folder_outlined),
+            ),
           IconButton(
-            tooltip: 'Organize file',
-            onPressed: _busy
-                ? null
-                : () => _action(() async {
-                    final updated = await showDialog<Notebook>(
-                      context: context,
-                      builder: (_) => OrganizeDialog(
-                        note: _note!,
-                        repository: widget.repository!,
-                      ),
-                    );
-                    if (updated != null) {
-                      final saved = await widget.repository!.save(
-                        updated,
-                        widget.bytes,
-                      );
-                      if (mounted) _updateNote(saved);
-                    }
-                  }),
-            icon: const Icon(Icons.folder_outlined),
+            tooltip: 'Export media',
+            onPressed: _busy ? null : _export,
+            icon: const Icon(Icons.save_alt),
           ),
-        IconButton(
-          tooltip: 'Export media',
-          onPressed: _busy ? null : _export,
-          icon: const Icon(Icons.save_alt),
-        ),
+        ],
       ],
     ),
     body: SafeArea(
