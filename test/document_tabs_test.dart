@@ -1,3 +1,4 @@
+import 'package:dart_pdf_editor/dart_pdf_editor.dart' show PdfEditTool;
 import 'dart:io';
 import 'dart:async';
 import 'package:noter/ui/library.dart';
@@ -11,6 +12,7 @@ import 'package:noter/data/markdown_library.dart';
 import 'package:noter/data/notebook.dart';
 import 'package:noter/data/paper.dart';
 import 'package:noter/ui/document_workspace.dart';
+import 'package:noter/ui/workspace_navigation.dart';
 import 'package:noter/ui/document_tab.dart';
 import 'package:noter/ui/editor.dart';
 import 'package:noter/ui/editor_pane.dart';
@@ -85,7 +87,11 @@ void main() {
         await tester.pumpWidget(
           MaterialApp(
             theme: NoterTheme.light,
-            home: DocumentWorkspace(key: key, repository: repo),
+            home: DocumentWorkspace(
+              key: key,
+              repository: repo,
+              initialArea: WorkspaceArea.files,
+            ),
           ),
         );
         Future<void> io([bool Function()? done]) async {
@@ -150,6 +156,12 @@ void main() {
         await tester.tap(find.byTooltip('Show document tabs'));
         await io();
         expect(find.byKey(ValueKey('document-tab-${a.id}')), findsOneWidget);
+        expect(pane.viewer.zoom, closeTo(zoom, .001));
+
+        expect(pane.editing.tool, isNull);
+        await tester.tap(find.byKey(const ValueKey('pdf-mode-draw')));
+        await io();
+        expect(pane.editing.tool, PdfEditTool.ink);
         expect(pane.viewer.zoom, closeTo(zoom, .001));
 
         final bounds = pane.viewer.globalRectOf(
@@ -271,7 +283,11 @@ void main() {
       final key = GlobalKey<DocumentWorkspaceState>();
       await tester.pumpWidget(
         MaterialApp(
-          home: DocumentWorkspace(key: key, repository: repo),
+          home: DocumentWorkspace(
+            key: key,
+            repository: repo,
+            initialArea: WorkspaceArea.files,
+          ),
         ),
       );
       var opened = false;

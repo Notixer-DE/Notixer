@@ -13,6 +13,7 @@ import '../data/markdown_document.dart';
 import '../data/paper.dart';
 import '../input/stylus_eraser.dart';
 import 'editor_pane.dart';
+import 'organize_dialog.dart';
 import 'page_manager.dart';
 import 'preset_dialog.dart';
 import 'editor_toolbar.dart';
@@ -35,7 +36,9 @@ class EditorPage extends StatefulWidget {
     this.workspaceSessions,
     this.onLibrary,
     this.onReviewRated,
+    this.reviewProgress,
   });
+  final String? reviewProgress;
   final Notebook note;
   final Uint8List bytes;
   final NotebookRepository repository;
@@ -58,6 +61,8 @@ class _Pane {
   final region = GlobalKey();
 }
 
+enum _PdfWorkspaceMode { read, draw, pages }
+
 class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
   final Map<String, DocumentSession> _sessions = {};
   final Map<String, PenPreset> _preferredPresets = {};
@@ -65,6 +70,12 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
   int _active = 0;
   bool _allowPop = false, _leaving = false, _busy = false;
   bool _showChrome = !Platform.isAndroid;
+  bool get _workspaceModes => widget.tabController != null;
+  _PdfWorkspaceMode _pdfMode = _PdfWorkspaceMode.read;
+  PdfEditTool? _drawingTool;
+  PdfEditTool get _preferredDrawingTool =>
+      _drawingTool ?? session.baseTool ?? PdfEditTool.ink;
+  bool _showToolProperties = false;
   final _showBarsKey = GlobalKey();
   bool? _stacked;
   double _fraction = 0.5;
@@ -82,7 +93,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    if (widget.initialTapeId != null) _showChrome = true;
+    if (_workspaceModes || widget.initialTapeId != null) _showChrome = true;
     WidgetsBinding.instance.addObserver(this);
     final initial = _create(widget.note, widget.bytes);
     _panes.add(_Pane(initial));
@@ -405,6 +416,30 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
       _message('File exported.');
     }
   });
+  Future<void> _organize() => _perform(() async {
+    final target = session;
+    final repository = target.repository;
+    if (repository is! LocalNotebookRepository ||
+        !await target.save() ||
+        !mounted) {
+      return;
+    }
+    final update = await showDialog<Notebook>(
+      context: context,
+      builder: (_) => OrganizeDialog(note: target.note, repository: repository),
+    );
+    if (update != null && mounted) {
+      target.note = await repository.checkpointInk(
+        target.note.copy(
+          folderId: update.folderId,
+          clearFolder: update.folderId == null,
+          tags: update.tags,
+        ),
+        target.ink.snapshot(),
+      );
+    }
+  });
+
   Future<void> _addPage() => _perform(() async {
     final s = session;
     final bytes = await createPaper(
@@ -563,6 +598,15 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
 
   void _selectPdfTool(PdfEditTool tool) {
     if (!session.toolsReady) return;
+    if (_workspaceModes) {
+      _drawingTool = tool;
+      if (_pdfMode != _PdfWorkspaceMode.draw || !_showChrome) {
+        setState(() {
+          _pdfMode = _PdfWorkspaceMode.draw;
+          _showChrome = true;
+        });
+      }
+    }
     active.key.currentState?.normalTool();
     session.eraser.setBaseTool(tool);
   }
@@ -596,9 +640,17 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
       AppShortcut.pdfPen => () => _selectPdfTool(PdfEditTool.ink),
       AppShortcut.pdfHighlighter => () => _selectPdfTool(PdfEditTool.highlight),
       AppShortcut.pdfEraser => () => _selectPdfTool(PdfEditTool.eraser),
-      AppShortcut.pdfLasso when session.toolsReady => pane.toggleLasso,
+      AppShortcut.pdfLasso when session.toolsReady => () {
+        if (_workspaceModes && _pdfMode != _PdfWorkspaceMode.draw) {
+          _selectPdfTool(_preferredDrawingTool);
+        }
+        pane.toggleLasso();
+      },
       AppShortcut.pdfSelect => () => _selectPdfTool(PdfEditTool.select),
-      AppShortcut.pdfSelectText when session.toolsReady => pane.selectText,
+      AppShortcut.pdfSelectText when session.toolsReady => () {
+        if (_workspaceModes) _switchMode(_PdfWorkspaceMode.read);
+        pane.selectText(temporary: _workspaceModes);
+      },
       AppShortcut.pdfInsertText => () => _selectPdfTool(PdfEditTool.freeText),
       _ => null,
     };
@@ -672,6 +724,8 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         active.key.currentState?.coverAll();
       case 'presets':
         await _editPreset();
+      case 'organize':
+        await _organize();
       case 'pdf':
         await _export(false);
       case 'noter':
@@ -712,6 +766,8 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         active: _active == index,
         split: _panes.length > 1,
         showChrome: _showChrome,
+        reviewProgress: widget.reviewProgress,
+        readOnlyMode: _workspaceModes && _pdfMode != _PdfWorkspaceMode.draw,
         initialPage: index == 0 ? widget.initialPage : null,
         initialQuery: index == 0 ? widget.initialQuery : '',
         initialTapeId: index == 0 ? widget.initialTapeId : null,
@@ -812,6 +868,109 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     super.dispose();
   }
 
+  void _switchMode(_PdfWorkspaceMode mode) {
+    if (mode == _pdfMode) return;
+    session.editing.finishInk();
+    if (mode == _PdfWorkspaceMode.draw) {
+      _selectPdfTool(_preferredDrawingTool);
+    } else {
+      active.key.currentState?.selectText(temporary: true);
+      setState(() => _pdfMode = mode);
+    }
+  }
+
+  Widget _modeStrip() {
+    final mode = _pdfMode;
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            children: [
+              for (final (value, label, icon) in [
+                (_PdfWorkspaceMode.read, 'Read', Icons.menu_book_outlined),
+                (_PdfWorkspaceMode.draw, 'Draw', Icons.draw_outlined),
+                (_PdfWorkspaceMode.pages, 'Pages', Icons.view_module_outlined),
+              ])
+                TextButton.icon(
+                  key: ValueKey('pdf-mode-${value.name}'),
+                  style: value == mode
+                      ? TextButton.styleFrom(
+                          backgroundColor: Theme.of(
+                            context,
+                          ).colorScheme.secondaryContainer,
+                        )
+                      : null,
+                  onPressed: () => _switchMode(value),
+                  icon: Icon(icon),
+                  label: Text(label),
+                ),
+              const SizedBox(width: 8),
+              if (mode == _PdfWorkspaceMode.read)
+                IconButton(
+                  tooltip: 'Search PDF',
+                  onPressed: () => active.key.currentState?.toggleSearch(),
+                  icon: const Icon(Icons.search),
+                ),
+              if (mode == _PdfWorkspaceMode.draw)
+                PopupMenuButton<String>(
+                  tooltip: 'Drawing options',
+                  onSelected: _action,
+                  itemBuilder: (_) => [
+                    CheckedPopupMenuItem(
+                      value: 'finger',
+                      checked: session.preferences.fingerDrawsInk,
+                      child: const Text('Finger drawing'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'presets',
+                      child: Text('Edit pen presets'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'loupe',
+                      child: Text('Writing magnifier'),
+                    ),
+                  ],
+                ),
+              if (mode == _PdfWorkspaceMode.pages) ...[
+                TextButton(
+                  onPressed: _busy ? null : _pages,
+                  child: const Text('Manage pages'),
+                ),
+                IconButton(
+                  tooltip: 'Add page',
+                  onPressed: _busy ? null : _addPage,
+                  icon: const Icon(Icons.note_add_outlined),
+                ),
+                PopupMenuButton<String>(
+                  tooltip: 'Page templates',
+                  onSelected: _action,
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: 'insertTemplate',
+                      child: Text('Insert from template'),
+                    ),
+                    PopupMenuItem(
+                      value: 'pageTemplate',
+                      child: Text('Save current page as template'),
+                    ),
+                    PopupMenuItem(
+                      value: 'notebookTemplate',
+                      child: Text('Save note as template'),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Focus(
     autofocus: widget.tabController == null && _shortcuts != null,
@@ -846,53 +1005,68 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                   icon: const Icon(Icons.fullscreen),
                 ),
                 PopupMenuButton<String>(
-                  tooltip: 'Tools and export',
+                  tooltip: _workspaceModes ? 'File menu' : 'Tools and export',
                   enabled: !_busy,
                   onSelected: _action,
                   itemBuilder: (_) => [
-                    const PopupMenuItem(
-                      value: 'search',
-                      child: Text('Search PDF'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'addPage',
-                      child: Text('Add page'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'pages',
-                      child: Text('Manage pages'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'insertTemplate',
-                      child: Text('Insert from template'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'pageTemplate',
-                      child: Text('Save current page as template'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'notebookTemplate',
-                      child: Text('Save note as template'),
-                    ),
+                    if (!_workspaceModes)
+                      const PopupMenuItem(
+                        value: 'search',
+                        child: Text('Search PDF'),
+                      ),
+                    if (!_workspaceModes)
+                      const PopupMenuItem(
+                        value: 'addPage',
+                        child: Text('Add page'),
+                      ),
+                    if (!_workspaceModes)
+                      const PopupMenuItem(
+                        value: 'pages',
+                        child: Text('Manage pages'),
+                      ),
+                    if (!_workspaceModes)
+                      const PopupMenuItem(
+                        value: 'insertTemplate',
+                        child: Text('Insert from template'),
+                      ),
+                    if (!_workspaceModes)
+                      const PopupMenuItem(
+                        value: 'pageTemplate',
+                        child: Text('Save current page as template'),
+                      ),
+                    if (!_workspaceModes)
+                      const PopupMenuItem(
+                        value: 'notebookTemplate',
+                        child: Text('Save note as template'),
+                      ),
+                    if (_workspaceModes &&
+                        session.repository is LocalNotebookRepository)
+                      const PopupMenuItem(
+                        value: 'organize',
+                        child: Text('Folders and tags'),
+                      ),
                     if (session.editing.hasAnnotationClipboard)
                       const PopupMenuItem(
                         value: 'paste',
                         child: Text('Paste selection'),
                       ),
                     const PopupMenuDivider(),
-                    CheckedPopupMenuItem(
-                      value: 'finger',
-                      checked: session.preferences.fingerDrawsInk,
-                      child: const Text('Finger drawing'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'presets',
-                      child: Text('Edit pen presets'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'loupe',
-                      child: Text('Writing magnifier'),
-                    ),
+                    if (!_workspaceModes)
+                      CheckedPopupMenuItem(
+                        value: 'finger',
+                        checked: session.preferences.fingerDrawsInk,
+                        child: const Text('Finger drawing'),
+                      ),
+                    if (!_workspaceModes)
+                      const PopupMenuItem(
+                        value: 'presets',
+                        child: Text('Edit pen presets'),
+                      ),
+                    if (!_workspaceModes)
+                      const PopupMenuItem(
+                        value: 'loupe',
+                        child: Text('Writing magnifier'),
+                      ),
                     const PopupMenuDivider(),
                     CheckedPopupMenuItem(
                       value: 'singlePage',
@@ -946,18 +1120,33 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
             child: Column(
               children: [
                 if (_busy) const LinearProgressIndicator(),
-                if (_showChrome)
+                if (_showChrome &&
+                    _workspaceModes &&
+                    !(active.key.currentState?.learningActive ?? false))
+                  _modeStrip(),
+                if (_showChrome &&
+                    (!_workspaceModes || _pdfMode == _PdfWorkspaceMode.draw) &&
+                    !(active.key.currentState?.learningActive ?? false))
                   EditorToolbar(
                     session: session,
                     catalog: widget.repository.catalog,
                     shortcuts: _shortcuts,
+                    onToggleProperties:
+                        _workspaceModes &&
+                            MediaQuery.sizeOf(context).width >= 1200
+                        ? () => setState(
+                            () => _showToolProperties = !_showToolProperties,
+                          )
+                        : null,
+                    propertiesVisible: _showToolProperties,
+                    contextualProperties: _workspaceModes,
                     lassoActive: active.key.currentState?.lassoActive ?? false,
                     tapeActive: active.key.currentState?.tapeActive ?? false,
                     learningActive:
                         active.key.currentState?.learningActive ?? false,
                     preferredPreset: _preferredPresets[session.note.id],
                     onTextSelection: () =>
-                        active.key.currentState?.selectText(),
+                        active.key.currentState?.selectText(temporary: false),
                     onTool: _selectPdfTool,
                     onLasso: () => active.key.currentState?.toggleLasso(),
                     onTape: () => active.key.currentState?.toggleTape(),
@@ -968,7 +1157,28 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                     },
                     onEditPreset: _editPreset,
                   ),
-                Expanded(child: _workspace()),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Expanded(child: _workspace()),
+                      if (_showChrome &&
+                          _workspaceModes &&
+                          _pdfMode == _PdfWorkspaceMode.draw &&
+                          _showToolProperties &&
+                          MediaQuery.sizeOf(context).width >= 1200 &&
+                          !(active.key.currentState?.learningActive ?? false))
+                        SizedBox(
+                          width: 270,
+                          child: ToolPropertiesPanel(
+                            session: session,
+                            catalog: widget.repository.catalog,
+                            onClose: () =>
+                                setState(() => _showToolProperties = false),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
                 for (final s in _sessions.values.where((s) => s.error != null))
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),

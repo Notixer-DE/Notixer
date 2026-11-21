@@ -611,6 +611,17 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     final line = int.tryParse(
       anchor.startsWith('line=') ? anchor.substring(5) : '',
     );
+    if (line != null && line > 0 && widget.tabController != null) {
+      if (_source) {
+        setState(() => _source = false);
+        _focus.unfocus();
+        _titleFocus.unfocus();
+      }
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      final found = await _previewKey.currentState?.scrollToSourceLine(line);
+      if (!mounted || found == true) return;
+    }
     if (line != null && line > 0) {
       setState(() => _source = true);
       var offset = 0;
@@ -637,6 +648,10 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       _titleFocus.unfocus();
       await WidgetsBinding.instance.endOfFrame;
       if (!mounted) return;
+    }
+    if (anchor == 'resume:reading') {
+      await _restorePosition();
+      return;
     }
     if (anchor.isEmpty) {
       if (_scroll.hasClients) _scroll.jumpTo(0);
@@ -796,7 +811,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       if (mounted) {
         setState(
           () => _message =
-              'Markdown template saved. Manage it in Knowledge hub → Templates.',
+              'Markdown template saved. Manage it in More → Templates.',
         );
       }
       return;
@@ -814,7 +829,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
           if (store.templates.isEmpty)
             const Padding(
               padding: EdgeInsets.all(16),
-              child: Text('Create templates in Knowledge hub → Templates.'),
+              child: Text('Create templates in More → Templates.'),
             ),
         ],
       ),
@@ -1230,29 +1245,48 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
           ),
           const ToolbarSeparator(),
         ],
-        tool('Undo', Icons.undo, undo.value.canUndo ? undo.undo : null),
-        tool('Redo', Icons.redo, undo.value.canRedo ? undo.redo : null),
-        const ToolbarSeparator(),
-        tool('Heading', Icons.title, () => _insert('\n## ', '\n', 'Heading')),
-        tool('Bold', Icons.format_bold, () => _insert('**', '**')),
-        tool('Italic', Icons.format_italic, () => _insert('*', '*')),
-        const ToolbarSeparator(),
-        tool(
-          'Bullet list',
-          Icons.format_list_bulleted,
-          () => _insert('\n- ', '\n', 'List item'),
-        ),
-        tool(
-          'Checklist',
-          Icons.checklist,
-          () => _insert('\n- [ ] ', '\n', 'Task'),
-        ),
-        tool('Quote', Icons.format_quote, () => _insert('\n> ', '\n', 'Quote')),
-        tool('Insert link', Icons.link, _linkDialog),
-        tool('Insert image', Icons.image_outlined, _image),
-        tool('Attach media', Icons.attach_file, () => _attachMedia()),
-        tool('Code', Icons.code, () => _insert('`', '`')),
-        tool('Code block', Icons.integration_instructions_outlined, _codeBlock),
+        if (!_source && widget.tabController != null) ...[
+          tool('Outline and backlinks', Icons.list_alt_outlined, _outline),
+          tool('Local graph', Icons.hub_outlined, _graphView),
+        ] else ...[
+          tool('Undo', Icons.undo, undo.value.canUndo ? undo.undo : null),
+          tool('Redo', Icons.redo, undo.value.canRedo ? undo.redo : null),
+          const ToolbarSeparator(),
+          tool('Heading', Icons.title, () => _insert('\n## ', '\n', 'Heading')),
+          tool('Bold', Icons.format_bold, () => _insert('**', '**')),
+          tool('Italic', Icons.format_italic, () => _insert('*', '*')),
+          const ToolbarSeparator(),
+          tool(
+            'Bullet list',
+            Icons.format_list_bulleted,
+            () => _insert('\n- ', '\n', 'List item'),
+          ),
+          tool(
+            'Checklist',
+            Icons.checklist,
+            () => _insert('\n- [ ] ', '\n', 'Task'),
+          ),
+          tool(
+            'Quote',
+            Icons.format_quote,
+            () => _insert('\n> ', '\n', 'Quote'),
+          ),
+          tool('Insert link', Icons.link, _linkDialog),
+          tool('Insert image', Icons.image_outlined, _image),
+          tool('Attach media', Icons.attach_file, () => _attachMedia()),
+          tool('Code', Icons.code, () => _insert('`', '`')),
+          tool(
+            'Code block',
+            Icons.integration_instructions_outlined,
+            _codeBlock,
+          ),
+          if (widget.tabController != null)
+            tool(
+              'Insert template',
+              Icons.dashboard_customize_outlined,
+              _insertTemplate,
+            ),
+        ],
       ],
     );
   }
@@ -1733,7 +1767,9 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                           ),
                         ),
                         PopupMenuButton<String>(
-                          tooltip: 'Note actions',
+                          tooltip: widget.tabController == null
+                              ? 'Note actions'
+                              : 'File menu',
                           onSelected: (value) {
                             if (value == 'knowledge') {
                               _knowledge('Search');
@@ -1751,45 +1787,47 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                               _export(value);
                             }
                           },
-                          itemBuilder: (_) => const [
-                            PopupMenuItem(
+                          itemBuilder: (_) => [
+                            const PopupMenuItem(
                               value: 'outline',
                               child: Text('Outline'),
                             ),
-                            PopupMenuItem(
+                            const PopupMenuItem(
                               value: 'organize',
                               child: Text('Folders and tags'),
                             ),
-                            PopupMenuDivider(),
-                            PopupMenuItem(
-                              value: 'template',
-                              child: Text('Insert Markdown template'),
-                            ),
-                            PopupMenuItem(
+                            const PopupMenuDivider(),
+                            if (_source || widget.tabController == null)
+                              const PopupMenuItem(
+                                value: 'template',
+                                child: Text('Insert Markdown template'),
+                              ),
+                            const PopupMenuItem(
                               value: 'save-template',
                               child: Text('Save as Markdown template'),
                             ),
-                            PopupMenuDivider(),
-                            PopupMenuItem(
+                            const PopupMenuDivider(),
+                            const PopupMenuItem(
                               value: 'md',
                               child: Text('Export Markdown (.md)'),
                             ),
-                            PopupMenuItem(
+                            const PopupMenuItem(
                               value: 'bundle',
                               child: Text(
                                 'Export with links and images (.zip)',
                               ),
                             ),
-                            PopupMenuItem(
+                            const PopupMenuItem(
                               value: 'rescue',
                               child: Text('Export Notixer backup'),
                             ),
-                            PopupMenuDivider(),
-                            PopupMenuItem(
-                              value: 'knowledge',
-                              child: Text('Knowledge hub'),
-                            ),
-                            PopupMenuItem(
+                            const PopupMenuDivider(),
+                            if (widget.tabController == null)
+                              const PopupMenuItem(
+                                value: 'knowledge',
+                                child: Text('Knowledge hub'),
+                              ),
+                            const PopupMenuItem(
                               value: 'graph',
                               child: Text('Graph view'),
                             ),
@@ -1850,17 +1888,25 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                                       16,
                                                     ),
                                               ),
-                                              segments: const [
+                                              segments: [
                                                 ButtonSegment(
                                                   value: false,
-                                                  label: Text('Formatted'),
+                                                  label: Text(
+                                                    widget.tabController == null
+                                                        ? 'Formatted'
+                                                        : 'Read',
+                                                  ),
                                                   icon: Icon(
                                                     Icons.article_outlined,
                                                   ),
                                                 ),
                                                 ButtonSegment(
                                                   value: true,
-                                                  label: Text('Markdown'),
+                                                  label: Text(
+                                                    widget.tabController == null
+                                                        ? 'Markdown'
+                                                        : 'Edit',
+                                                  ),
                                                   icon: Icon(Icons.code),
                                                 ),
                                               ],

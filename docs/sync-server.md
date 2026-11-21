@@ -86,48 +86,25 @@ docker compose exec server noter-server admin add-device ACCOUNT_UUID
 
 1. In the admin dashboard at **/admin**, select an account and choose **Pair device by QR code**.
 2. Check that the displayed HTTPS address is reachable from your Android device. For an existing vault, you can paste its recovery key into the dashboard form. The browser includes the key in the QR image locally. The server never receives the recovery key itself. If you leave the field blank, the app asks for the existing key after scanning.
-3. In Notixer on Android, open **Self-hosted sync server → Scan pairing QR code**. Scan the code and confirm the server shown in the app.
+3. In Notixer on Android, open **More → Settings → Sync → Scan pairing QR code**. Scan the code and confirm the server shown in the app.
 4. For a new vault, Notixer generates the recovery key. Back it up when the app displays it. Each successful scan creates a separate device token in the Android keychain.
 
 The code expires after five minutes and can be redeemed once. Generating a new code for the same account replaces the previous one. Treat the QR code as a secret, especially if it contains the recovery key. The dashboard also supports creating device tokens for manual setup.
 
 ### Connect a device
 
-1. Open **Self-hosted sync server** in Notixer and enter the server address without a path and the device access token.
+1. Open **More → Settings → Sync** in Notixer and enter the server address without a path and the device access token.
 2. On the first device, generate a **Recovery key** and store a copy safely outside the device.
 3. Connect and sync.
 4. On additional devices, use a separate device token for the same account and the **same recovery key**.
 
 Tokens and keys are stored in the system keychain (Android Keystore, Linux Secret Service, or Windows secure storage).
 
-### Connect Notixer Web
-
-Serve the extracted Notixer Web ZIP and the Sync API at the same HTTPS origin. Keep the sync server listening on loopback and forward its API routes through the same reverse proxy as the static site. This example assumes Caddy and Docker Compose are on the same host:
-
-```caddyfile
-notes.example.com {
-    @notixer_backend path /api/v1/* /admin /admin/*
-    handle @notixer_backend {
-        reverse_proxy 127.0.0.1:5150
-    }
-    handle {
-        root * /srv/notixer/web
-        file_server
-    }
-}
-```
-
-1. Create a separate device token for the browser under your existing sync account.
-2. Open **Sync** in the web app and enter the public server origin, device token and the recovery key from the installed app.
-3. Select **Connect**, then **Sync now**. Repeat **Sync now** to upload local edits and fetch changes from other devices.
-
-The browser keeps the credentials in the open tab. Enter them again after closing or reloading it. Keep a browser profile per vault and keep independent backups of the local library. For separate Web and API origins, the API reverse proxy must explicitly allow the Web origin on `/api/v1/*`, including `OPTIONS` preflight requests, `GET, PUT, POST`, and the `Authorization` and `Content-Type` headers. Use HTTPS for both origins.
-
 ### Share a Live Canvas
 
 Update the sync server and the Android, Linux or Windows app. Connect each device to the same sync account with its own device token and the same recovery key.
 
-1. On Android, open **Library actions → Live Canvas → Share live**.
+1. On Android, open **More → Live Canvas → Share live**.
 2. On Linux or Windows, select **Watch live** in the banner above the workspace. The banner appears within a few seconds, including while a document is open. Use **Presentation mode** to give the drawing the full app window.
 3. On Android, select **Stop sharing** to disconnect the viewers. Use **Save to library** to keep the drawing as a regular notebook.
 

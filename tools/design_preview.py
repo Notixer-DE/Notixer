@@ -9,13 +9,14 @@ from flutter_sdk import sdk
 root = Path(__file__).resolve().parent.parent
 (root / "build").mkdir(exist_ok=True)
 log = root / "build/design-preview-compile.log"
+kernel = Path(os.environ.get("NOTIXER_DESIGN_KERNEL", root / "build/design-preview.dill"))
 with log.open("w") as output:
     result = subprocess.run([
         str(sdk / "bin/cache/dart-sdk/bin/dartaotruntime"),
         str(sdk / "bin/cache/dart-sdk/bin/snapshots/frontend_server_aot.dart.snapshot"),
         "--sdk-root", str(sdk / "bin/cache/artifacts/engine/common/flutter_patched_sdk") + "/",
         "--target=flutter", "--packages=.dart_tool/package_config.json",
-        "--output-dill=build/design-preview.dill", "tools/design_preview.dart",
+        f"--output-dill={kernel}", "tools/design_preview.dart",
     ], cwd=root, stdout=output, stderr=subprocess.STDOUT)
 if result.returncode:
     print(log.read_text())
@@ -26,7 +27,7 @@ for device in os.environ.get("NOTER_DESIGN_DEVICES", "desktop,phone,tablet").spl
     result = subprocess.run([
         str(sdk / "bin/cache/artifacts/engine/linux-x64/flutter_tester"),
         "--disable-vm-service", "--run-forever",
-        "--flutter-assets-dir=build/unit_test_assets", "build/design-preview.dill",
+        "--flutter-assets-dir=build/unit_test_assets", str(kernel),
     ], cwd=root, env=env, timeout=120)
     if result.returncode:
         sys.exit(result.returncode)

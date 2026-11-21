@@ -13,16 +13,65 @@ class StudyTask {
   final ReviewSchedule? schedule;
 }
 
+Future<(List<StudyTask>, List<String>, int)> loadStudyQueue(
+  NotebookRepository repository,
+  DateTime clock, {
+  bool Function()? cancelled,
+}) async {
+  final tasks = <StudyTask>[], errors = <String>[];
+  var total = 0;
+  final now = clock.toUtc();
+  try {
+    final notes = await repository.list();
+    for (final note in notes) {
+      if (!note.isPdf) continue;
+      if (cancelled?.call() == true) break;
+      try {
+        // One PDF at a time; parsing and target scanning run off the UI thread.
+        final targets = await scanTapes(await repository.load(note.id));
+        total += targets.length;
+        for (final target in targets) {
+          final schedule = note.learning.schedule(target.id);
+          if (schedule == null || schedule.isDue(now)) {
+            tasks.add(StudyTask(note, target, schedule));
+          }
+        }
+      } catch (e) {
+        errors.add('„${note.title}“ could not be checked: $e');
+      }
+    }
+    tasks.sort((a, b) {
+      final due =
+          (a.schedule?.due ??
+                  DateTime.fromMillisecondsSinceEpoch(0, isUtc: true))
+              .compareTo(
+                b.schedule?.due ??
+                    DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+              );
+      if (due != 0) return due;
+      final note = a.note.id.compareTo(b.note.id);
+      if (note != 0) return note;
+      final page = a.target.page.compareTo(b.target.page);
+      return page != 0 ? page : a.target.id.compareTo(b.target.id);
+    });
+  } catch (e) {
+    errors.add('Could not load tasks: $e');
+  }
+  return (tasks, errors, total);
+}
+
 class StudyPage extends StatefulWidget {
   const StudyPage({
     super.key,
     required this.repository,
     this.clock,
     this.shortcuts,
+    this.startImmediately = false,
   });
   final NotebookRepository repository;
   final DateTime Function()? clock;
   final KeyboardShortcuts? shortcuts;
+  final bool startImmediately;
   @override
   State<StudyPage> createState() => _StudyPageState();
 }
@@ -37,7 +86,13 @@ class _StudyPageState extends State<StudyPage> {
   @override
   void initState() {
     super.initState();
-    _load();
+    unawaited(
+      _load().then((_) async {
+        if (mounted && widget.startImmediately && _tasks.isNotEmpty) {
+          await _open(_tasks.first);
+        }
+      }),
+    );
     _timer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (mounted && !_opening && ModalRoute.of(context)?.isCurrent == true) {
         _load();
@@ -48,60 +103,22 @@ class _StudyPageState extends State<StudyPage> {
   Future<void> _load() async {
     if (_loading) return;
     setState(() => _loading = true);
-    final tasks = <StudyTask>[], errors = <String>[];
-    var total = 0;
-    final now = (widget.clock ?? DateTime.now)().toUtc();
-    try {
-      final notes = await widget.repository.list();
-      for (final note in notes) {
-        if (!note.isPdf) continue;
-        if (!mounted) return;
-        try {
-          // One PDF at a time; parsing and target scanning run off the UI thread.
-          final targets = await scanTapes(
-            await widget.repository.load(note.id),
-          );
-          total += targets.length;
-          for (final target in targets) {
-            final schedule = note.learning.schedule(target.id);
-            if (schedule == null || schedule.isDue(now)) {
-              tasks.add(StudyTask(note, target, schedule));
-            }
-          }
-        } catch (e) {
-          errors.add('„${note.title}“ could not be checked: $e');
-        }
-      }
-      tasks.sort((a, b) {
-        final due =
-            (a.schedule?.due ??
-                    DateTime.fromMillisecondsSinceEpoch(0, isUtc: true))
-                .compareTo(
-                  b.schedule?.due ??
-                      DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
-                );
-        if (due != 0) return due;
-        final note = a.note.id.compareTo(b.note.id);
-        if (note != 0) return note;
-        final page = a.target.page.compareTo(b.target.page);
-        return page != 0 ? page : a.target.id.compareTo(b.target.id);
-      });
-    } catch (e) {
-      errors.add('Could not load tasks: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _tasks
-            ..clear()
-            ..addAll(tasks);
-          _errors
-            ..clear()
-            ..addAll(errors);
-          _total = total;
-          _loading = false;
-        });
-      }
-    }
+    final (tasks, errors, total) = await loadStudyQueue(
+      widget.repository,
+      (widget.clock ?? DateTime.now)(),
+      cancelled: () => !mounted,
+    );
+    if (!mounted) return;
+    setState(() {
+      _tasks
+        ..clear()
+        ..addAll(tasks);
+      _errors
+        ..clear()
+        ..addAll(errors);
+      _total = total;
+      _loading = false;
+    });
   }
 
   Future<void> _open(StudyTask task) async {
@@ -109,6 +126,7 @@ class _StudyPageState extends State<StudyPage> {
     setState(() => _opening = true);
     try {
       StudyTask? next = task;
+      var reviewed = 0;
       while (mounted && next != null) {
         final current = next;
         var rated = false;
@@ -135,11 +153,13 @@ class _StudyPageState extends State<StudyPage> {
               shortcuts: widget.shortcuts,
               initialPage: target.page,
               initialTapeId: target.id,
+              reviewProgress: 'Review ${reviewed + 1} · ${_tasks.length} due',
               onReviewRated: () => rated = true,
             ),
           ),
         );
         if (!mounted || !rated) break;
+        reviewed++;
         await _load();
         next = _tasks.firstOrNull;
       }

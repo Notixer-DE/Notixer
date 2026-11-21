@@ -19,7 +19,7 @@ import 'package:noter/ui/workspace_chrome.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'markdown_widget_test.dart' show markdownIo;
-import 'widget_test.dart' show settleFileIo;
+import 'widget_test.dart' show openWorkspaceFiles, settleFileIo;
 
 const _captureKey = ValueKey('redesign-preview');
 
@@ -283,6 +283,7 @@ void main() {
           });
 
           await tester.pumpWidget(_frame(NoterApp(repository: repository)));
+          await openWorkspaceFiles(tester);
           await settleFileIo(
             tester,
             () => find.text('Project meeting').evaluate().isNotEmpty,

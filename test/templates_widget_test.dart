@@ -11,7 +11,7 @@ import 'package:noter/ui/editor_pane.dart';
 import 'package:noter/ui/page_manager.dart';
 import 'package:noter/ui/template_library.dart';
 import 'templates_test.dart' show templateFixture;
-import 'widget_test.dart' show settleFileIo;
+import 'widget_test.dart' show openWorkspaceFiles, settleFileIo;
 
 void main() {
   late Directory root;
@@ -126,17 +126,17 @@ void main() {
       () async => repository.templates.save('Seminar', await templateFixture()),
     );
     await tester.pumpWidget(NoterApp(repository: repository));
-    final newNote = find.widgetWithText(FilledButton, 'New note');
+    await openWorkspaceFiles(tester);
     await settleFileIo(
       tester,
-      () =>
-          find
-              .text('0 notes · Most recently modified first')
-              .evaluate()
-              .isNotEmpty &&
-          tester.widget<FilledButton>(newNote).onPressed != null,
+      () => find
+          .text('0 notes · Most recently modified first')
+          .evaluate()
+          .isNotEmpty,
     );
-    await tester.tap(newNote);
+    await tester.tap(find.byTooltip('Create'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New file'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'Meine Kopie');
     await tester.tap(find.text('Choose template'));

@@ -25,6 +25,10 @@ class _QuickTodoDialog extends StatefulWidget {
 
 class _QuickTodoDialogState extends State<_QuickTodoDialog> {
   String _text = '';
+  String? _project;
+  DateTime? _due;
+  late final _catalog = widget.store.repository.catalog;
+  Future<void>? _folders;
   String? _error;
   bool _saving = false;
   bool get _canAdd => !_saving && _text.trim().isNotEmpty;
@@ -36,7 +40,7 @@ class _QuickTodoDialogState extends State<_QuickTodoDialog> {
       _error = null;
     });
     try {
-      await widget.store.addQuickTodo(_text);
+      await widget.store.addQuickTodo(_text, projectId: _project, due: _due);
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
       if (!mounted) return;
@@ -47,6 +51,73 @@ class _QuickTodoDialogState extends State<_QuickTodoDialog> {
     }
   }
 
+  Future<void> _chooseDue() async {
+    final date = await showDatePicker(
+      context: context,
+      firstDate: DateTime(1),
+      lastDate: DateTime(9999, 12, 31),
+      initialDate: _due ?? DateTime.now(),
+      helpText: 'Due date',
+    );
+    if (mounted && date != null) setState(() => _due = date);
+  }
+
+  Widget _planning() => ExpansionTile(
+    title: const Text('Project and due date'),
+    tilePadding: EdgeInsets.zero,
+    onExpansionChanged: (expanded) {
+      if (expanded && _folders == null) {
+        setState(() => _folders = _catalog.load());
+      }
+    },
+    children: [
+      FutureBuilder<void>(
+        future: _folders,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) return const Text('Could not load projects.');
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const LinearProgressIndicator();
+          }
+          return DropdownButtonFormField<String>(
+            isExpanded: true,
+            initialValue: _project ?? '',
+            decoration: const InputDecoration(labelText: 'Project'),
+            items: [
+              const DropdownMenuItem(value: '', child: Text('Unsorted')),
+              for (final folder in _catalog.folders)
+                DropdownMenuItem(value: folder.id, child: Text(folder.name)),
+            ],
+            onChanged: _saving
+                ? null
+                : (value) => setState(() {
+                    _project = value == '' ? null : value;
+                  }),
+          );
+        },
+      ),
+      Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          TextButton.icon(
+            onPressed: _saving ? null : _chooseDue,
+            icon: const Icon(Icons.calendar_today_outlined),
+            label: Text(
+              _due == null
+                  ? 'Set due date'
+                  : MaterialLocalizations.of(context).formatMediumDate(_due!),
+            ),
+          ),
+          if (_due != null)
+            IconButton(
+              tooltip: 'Clear due date',
+              onPressed: _saving ? null : () => setState(() => _due = null),
+              icon: const Icon(Icons.close),
+            ),
+        ],
+      ),
+    ],
+  );
+
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: !_saving,
@@ -55,21 +126,30 @@ class _QuickTodoDialogState extends State<_QuickTodoDialog> {
       title: const Text('Add to-do'),
       content: SizedBox(
         width: 400,
-        child: TextField(
-          autofocus: true,
-          readOnly: _saving,
-          textInputAction: TextInputAction.done,
-          onChanged: (value) => setState(() {
-            _text = value;
-            _error = null;
-          }),
-          onSubmitted: (_) => _add(),
-          decoration: InputDecoration(
-            labelText: 'To-do',
-            helperText: 'Saved to $unsortedTodos.',
-            errorText: _error,
-            errorMaxLines: 2,
-          ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              autofocus: true,
+              readOnly: _saving,
+              textInputAction: TextInputAction.done,
+              onChanged: (value) => setState(() {
+                _text = value;
+                _error = null;
+              }),
+              onSubmitted: (_) => _add(),
+              decoration: InputDecoration(
+                labelText: 'To-do',
+                helperText: _project == null
+                    ? 'Saved to $unsortedTodos.'
+                    : null,
+                errorText: _error,
+                errorMaxLines: 2,
+              ),
+            ),
+            _planning(),
+          ],
         ),
       ),
       actions: [

@@ -20,7 +20,9 @@ import 'package:noter/ui/markdown_editor.dart';
 import 'package:noter/ui/noter_theme.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'preview.dart' show PreviewBinding;
+import 'package:noter/input/stylus_eraser.dart' show NoterBinding;
+import 'package:noter/ui/workspace_navigation.dart';
+import 'preview.dart' show PreviewBinding, tapElement;
 
 final _boundary = GlobalKey();
 Future<void> _pause() =>
@@ -70,21 +72,43 @@ Element _find(bool Function(Widget) matches) {
   return found ?? (throw StateError('Preview control missing'));
 }
 
+Future<Element> _waitFor(bool Function(Widget) matches) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 10));
+  while (DateTime.now().isBefore(deadline)) {
+    try {
+      return _find(matches);
+    } on StateError {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+  }
+  return _find(matches);
+}
+
 Future<void> main() async {
+  const interactive = bool.fromEnvironment('NOTIXER_DESIGN_INTERACTIVE');
   final device = Platform.environment['NOTER_DESIGN_DEVICE'] ?? 'desktop';
   PreviewBinding.size = switch (device) {
     'phone' || 'phone-large-text' => const Size(390, 844),
     'phone-landscape' => const Size(844, 390),
+    'phone-small' => const Size(320, 568),
+    'tablet-600' => const Size(600, 960),
+    'tablet-768' => const Size(768, 1024),
+    'tablet-landscape' => const Size(1024, 768),
+    'desktop-small' => const Size(1280, 720),
     'small-desktop' => const Size(1024, 768),
     'tablet' => const Size(1024, 1000),
-    _ => const Size(1440, 960),
+    _ => const Size(1440, 900),
   };
   _textScale = device == 'phone-large-text' ? 2 : 1;
-  PreviewBinding();
-  debugDefaultTargetPlatformOverride =
-      device == 'desktop' || device == 'small-desktop'
-      ? TargetPlatform.linux
-      : TargetPlatform.android;
+  if (interactive) {
+    NoterBinding();
+  } else {
+    PreviewBinding();
+    debugDefaultTargetPlatformOverride =
+        device.startsWith('desktop') || device == 'small-desktop'
+        ? TargetPlatform.linux
+        : TargetPlatform.android;
+  }
   registerBundledEditorAssets();
   final errors = <FlutterErrorDetails>[];
   FlutterError.onError = (details) {
@@ -228,7 +252,52 @@ Future<void> main() async {
       paper: 'media:m4a',
     );
 
+    final store = KnowledgeStore(repository);
+    final today = DateUtils.dateOnly(DateTime.now());
+    await store.addQuickTodo(
+      'Review the lecture',
+      due: today,
+      projectId: folder.id,
+    );
+    await store.addQuickTodo(
+      'Prepare reading notes',
+      due: today.subtract(const Duration(days: 1)),
+    );
+    await store.addQuickTodo('Collect sources');
+    await store.appendJournal(
+      today,
+      'Finished the first set of exercises and wrote down the next question.',
+      entryId: 'preview',
+      recordedAt: today.add(const Duration(hours: 9, minutes: 15)),
+    );
+    if (interactive) {
+      runApp(_app(DocumentWorkspace(repository: repository)));
+      await WidgetsBinding.instance.endOfFrame;
+      // Keep the seeded workspace alive until the native app exits.
+      await ProcessSignal.sigint.watch().first;
+      return;
+    }
+
+    Future<void> destination(WorkspaceArea area) => tapElement(
+      _find((widget) => widget.key == ValueKey('workspace-${area.name}')),
+    );
     await _show(_app(DocumentWorkspace(repository: repository)));
+    final startTimer = await _waitFor(
+      (widget) => widget is IconButton && widget.tooltip == 'Start timer',
+    );
+    await _capture('today-$device');
+    await tapElement(startTimer);
+    final running = await _waitFor(
+      (widget) => widget is Text && widget.data == 'Time tracked · Running',
+    );
+    await _capture('focus-timer-$device');
+    Navigator.of(running).pop();
+    await _pause();
+    await destination(WorkspaceArea.journal);
+    await _capture('workspace-journal-$device');
+    await destination(WorkspaceArea.tasks);
+    await _capture('workspace-tasks-$device');
+    await destination(WorkspaceArea.files);
     await _capture('library-$device');
     final workspace =
         (_find((widget) => widget is DocumentWorkspace) as StatefulElement)
@@ -239,6 +308,10 @@ Future<void> main() async {
     await _pause();
     await _pause();
     await _capture('workspace-pdf-$device');
+    await tapElement(
+      _find((widget) => widget.key == const ValueKey('pdf-mode-draw')),
+    );
+    await _capture('workspace-pdf-draw-$device');
     await workspace.openNotebook(markdownNote);
     await _pause();
     await _capture('workspace-markdown-$device');

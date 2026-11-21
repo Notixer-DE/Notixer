@@ -6,7 +6,7 @@ import 'package:noter/data/notebook.dart';
 import 'package:noter/data/paper.dart';
 import 'package:noter/main.dart';
 import 'package:noter/ui/recovery_page.dart';
-import 'widget_test.dart' show settleFileIo;
+import 'widget_test.dart' show openWorkspaceFiles, settleFileIo;
 
 void main() {
   late Directory directory;
@@ -31,6 +31,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(NoterApp(repository: repository));
+      await openWorkspaceFiles(tester);
       await settleFileIo(
         tester,
         () => find
@@ -55,8 +56,6 @@ void main() {
             .evaluate()
             .isNotEmpty,
       );
-      await tester.tap(find.byTooltip('Library actions'));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('Trash'));
       await settleFileIo(
         tester,

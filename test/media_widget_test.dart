@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noter/data/file_gateway.dart';
 import 'package:noter/data/notebook.dart';
 import 'package:noter/ui/document_workspace.dart';
+import 'package:noter/ui/workspace_navigation.dart';
 import 'package:noter/ui/media_page.dart';
 import 'package:noter/ui/noter_theme.dart';
 import 'media_test.dart' show samplePng;
@@ -36,7 +37,11 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: NoterTheme.light,
-          home: DocumentWorkspace(key: key, repository: repo),
+          home: DocumentWorkspace(
+            key: key,
+            repository: repo,
+            initialArea: WorkspaceArea.files,
+          ),
         ),
       );
       for (var i = 0; i < 100; i++) {
@@ -61,8 +66,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.byType(MediaPage), findsOneWidget);
       expect(find.byType(Image), findsOneWidget);
-      expect(find.byTooltip('Organize file'), findsOneWidget);
-      expect(find.byTooltip('Export media'), findsOneWidget);
+      expect(find.byTooltip('File menu'), findsOneWidget);
       if (width == 390) {
         await tester.runAsync(() async {
           await repo.save(note.copy(title: 'Camera: photo.PNG'), samplePng);
@@ -79,7 +83,10 @@ void main() {
           return destination.path;
         });
         addTearDown(() => messenger.setMockMethodCallHandler(picker, null));
-        await tester.tap(find.byTooltip('Export media'));
+        await tester.tap(find.byTooltip('File menu'));
+        await tester.pumpAndSettle();
+        expect(find.text('Folders and tags'), findsOneWidget);
+        await tester.tap(find.text('Save file to device'));
         await settleFileIo(tester, destination.existsSync);
         expect(await tester.runAsync(destination.readAsBytes), samplePng);
       }

@@ -1,5 +1,6 @@
 import 'media_page.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 import 'package:flutter/material.dart';
@@ -19,6 +20,11 @@ import 'library.dart';
 import 'keyboard_settings.dart';
 import 'markdown_editor.dart';
 import 'todo_list_page.dart';
+import 'knowledge_page.dart';
+import 'study_page.dart';
+import 'sync_page.dart';
+import 'workspace_navigation.dart';
+import 'workspace_today.dart';
 
 class _OpenDocument {
   _OpenDocument(this.note, this.bytes, this.anchor, KeyboardShortcuts shortcuts)
@@ -36,8 +42,13 @@ class _OpenDocument {
 
 /// Tabs own mounted editor instances, including undo, zoom and unsaved changes.
 class DocumentWorkspace extends StatefulWidget {
-  const DocumentWorkspace({super.key, required this.repository});
+  const DocumentWorkspace({
+    super.key,
+    required this.repository,
+    this.initialArea = WorkspaceArea.today,
+  });
   final LocalNotebookRepository repository;
+  final WorkspaceArea initialArea;
   @override
   State<DocumentWorkspace> createState() => DocumentWorkspaceState();
 }
@@ -52,6 +63,25 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
   );
   late final _sync = SyncController(widget.repository);
   late final _pdfSessions = WorkspacePdfSessions(widget.repository);
+  static const _destinations = [
+    WorkspaceArea.today,
+    WorkspaceArea.files,
+    WorkspaceArea.tasks,
+    WorkspaceArea.journal,
+    WorkspaceArea.more,
+  ];
+  late WorkspaceArea _area = widget.initialArea;
+  final _areaHistory = <WorkspaceArea>[];
+  late final Set<WorkspaceArea> _visited = {WorkspaceArea.files, _area};
+  int _homeRevision = 0, _request = 0;
+  String? _requestedTaskView;
+  bool _addJournalEntry = false, _showJournalToday = false;
+  DateTime? _lastSyncedAt;
+  List<String> _recent = [];
+  bool _hasOpenedDocument = false;
+  Future<void> _recentWrites = Future.value();
+  File get _recentFile =>
+      File('${widget.repository.directory.path}/.workspace-recent.json');
   int _selected = -1;
   bool _busy = false, _showTabs = true;
   bool _shortcutRunning = false;
@@ -73,6 +103,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
     } else {
       await KnowledgeStore(widget.repository).changeTask(task);
     }
+    if (mounted) setState(() => _homeRevision++);
   }
 
   Future<void> _refreshOpenDocuments() async {
@@ -85,6 +116,11 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
   void initState() {
     super.initState();
     unawaited(_shortcuts.load());
+    unawaited(_readRecent());
+    _sync.addListener(_workspaceSyncChanged);
+    _library.onLegacyTasksMigrated = () {
+      if (mounted) setState(() => _homeRevision++);
+    };
     FileGateway.openDocument = openNotebook;
     FileGateway.changeKnowledgeTask = _changeKnowledgeTask;
     FileGateway.refreshOpenDocuments = _refreshOpenDocuments;
@@ -97,6 +133,412 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
     FileGateway.workspaceBeforeClose = _closeHandler;
     NoterBinding.resolveEraser = _resolver;
     NoterBinding.interceptEvent = _interceptor;
+  }
+
+  Future<void> _readRecent() async {
+    try {
+      if (!await _recentFile.exists() || await _recentFile.length() > 65536) {
+        return;
+      }
+      final recent = (jsonDecode(await _recentFile.readAsString()) as List)
+          .whereType<String>()
+          .take(12);
+      if (mounted && !_hasOpenedDocument) {
+        setState(() => _recent = recent.toList());
+      }
+    } on IOException {
+      // Reading history is independent of the documents.
+    } on FormatException {
+      // Older or damaged state can be replaced by new activity.
+    } on TypeError {
+      // Ignore a history file with an unknown format.
+    }
+  }
+
+  void _remember(Notebook note) {
+    if (!note.isPdf && (!note.isMarkdown || note.isTodoList)) return;
+    _hasOpenedDocument = true;
+    final next = <String>{note.id, ..._recent}.take(12).toList();
+    _recent = next;
+    final file = _recentFile;
+    _recentWrites = _recentWrites.then((_) async {
+      try {
+        await file.parent.create(recursive: true);
+        final temporary = File('${file.path}.tmp');
+        await temporary.writeAsString(jsonEncode(next), flush: true);
+        await temporary.rename(file.path);
+      } on IOException {
+        // Document operations remain available when history cannot be saved.
+      }
+    });
+  }
+
+  void _workspaceSyncChanged() {
+    if (!mounted || _lastSyncedAt == _sync.lastSyncedAt) return;
+    setState(() {
+      _lastSyncedAt = _sync.lastSyncedAt;
+      _homeRevision++;
+    });
+  }
+
+  Future<void> _openArea(
+    WorkspaceArea area, {
+    String? taskView,
+    bool addEntry = false,
+    bool showToday = false,
+  }) async {
+    if (_busy) return;
+    if (_selected >= 0) await showLibrary();
+    if (!mounted || _selected >= 0) return;
+    _workspaceFocus.requestFocus();
+    setState(() {
+      if (area != _area) {
+        if (_destinations.contains(area)) {
+          _areaHistory.clear();
+        } else if (_areaHistory.lastOrNull == area) {
+          _areaHistory.removeLast();
+        } else {
+          _areaHistory.add(_area);
+        }
+      }
+      _visited.add(area);
+      _area = area;
+      _requestedTaskView = taskView;
+      _addJournalEntry = addEntry;
+      _showJournalToday = showToday || addEntry;
+      _request++;
+    });
+  }
+
+  void _openSection(String section) {
+    if (section == unsortedTodos) {
+      unawaited(_openArea(WorkspaceArea.tasks, taskView: 'unsorted'));
+      return;
+    }
+    unawaited(
+      _openArea(
+        WorkspaceArea.values.firstWhere((area) => area.label == section),
+      ),
+    );
+  }
+
+  void _backArea() {
+    final previous = _areaHistory.isNotEmpty
+        ? _areaHistory.removeLast()
+        : (_area == _area.group ? WorkspaceArea.today : _area.group);
+    setState(() {
+      _area = previous;
+      _visited.add(previous);
+
+      _request++;
+    });
+    _workspaceFocus.requestFocus();
+  }
+
+  Future<void> _action(ShortcutAction? action) async {
+    if (action == null) return;
+    try {
+      await action();
+    } catch (error) {
+      _message('Could not complete the action: $error');
+    } finally {
+      if (mounted) setState(() => _homeRevision++);
+    }
+  }
+
+  Future<void> _startStudying() async {
+    if (!await saveAll() || !mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => StudyPage(
+          repository: widget.repository,
+          shortcuts: _shortcuts,
+          startImmediately: true,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await _refreshOpenDocuments();
+    if (mounted) setState(() => _homeRevision++);
+  }
+
+  Future<void> _openSync() async {
+    if (_tabs.isEmpty) {
+      await _action(_library.commands[AppShortcut.syncSettings]);
+      return;
+    }
+    await _sync.load();
+    if (!mounted || !_routeCurrent) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => SyncPage(
+          controller: _sync,
+          shortcuts: _shortcuts,
+          hasOpenDocuments: true,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _saveWorkspacePreference(Future<void> Function() save) async {
+    await _action(() async {
+      await save();
+      await _library.refresh?.call();
+      await _library.syncQuickTodos?.call();
+    });
+  }
+
+  Future<void> _showConflicts() async {
+    await _openArea(WorkspaceArea.files);
+    if (mounted && _selected < 0 && _area == WorkspaceArea.files) {
+      await _action(_library.actions[LibraryWorkspaceAction.conflicts]);
+    }
+  }
+
+  Widget _workspacePanel(WorkspaceArea area) {
+    ListTile entry(String title, IconData icon, VoidCallback action) =>
+        ListTile(
+          leading: Icon(icon),
+          title: Text(title),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: action,
+        );
+    final catalog = widget.repository.catalog;
+    final display = catalog.displayPreferences;
+    final drawing = catalog.drawingPreferences;
+    return Scaffold(
+      appBar: AppBar(title: Text(area.label), automaticallyImplyLeading: false),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 780),
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: switch (area) {
+              WorkspaceArea.more => [
+                entry(
+                  'Study',
+                  Icons.school_outlined,
+                  () => _action(_library.commands[AppShortcut.study]),
+                ),
+                if (Platform.isAndroid)
+                  entry(
+                    'Live Canvas',
+                    Icons.cast,
+                    () => _action(
+                      _library.actions[LibraryWorkspaceAction.liveCanvas],
+                    ),
+                  ),
+                entry(
+                  'Templates',
+                  Icons.dashboard_customize_outlined,
+                  () => _openArea(WorkspaceArea.templates),
+                ),
+                entry(
+                  'Backups and recovery',
+                  Icons.backup_outlined,
+                  () => _openArea(WorkspaceArea.backups),
+                ),
+                entry(
+                  'Settings',
+                  Icons.settings_outlined,
+                  () => _openArea(WorkspaceArea.settings),
+                ),
+              ],
+              WorkspaceArea.settings => [
+                entry('Sync', Icons.cloud_sync_outlined, _openSync),
+                entry(
+                  'Keyboard shortcuts',
+                  Icons.keyboard_outlined,
+                  _openSettings,
+                ),
+                const Divider(),
+                SwitchListTile(
+                  title: const Text('Show folders in Files'),
+                  subtitle: const Text('On wide screens'),
+                  value: display.flag('librarySidebar', true),
+                  onChanged: (value) => _saveWorkspacePreference(
+                    () => display.set('librarySidebar', value),
+                  ),
+                ),
+                SwitchListTile(
+                  title: const Text('Show the Markdown sidebar'),
+                  subtitle: const Text('When opening a note on a wide screen'),
+                  value: display.flag('markdownSidebar', true),
+                  onChanged: (value) => _saveWorkspacePreference(
+                    () => display.set('markdownSidebar', value),
+                  ),
+                ),
+                SwitchListTile(
+                  title: const Text('Erase whole strokes'),
+                  subtitle: const Text(
+                    'Applies to drawing tools and the stylus side button',
+                  ),
+                  value: drawing.wholeStrokeEraser,
+                  onChanged: (value) => _saveWorkspacePreference(
+                    () => drawing.setWholeStrokeEraser(value),
+                  ),
+                ),
+              ],
+              _ => [],
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _knowledgeArea(WorkspaceArea area) => KnowledgePage(
+    key: area == WorkspaceArea.search ? _search : ValueKey(area),
+    repository: widget.repository,
+    initialSection: area.label,
+    embedded: true,
+    active: _selected < 0 && _area == area,
+    autofocusSearch: area == WorkspaceArea.search,
+    request: _request,
+    revision: _homeRevision,
+    taskView: area == WorkspaceArea.tasks ? _requestedTaskView : null,
+    addJournalEntry: area == WorkspaceArea.journal && _addJournalEntry,
+    showToday: area == WorkspaceArea.journal && _showJournalToday,
+    onOpenDestination: (destination) =>
+        openNotebook(destination.note, anchor: destination.anchor),
+    onChangeTask: (task) async {
+      await _changeKnowledgeTask(task);
+      if (task.deleting || task.quickTodo != null) {
+        await _library.syncJournal?.call(
+          task.quickTodo == null ? task.note : null,
+        );
+      }
+    },
+    shortcuts: _shortcuts,
+    onQuickTodo: () async => await _library.addQuickTodo?.call() ?? false,
+    onQuickTodosChanged: () => _action(_library.syncQuickTodos),
+    onJournalChanged: (note) =>
+        _action(() async => _library.syncJournal?.call(note)),
+    onTaskPlanned: (note) =>
+        _action(() async => _library.syncJournal?.call(note)),
+    onOpenViews: () => _openArea(WorkspaceArea.views),
+    onOpenGraph: () => _action(_library.commands[AppShortcut.graph]),
+    onManageTemplates: () => _openArea(WorkspaceArea.templates),
+    onNotebookTemplates: () =>
+        _action(_library.commands[AppShortcut.templates]),
+    onRecoverMedia: () =>
+        _action(_library.actions[LibraryWorkspaceAction.recoverMedia]),
+    onUseSavedView: (view) => _openSavedView(view),
+    savedView: area == WorkspaceArea.search ? _savedView : null,
+  );
+
+  final _search = GlobalKey<KnowledgePageState>();
+  void _submitSearch() => _search.currentState?.submitSearch();
+
+  KnowledgeView? _savedView;
+
+  void _openSavedView(KnowledgeView view) {
+    _savedView = view;
+    unawaited(_openArea(WorkspaceArea.search));
+  }
+
+  Widget _globalSearch() => IconButton(
+    tooltip: _shortcuts.tooltip('Search', AppShortcut.knowledgeSearch),
+    onPressed: () => _openArea(WorkspaceArea.search),
+    icon: const Icon(Icons.search),
+  );
+
+  Widget _syncStatus() => ListenableBuilder(
+    listenable: Listenable.merge([_sync, _library.conflicts]),
+    builder: (context, _) {
+      final conflicts = _library.conflicts.value;
+      final (label, icon) = _sync.busy
+          ? ('Sync in progress', Icons.sync)
+          : _sync.error != null
+          ? ('Sync failed', Icons.sync_problem)
+          : conflicts > 0
+          ? ('$conflicts sync conflicts', Icons.warning_amber_outlined)
+          : !_sync.enabled
+          ? ('Local library', Icons.cloud_off_outlined)
+          : _sync.lastSyncedAt == null
+          ? ('Sync connected', Icons.cloud_outlined)
+          : ('Synchronized', Icons.cloud_done_outlined);
+      return PopupMenuButton<ShortcutAction>(
+        tooltip: label,
+        icon: Icon(icon),
+        onSelected: _action,
+        itemBuilder: (_) => [
+          PopupMenuItem(value: _openSync, child: const Text('Sync settings')),
+          if (_sync.error != null && _tabs.isEmpty)
+            PopupMenuItem(
+              value: _library.commands[AppShortcut.syncNow],
+              child: const Text('Try sync again'),
+            ),
+          if (conflicts > 0)
+            PopupMenuItem(
+              value: _showConflicts,
+              child: const Text('View conflicts'),
+            ),
+        ],
+      );
+    },
+  );
+
+  Widget _createMenu() => PopupMenuButton<ShortcutAction>(
+    tooltip: 'Create',
+    onSelected: _action,
+    icon: const Icon(Icons.add_circle_outline),
+    itemBuilder: (_) => [
+      if (_library.commands[AppShortcut.newNote] case final create?)
+        PopupMenuItem(value: create, child: const Text('New file')),
+      if (_library.commands[AppShortcut.importFile] case final import?)
+        PopupMenuItem(value: import, child: const Text('Import file')),
+      if (_library.commands[AppShortcut.quickTodo] case final todo?)
+        PopupMenuItem(value: todo, child: const Text('Quick to-do')),
+      if (_library.actions[LibraryWorkspaceAction.capture] case final capture?)
+        PopupMenuItem(value: capture, child: const Text('Capture to Inbox')),
+    ],
+  );
+
+  Widget _workspaceHome(Widget files) {
+    final areas = WorkspaceArea.values.where(_visited.contains).toList();
+    return WorkspaceNavigation(
+      destinations: _destinations,
+      selected: _area,
+      onSelect: _openArea,
+      back: _destinations.contains(_area) ? null : _backArea,
+      actions: [_globalSearch(), _syncStatus(), _createMenu()],
+      child: IndexedStack(
+        index: areas.indexOf(_area),
+        children: [
+          for (final area in areas)
+            ExcludeFocus(
+              key: ValueKey(area),
+              excluding: _area != area || _selected >= 0,
+              child: switch (area) {
+                WorkspaceArea.files => files,
+                WorkspaceArea.today => WorkspaceToday(
+                  repository: widget.repository,
+                  current: _selected < 0 && area == _area,
+                  revision: _homeRevision,
+                  recentIds: _recent,
+                  onOpen: (note) => openNotebook(
+                    note,
+                    anchor: note.isMarkdown ? 'resume:reading' : null,
+                  ),
+                  onTasks: () =>
+                      _openArea(WorkspaceArea.tasks, taskView: 'today'),
+                  onStudy: _startStudying,
+                  onJournal: ({required addEntry}) => _openArea(
+                    WorkspaceArea.journal,
+                    showToday: true,
+                    addEntry: addEntry,
+                  ),
+                  onChangeTask: () => _action(_library.syncQuickTodos),
+                ),
+                WorkspaceArea.more ||
+                WorkspaceArea.settings => _workspacePanel(area),
+                _ => _knowledgeArea(area),
+              },
+            ),
+        ],
+      ),
+    );
   }
 
   bool get _routeCurrent =>
@@ -122,6 +564,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
     if (!mounted || _busy) return;
     final existing = _tabs.indexWhere((tab) => tab.note.id == note.id);
     if (existing >= 0) {
+      _remember(note);
       _select(existing);
       if (anchor != null && (anchor.isNotEmpty || note.isMarkdown)) {
         await _tabs[existing].controller.revealAnchor?.call(anchor);
@@ -135,6 +578,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
       if (_selected >= 0) _tabs[_selected].controller.deactivate();
       _workspaceFocus.requestFocus();
       setState(() {
+        _remember(note);
         _tabs.add(_OpenDocument(note, bytes, anchor, _shortcuts));
         _selected = _tabs.length - 1;
       });
@@ -151,6 +595,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
         if (!await tab.controller.save()) return false;
       }
       await widget.repository.flush();
+      await _recentWrites;
       return true;
     } catch (error) {
       _message('Could not save changes: $error');
@@ -229,6 +674,13 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
 
   KeyEventResult _handleShortcut(FocusNode node, KeyEvent event) {
     if (!_routeCurrent) return KeyEventResult.ignored;
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.escape &&
+        _selected < 0 &&
+        !_destinations.contains(_area)) {
+      _backArea();
+      return KeyEventResult.handled;
+    }
     final action = _shortcuts.match(event);
     if (action == null) return KeyEventResult.ignored;
     final command = _commandFor(action);
@@ -241,7 +693,18 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
     final tab = _selected < 0 ? null : _tabs[_selected];
     return switch (action) {
       AppShortcut.settings => _openSettings,
-      AppShortcut.showLibrary => showLibrary,
+      AppShortcut.syncSettings => _openSync,
+      AppShortcut.showLibrary => () => _openArea(WorkspaceArea.files),
+      AppShortcut.knowledgeSearch => () => _openArea(WorkspaceArea.search),
+      AppShortcut.knowledgeTasks => () => _openArea(WorkspaceArea.tasks),
+      AppShortcut.knowledgeJournal => () => _openArea(WorkspaceArea.journal),
+      AppShortcut.knowledgeSubmit
+          when _area == WorkspaceArea.search && _selected < 0 =>
+        _submitSearch,
+      AppShortcut.knowledgeViews => () => _openArea(WorkspaceArea.views),
+      AppShortcut.knowledgeBackups => () => _openArea(WorkspaceArea.backups),
+      AppShortcut.knowledgeCapture =>
+        _library.actions[LibraryWorkspaceAction.capture],
       AppShortcut.nextTab => _tabs.isEmpty ? null : () => _moveTab(1),
       AppShortcut.previousTab => _tabs.isEmpty ? null : () => _moveTab(-1),
       AppShortcut.closeTab =>
@@ -268,7 +731,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
   }
 
   Future<void> _focusLibrarySearch() async {
-    if (_selected >= 0) await showLibrary();
+    await _openArea(WorkspaceArea.files);
     if (!_routeCurrent || _selected >= 0) return;
     await WidgetsBinding.instance.endOfFrame;
     if (_routeCurrent) {
@@ -277,7 +740,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
   }
 
   Future<void> _runShortcut(AppShortcut action, ShortcutAction command) async {
-    if (_busy || _shortcutRunning || _sync.busy) return;
+    if (_busy || _shortcutRunning) return;
     _shortcutRunning = true;
     try {
       if ((action == AppShortcut.importFile || action == AppShortcut.newNote) &&
@@ -298,9 +761,14 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
     autofocus: true,
     onKeyEvent: _handleShortcut,
     child: PopScope(
-      canPop: _selected < 0,
+      canPop: _selected < 0 && _destinations.contains(_area),
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && _selected >= 0) showLibrary();
+        if (didPop) return;
+        if (_selected >= 0) {
+          showLibrary();
+        } else if (!_destinations.contains(_area)) {
+          _backArea();
+        }
       },
       child: Column(
         children: [
@@ -316,7 +784,9 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                     children: [
                       IconButton(
                         tooltip: 'Open library and another note',
-                        onPressed: _busy ? null : showLibrary,
+                        onPressed: _busy
+                            ? null
+                            : () => _openArea(WorkspaceArea.files),
                         icon: const Icon(Icons.library_books_outlined),
                       ),
                       IconButton(
@@ -385,6 +855,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                           ],
                         ),
                       ),
+                      if (_selected >= 0) ...[_globalSearch(), _createMenu()],
                     ],
                   ),
                 ),
@@ -411,21 +882,24 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                         children: [
                           ExcludeFocus(
                             excluding: _selected >= 0,
-                            child: LibraryPage(
-                              key: const ValueKey('workspace-library'),
-                              repository: widget.repository,
-                              syncController: _sync,
-                              workspaceController: _library,
-                              onSettings: _openSettings,
-                              shortcuts: _shortcuts,
-                              hasOpenDocuments: () => _tabs.isNotEmpty,
-                              isNotebookOpen: (id) =>
-                                  _pdfSessions.contains(id) ||
-                                  _tabs.any((tab) => tab.note.id == id),
-                              onOpenNotebook: (note) => openNotebook(note),
-                              onOpenDestination: openNotebook,
-                              onChangeTask: _changeKnowledgeTask,
-                              onRefreshDocuments: _refreshOpenDocuments,
+                            child: _workspaceHome(
+                              LibraryPage(
+                                key: const ValueKey('workspace-library'),
+                                onWorkspaceSection: _openSection,
+                                repository: widget.repository,
+                                syncController: _sync,
+                                workspaceController: _library,
+                                onSettings: _openSettings,
+                                shortcuts: _shortcuts,
+                                hasOpenDocuments: () => _tabs.isNotEmpty,
+                                isNotebookOpen: (id) =>
+                                    _pdfSessions.contains(id) ||
+                                    _tabs.any((tab) => tab.note.id == id),
+                                onOpenNotebook: (note) => openNotebook(note),
+                                onOpenDestination: openNotebook,
+                                onChangeTask: _changeKnowledgeTask,
+                                onRefreshDocuments: _refreshOpenDocuments,
+                              ),
                             ),
                           ),
                           for (var i = 0; i < _tabs.length; i++)
@@ -520,6 +994,9 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
       tab.controller.dispose();
     }
     _pdfSessions.dispose();
+    _sync.removeListener(_workspaceSyncChanged);
+    _library.onLegacyTasksMigrated = null;
+    _library.conflicts.dispose();
     _sync.dispose();
     _workspaceFocus.dispose();
     _shortcuts.dispose();

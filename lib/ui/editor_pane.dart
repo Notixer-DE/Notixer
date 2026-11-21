@@ -41,24 +41,27 @@ class EditorPane extends StatefulWidget {
     required this.onActivate,
     this.onModeChanged,
     this.showChrome = true,
+    this.readOnlyMode = false,
     this.initialPage,
     this.initialQuery = '',
     this.onSaveAll,
     this.useDefaultSaveShortcut = true,
     this.initialTapeId,
     this.onReviewRated,
+    this.reviewProgress,
     this.onOpenSourceNote,
     this.shortcuts,
   });
   final DocumentSession session;
   final KeyboardShortcuts? shortcuts;
-  final bool active, split, showChrome, useDefaultSaveShortcut;
+  final bool active, split, showChrome, useDefaultSaveShortcut, readOnlyMode;
   final int? initialPage;
   final String initialQuery;
   final String? initialTapeId;
   final VoidCallback? onModeChanged;
   final VoidCallback onActivate;
   final VoidCallback? onReviewRated;
+  final String? reviewProgress;
   final Future<void> Function(Notebook)? onOpenSourceNote;
   final Future<bool> Function()? onSaveAll;
   @override
@@ -110,7 +113,7 @@ class EditorPaneState extends State<EditorPane> {
     viewer.viewportChanges,
   ]);
   final Set<String> _revealed = {};
-  String? _selectedTape;
+  String? _selectedTape, _unsavedRating;
   bool _rating = false;
   PdfEditTool? _returnTool = PdfEditTool.ink;
   PdfEditTool? _normalTool = PdfEditTool.ink;
@@ -224,7 +227,7 @@ class EditorPaneState extends State<EditorPane> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await widget.session.toolReady;
       if (!mounted) return;
-      _normalTool = widget.session.baseTool;
+      _normalTool = widget.readOnlyMode ? null : widget.session.baseTool;
       if (mounted && widget.active) activateTools();
       if (!mounted) return;
       final positions = widget.session.repository.catalog.readingPositions;
@@ -282,10 +285,12 @@ class EditorPaneState extends State<EditorPane> {
         }
         if (_mode == _Mode.normal &&
             !_learning &&
+            !widget.readOnlyMode &&
             !widget.session.eraser.held) {
           _normalTool = editing.tool;
         }
-        widget.session.temporaryTool = _mode != _Mode.normal || _learning;
+        widget.session.temporaryTool =
+            _mode != _Mode.normal || _learning || widget.readOnlyMode;
         widget.session.recordToolChoice();
       }
       setState(() {});
@@ -321,9 +326,10 @@ class EditorPaneState extends State<EditorPane> {
   }
 
   void activateTools() {
-    widget.session.temporaryTool = _mode != _Mode.normal || _learning;
+    widget.session.temporaryTool =
+        _mode != _Mode.normal || _learning || widget.readOnlyMode;
     widget.session.eraser.setBaseTool(
-      _learning
+      _learning || widget.readOnlyMode
           ? null
           : _mode != _Mode.normal
           ? PdfEditTool.select
@@ -340,9 +346,10 @@ class EditorPaneState extends State<EditorPane> {
     widget.onModeChanged?.call();
   }
 
-  void selectText() {
+  void selectText({bool temporary = false}) {
     normalTool();
-    _normalTool = null;
+    widget.session.temporaryTool = temporary;
+    if (!temporary) _normalTool = null;
     _returnTool = null;
     widget.session.eraser.setBaseTool(null);
   }
@@ -661,36 +668,47 @@ class EditorPaneState extends State<EditorPane> {
 
   Future<void> _rate(ReviewRating rating) async {
     final id = _selectedTape;
-    if (_rating || id == null || !_revealed.contains(id)) return;
+    if (_rating ||
+        _unsavedRating != null ||
+        id == null ||
+        !_revealed.contains(id)) {
+      return;
+    }
+    await _saveRating(id, () => widget.session.rateTape(id, rating));
+  }
+
+  Future<void> _saveRating(String id, Future<bool> Function() save) async {
     setState(() => _rating = true);
     try {
-      final saved = await widget.session.rateTape(id, rating);
+      final saved = await save();
       if (!mounted) return;
-      setState(() => _revealed.remove(id));
-      if (saved) {
-        if (widget.onReviewRated != null) {
-          widget.onReviewRated!();
-        } else {
-          final next = widget.session.dueTapes
-              .where((t) => t.id != id)
-              .firstOrNull;
-          if (next != null) await beginReview(next.id);
-        }
+      if (!saved) {
+        setState(() => _unsavedRating = id);
+        return;
       }
-      if (!saved && mounted) {
+      setState(() {
+        _unsavedRating = null;
+        _revealed.remove(id);
+      });
+      final schedule = widget.session.note.learning.schedule(id);
+      if (schedule != null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Rating not saved yet. Please choose “Retry” on the save error.',
-            ),
-          ),
+          SnackBar(content: Text('Next review · ${_date(schedule.due)}')),
         );
       }
-    } catch (e) {
+      if (widget.onReviewRated case final rated?) {
+        rated();
+      } else {
+        final next = widget.session.dueTapes
+            .where((t) => t.id != id)
+            .firstOrNull;
+        if (next != null) await beginReview(next.id);
+      }
+    } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not save the review: $error')),
+        );
       }
     } finally {
       if (mounted) setState(() => _rating = false);
@@ -749,12 +767,13 @@ class EditorPaneState extends State<EditorPane> {
           ? null
           : widget.session.note.learning.schedule(tape.id);
       final revealed = tape != null && _revealed.contains(tape.id);
-      final description = tape == null
+      final detail = tape == null
           ? 'Tap a study cover to review'
           : schedule == null
           ? 'New task · due now'
           : '${schedule.concurrent ? "Concurrent ratings · " : ""}'
                 '${schedule.count} ${schedule.count == 1 ? 'rating' : 'ratings'} · due ${_date(schedule.due)}';
+      final description = [widget.reviewProgress, detail].nonNulls.join(' · ');
       return WorkspaceToolbar(
         child: LayoutBuilder(
           builder: (context, constraints) => Row(
@@ -796,7 +815,7 @@ class EditorPaneState extends State<EditorPane> {
                         ),
                       IconButton(
                         tooltip: 'Next due cover',
-                        onPressed: _rating
+                        onPressed: _rating || _unsavedRating != null
                             ? null
                             : (() {
                                 final next = widget.session.dueTapes
@@ -816,13 +835,21 @@ class EditorPaneState extends State<EditorPane> {
                           icon: const Icon(Icons.visibility_outlined, size: 18),
                           label: const Text('Reveal answer'),
                         ),
-                      for (final rating in ReviewRating.values)
+                      if (_unsavedRating case final id?)
                         TextButton(
-                          onPressed: revealed && !_rating
-                              ? () => _rate(rating)
-                              : null,
-                          child: Text(rating.label),
-                        ),
+                          onPressed: _rating
+                              ? null
+                              : () => _saveRating(id, widget.session.save),
+                          child: const Text('Retry saving rating'),
+                        )
+                      else
+                        for (final rating in ReviewRating.values)
+                          TextButton(
+                            onPressed: revealed && !_rating
+                                ? () => _rate(rating)
+                                : null,
+                            child: Text(rating.label),
+                          ),
                     ],
                   ),
                 ),

@@ -34,6 +34,13 @@ Future<void> settleFileIo(WidgetTester tester, bool Function() ready) async {
   fail('The library did not finish its file operation.');
 }
 
+Future<void> openWorkspaceFiles(WidgetTester tester) async {
+  final files = find.byKey(const ValueKey('workspace-files'));
+  await settleFileIo(tester, () => files.evaluate().isNotEmpty);
+  await tester.tap(files);
+  await tester.pump();
+}
+
 void main() {
   late Directory directory;
   late LocalNotebookRepository repository;
@@ -60,6 +67,7 @@ void main() {
     });
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     await tester.pumpWidget(NoterApp(repository: repository));
+    await openWorkspaceFiles(tester);
     await settleFileIo(
       tester,
       () => find.byTooltip('Note actions').evaluate().isNotEmpty,
@@ -86,6 +94,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(NoterApp(repository: repository));
+      await openWorkspaceFiles(tester);
       await settleFileIo(
         tester,
         () => find
@@ -157,6 +166,7 @@ void main() {
           );
         });
         await tester.pumpWidget(NoterApp(repository: repository));
+        await openWorkspaceFiles(tester);
         await settleFileIo(
           tester,
           () => find
@@ -164,10 +174,14 @@ void main() {
               .evaluate()
               .isNotEmpty,
         );
-        expect(find.text('New note'), findsOneWidget);
+        expect(find.byTooltip('Create'), findsOneWidget);
+        expect(find.byKey(const ValueKey('workspace-files')), findsOneWidget);
+        await tester.tap(find.byTooltip('Create'));
+        await tester.pumpAndSettle();
+        expect(find.text('New file'), findsOneWidget);
         expect(find.text('Import file'), findsOneWidget);
-        expect(find.byTooltip('Library actions'), findsOneWidget);
-        expect(find.byType(NavigationBar), findsNothing);
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
         expect(
           Theme.of(tester.element(find.byType(TextField))).colorScheme.primary,
           NoterTheme.accent,
@@ -191,6 +205,8 @@ void main() {
           find.text('Studies · #Mathsmatics · #Exam preparation'),
           findsOneWidget,
         );
+        await tester.ensureVisible(find.byTooltip('Note actions'));
+        await tester.pumpAndSettle();
         await tester.tap(find.byTooltip('Note actions'));
         await tester.pumpAndSettle();
         expect(find.text('Rename'), findsOneWidget);
@@ -229,6 +245,7 @@ void main() {
       return (tagged, pdf, pdfBytes, folder);
     }))!;
     await tester.pumpWidget(NoterApp(repository: repository));
+    await openWorkspaceFiles(tester);
     await settleFileIo(
       tester,
       () => find.text('Batch PDF').evaluate().isNotEmpty,
@@ -311,6 +328,7 @@ void main() {
         );
       });
       await tester.pumpWidget(NoterApp(repository: repository));
+      await openWorkspaceFiles(tester);
       await settleFileIo(
         tester,
         () => find
@@ -367,6 +385,7 @@ void main() {
         await repository.create('PDF-Unterlagen', await createPaper('blank'));
       });
       await tester.pumpWidget(NoterApp(repository: repository));
+      await openWorkspaceFiles(tester);
       await settleFileIo(
         tester,
         () => find
@@ -410,12 +429,11 @@ void main() {
         find.text('2 notes · Most recently modified first'),
         findsOneWidget,
       );
-      expect(find.text('Import file'), findsOneWidget);
-      await tester.tap(find.byTooltip('Library actions'));
+      await tester.tap(find.byTooltip('Create'));
       await tester.pumpAndSettle();
-      expect(find.text('Search PDFs'), findsOneWidget);
+      expect(find.text('Import file'), findsOneWidget);
+      expect(find.text('Capture to Inbox'), findsOneWidget);
       expect(find.text('Manage folders'), findsNothing);
-      expect(find.text('Quick capture'), findsNothing);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();

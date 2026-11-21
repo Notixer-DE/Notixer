@@ -131,3 +131,10 @@ class DocumentNavigation extends StatelessWidget {
     );
   }
 }
+
+/// Workspace navigation depends on available logical size, not the OS.
+bool workspaceUsesRail(BuildContext context, double width, double height) =>
+    width >= 600 &&
+    height >= 480 &&
+    (width >= 840 || width >= height) &&
+    MediaQuery.textScalerOf(context).scale(14) <= 21;

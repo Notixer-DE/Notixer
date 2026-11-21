@@ -10,6 +10,7 @@ import 'package:noter/data/markdown_library.dart';
 import 'package:noter/data/notebook.dart';
 import 'package:noter/data/paper.dart';
 import 'package:noter/ui/document_workspace.dart';
+import 'package:noter/ui/workspace_navigation.dart';
 import 'package:noter/ui/editor_pane.dart';
 import 'package:noter/ui/keyboard_settings.dart';
 import 'package:noter/ui/knowledge_page.dart';
@@ -95,7 +96,12 @@ void main() {
       }))!;
       addTearDown(() => root.delete(recursive: true));
       await tester.pumpWidget(
-        MaterialApp(home: DocumentWorkspace(repository: repository)),
+        MaterialApp(
+          home: DocumentWorkspace(
+            repository: repository,
+            initialArea: WorkspaceArea.files,
+          ),
+        ),
       );
       await settleFileIo(
         tester,
@@ -139,12 +145,15 @@ void main() {
             tester.state<EditorPaneState>(editor).widget.session.toolsReady,
       );
       final pane = tester.state<EditorPaneState>(editor);
-      expect(find.byTooltip('Highlighter (F6)'), findsOneWidget);
+      expect(find.byKey(const ValueKey('pdf-mode-read')), findsOneWidget);
+      expect(pane.editing.tool, isNull);
       expect(find.byTooltip('Next page (F7)'), findsOneWidget);
       await _controlAlt(tester, LogicalKeyboardKey.keyE);
       expect(pane.editing.tool, PdfEditTool.eraser);
       await tester.sendKeyEvent(LogicalKeyboardKey.f6);
       expect(pane.editing.tool, PdfEditTool.highlight);
+      await tester.pump();
+      expect(find.byTooltip('Highlighter (F6)'), findsOneWidget);
       await _controlAlt(tester, LogicalKeyboardKey.keyD);
       expect(pane.editing.tool, PdfEditTool.ink);
       await tester.sendKeyEvent(LogicalKeyboardKey.f7);
@@ -178,7 +187,12 @@ void main() {
       addTearDown(() => messenger.setMockMethodCallHandler(picker, null));
 
       await tester.pumpWidget(
-        MaterialApp(home: DocumentWorkspace(repository: repository)),
+        MaterialApp(
+          home: DocumentWorkspace(
+            repository: repository,
+            initialArea: WorkspaceArea.files,
+          ),
+        ),
       );
       await settleFileIo(
         tester,
@@ -188,19 +202,32 @@ void main() {
       await _control(tester, LogicalKeyboardKey.keyK);
       final search = find.byType(KnowledgePage);
       await settleFileIo(tester, () => search.evaluate().isNotEmpty);
-      expect(find.text('Search Markdown and PDFs'), findsOneWidget);
+      expect(find.text('Search titles, text and tasks'), findsOneWidget);
       final field = tester.widget<EditableText>(
         find.descendant(of: search, matching: find.byType(EditableText)).first,
       );
       expect(field.focusNode.hasFocus, isTrue);
       await _controlAlt(tester, LogicalKeyboardKey.keyJ);
-      await tester.pumpAndSettle();
-      expect(find.text('Search Markdown and PDFs'), findsNothing);
+      await settleFileIo(
+        tester,
+        () => find.text('Journal template').evaluate().isNotEmpty,
+      );
+      expect(find.text('Search titles, text and tasks'), findsNothing);
       await _control(tester, LogicalKeyboardKey.keyK);
-      await tester.pumpAndSettle();
-      expect(find.text('Search Markdown and PDFs'), findsOneWidget);
+      await settleFileIo(
+        tester,
+        () => find.text('Search titles, text and tasks').evaluate().isNotEmpty,
+      );
+      expect(find.text('Search titles, text and tasks'), findsOneWidget);
       await tester.pageBack();
-      await settleFileIo(tester, () => search.evaluate().isEmpty);
+      await settleFileIo(
+        tester,
+        () =>
+            search.evaluate().isEmpty ||
+            find.text('Search titles, text and tasks').evaluate().isEmpty,
+      );
+      await tester.tap(find.byKey(const ValueKey('workspace-files')));
+      await tester.pumpAndSettle();
 
       await tester.tap(find.text(note.title));
       final editor = find.byType(MarkdownEditorPage);
@@ -227,17 +254,20 @@ void main() {
       await tester.tap(find.byTooltip('Open library and another note'));
       await settleFileIo(
         tester,
-        () => find.byTooltip('Library actions').evaluate().isNotEmpty,
+        () =>
+            find.byKey(const ValueKey('workspace-more')).evaluate().isNotEmpty,
       );
       expect(librarySearch.focusNode!.canRequestFocus, isTrue);
-      await tester.tap(find.byTooltip('Library actions'));
+      await tester.tap(find.byKey(const ValueKey('workspace-more')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Settings'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Keyboard shortcuts'));
       await tester.pumpAndSettle();
       expect(find.byType(KeyboardSettingsPage), findsOneWidget);
       expect(find.text('Ctrl + K'), findsOneWidget);
       expect(find.text('Ctrl + F'), findsOneWidget);
-      await tester.tap(find.text('Search in Knowledge Hub'));
+      await tester.tap(find.text('Open global search'));
       await tester.pumpAndSettle();
       await _control(tester, LogicalKeyboardKey.keyF);
       await tester.pump();
@@ -271,9 +301,12 @@ void main() {
       );
       await _control(tester, LogicalKeyboardKey.keyK);
       await tester.pumpAndSettle();
-      expect(search, findsNothing);
+      expect(find.text('Search titles, text and tasks'), findsNothing);
       await _control(tester, LogicalKeyboardKey.keyJ);
-      await settleFileIo(tester, () => search.evaluate().isNotEmpty);
+      await settleFileIo(
+        tester,
+        () => find.text('Search titles, text and tasks').evaluate().isNotEmpty,
+      );
       await tester.pumpWidget(const SizedBox.shrink());
       expect(tester.takeException(), isNull);
     },
