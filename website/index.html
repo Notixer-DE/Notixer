@@ -77,8 +77,11 @@
       color:var(--primary)
       }
       .hero {
-      padding:100px 0;
-      max-width:900px
+      display:grid;
+      grid-template-columns:minmax(0,4fr) minmax(0,5fr);
+      align-items:center;
+      gap:clamp(24px,4vw,48px);
+      padding:clamp(48px,7vw,96px) 0 54px
       }
       .eyebrow {
       font-size:12px;
@@ -88,7 +91,7 @@
       color:var(--teal)
       }
       h1 {
-      font-size:clamp(44px,7.3vw,85px);
+      font-size:clamp(42px,5.2vw,72px);
       letter-spacing:-.07em;
       line-height:1.06;
       margin:22px 0 28px
@@ -143,6 +146,55 @@
       font-size:13px;
       color:var(--muted);
       background:#ffffffbc
+      }
+      .screenshot {
+      margin:0
+      }
+      .screenshot a {
+      display:block;
+      border-radius:12px;
+      overflow:hidden;
+      border:1px solid var(--border);
+      background:var(--surface);
+      box-shadow:0 12px 30px #24365512
+      }
+      .screenshot a:hover {
+      border-color:var(--primary)
+      }
+      .screenshot img {
+      display:block;
+      width:100%;
+      height:auto
+      }
+      .screenshot figcaption {
+      margin-top:10px;
+      color:var(--muted);
+      font-size:14px
+      }
+      .showcase {
+      display:grid;
+      grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);
+      gap:20px
+      }
+      .showcase article {
+      border:1px solid var(--border);
+      border-radius:18px;
+      padding:clamp(16px,3vw,28px);
+      background:var(--surface)
+      }
+      .showcase h3 {
+      margin-top:0
+      }
+      .showcase p {
+      margin:0 0 20px;
+      color:var(--muted)
+      }
+      .phone-screens {
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:clamp(10px,2vw,20px);
+      max-width:440px;
+      margin-inline:auto
       }
       section {
       padding:50px 0
@@ -210,10 +262,15 @@
       gap:15px;
       flex-wrap:wrap
       }
-      @media(max-width:750px) {
+      @media(max-width:860px) {
       .hero {
-      padding:70px 0
+      grid-template-columns:1fr
       }
+      .showcase {
+      grid-template-columns:1fr
+      }
+      }
+      @media(max-width:750px) {
       .grid {
       grid-template-columns:1fr
       }
@@ -240,31 +297,76 @@
     <header>
       <div class="wrap">
         <a class="logo" href="#">Notixer<span>.</span></a>
-        <nav>
-          <a href="#features">Features</a><a href="#sync">Sync</a><a href="https://github.com/Notixer-DE/Notixer">GitHub</a>
+        <nav aria-label="Main navigation">
+          <a href="#screenshots">Screenshots</a><a href="#features">Features</a><a href="#sync">Sync</a><a href="https://github.com/Notixer-DE/Notixer">GitHub</a>
         </nav>
       </div>
     </header>
     <main>
       <div class="wrap">
         <div class="hero">
-          <div class="eyebrow">
-            Open source · Offline first · Your notes
+          <div>
+            <div class="eyebrow">
+              Open source · Offline first · Your notes
+            </div>
+            <h1>
+              Think freely.<br><em>Stay offline.</em>
+            </h1>
+            <p class="lead">
+              Notixer brings handwritten notes, PDF annotations, Markdown, and study tools into one workspace. Work without an account or internet connection, with optional end-to-end encrypted sync on your own server.
+            </p>
+            <div class="actions">
+              <a class="btn primary" href="https://github.com/Notixer-DE/Notixer/releases/latest">Download Notixer</a>
+              <a class="btn secondary" href="#screenshots">See the app</a>
+            </div>
+            <div class="tags">
+              <span class="tag">Android 8+</span><span class="tag">Windows x64</span><span class="tag">Debian 13 amd64</span>
+            </div>
           </div>
-          <h1>
-            Think freely.<br><em>Stay offline.</em>
-          </h1>
-          <p class="lead">
-            Notixer brings handwritten notes, PDF annotations, Markdown, and study tools into one workspace. Work without an account or internet connection, with optional end-to-end encrypted sync on your own server.
-          </p>
-          <div class="actions">
-            <a class="btn primary" href="https://github.com/Notixer-DE/Notixer/releases/latest">Download Notixer ↗</a><a class="btn secondary" href="https://github.com/Notixer-DE/Notixer">Explore on GitHub ↗</a>
-          </div>
-          <div class="tags">
-            <span class="tag">Android 8+</span><span class="tag">Windows x64</span><span class="tag">Debian 13 amd64</span><span class="tag">Built with Flutter</span>
-          </div>
+          <figure class="screenshot">
+            <a href="screenshots/pdf-desktop.png">
+              <img src="screenshots/pdf-desktop.png" width="1440" height="900" alt="Open the full-size desktop screenshot of a lecture PDF in Draw mode with annotation tools, color swatches and page thumbnails." fetchpriority="high">
+            </a>
+            <figcaption>Annotate PDFs on desktop with a pen, highlighter or lasso.</figcaption>
+          </figure>
         </div>
       </div>
+      <section id="screenshots" aria-labelledby="screenshots-title">
+        <div class="wrap">
+          <h2 id="screenshots-title">Notixer in use</h2>
+          <p class="intro">See how the workspace fits a phone, tablet or desktop. Select any screenshot to view it at full size.</p>
+          <div class="showcase">
+            <article>
+              <h3>Plan your day and focus on one task</h3>
+              <p>See what’s due, resume reading or start a review from Today. Open the focus timer straight from a task to track your work.</p>
+              <div class="phone-screens">
+                <figure class="screenshot">
+                  <a href="screenshots/today-phone.png">
+                    <img src="screenshots/today-phone.png" width="390" height="844" alt="Open the full-size Today screenshot with due tasks, study reviews, recent reading and journal sections." loading="lazy" decoding="async">
+                  </a>
+                  <figcaption>Today on a phone</figcaption>
+                </figure>
+                <figure class="screenshot">
+                  <a href="screenshots/focus-timer-phone.png">
+                    <img src="screenshots/focus-timer-phone.png" width="390" height="844" alt="Open the full-size focus timer screenshot showing a running task with pause, stop and target time controls." loading="lazy" decoding="async">
+                  </a>
+                  <figcaption>Focus timer on a phone</figcaption>
+                </figure>
+              </div>
+            </article>
+            <article>
+              <h3>Revisit journal entries by date</h3>
+              <p>Pick a day in the calendar to revisit previous entries. On a wide screen, the selected day’s notes sit beside the calendar.</p>
+              <figure class="screenshot">
+                <a href="screenshots/journal-tablet.png">
+                  <img src="screenshots/journal-tablet.png" width="1024" height="768" alt="Open the full-size tablet journal screenshot with a monthly calendar beside the selected day’s entry." loading="lazy" decoding="async">
+                </a>
+                <figcaption>Journal on a tablet</figcaption>
+              </figure>
+            </article>
+          </div>
+        </div>
+      </section>
       <section id="features">
         <div class="wrap">
           <div class="eyebrow">
@@ -347,7 +449,7 @@
               Your notes stay usable without the cloud. If you want to work across devices, you can connect an optional self-hosted sync server with end-to-end encryption. You control the infrastructure and recovery key.
             </p>
             <div class="actions">
-              <a class="btn primary" href="https://github.com/Notixer-DE/Notixer/blob/main/docs/sync-server.md">Self-hosting guide ↗</a><a class="btn secondary" href="https://github.com/Notixer-DE/Notixer/blob/main/README.md">Read documentation ↗</a>
+              <a class="btn primary" href="https://github.com/Notixer-DE/Notixer/blob/main/docs/sync-server.md">Self-hosting guide</a><a class="btn secondary" href="https://github.com/Notixer-DE/Notixer/blob/main/README.md">Read documentation</a>
             </div>
           </div>
         </div>
@@ -361,7 +463,7 @@
             Download a release for your platform or explore the source code and build instructions on GitHub.
           </p>
           <div class="actions">
-            <a class="btn primary" href="https://github.com/Notixer-DE/Notixer/releases/latest">View latest release ↗</a><a class="btn secondary" href="https://github.com/Notixer-DE/Notixer">View source code ↗</a>
+            <a class="btn primary" href="https://github.com/Notixer-DE/Notixer/releases/latest">View latest release</a><a class="btn secondary" href="https://github.com/Notixer-DE/Notixer">View source code</a>
           </div>
         </div>
       </section>
