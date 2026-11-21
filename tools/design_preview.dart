@@ -72,6 +72,18 @@ Element _find(bool Function(Widget) matches) {
   return found ?? (throw StateError('Preview control missing'));
 }
 
+Future<Element> _waitFor(bool Function(Widget) matches) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 10));
+  while (DateTime.now().isBefore(deadline)) {
+    try {
+      return _find(matches);
+    } on StateError {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+  }
+  return _find(matches);
+}
+
 Future<void> main() async {
   const interactive = bool.fromEnvironment('NOTIXER_DESIGN_INTERACTIVE');
   final device = Platform.environment['NOTER_DESIGN_DEVICE'] ?? 'desktop';
@@ -270,16 +282,16 @@ Future<void> main() async {
       _find((widget) => widget.key == ValueKey('workspace-${area.name}')),
     );
     await _show(_app(DocumentWorkspace(repository: repository)));
+    final startTimer = await _waitFor(
+      (widget) => widget is IconButton && widget.tooltip == 'Start timer',
+    );
     await _capture('today-$device');
-    await tapElement(
-      _find(
-        (widget) => widget is IconButton && widget.tooltip == 'Start timer',
-      ),
+    await tapElement(startTimer);
+    final running = await _waitFor(
+      (widget) => widget is Text && widget.data == 'Time tracked · Running',
     );
     await _capture('focus-timer-$device');
-    Navigator.of(
-      _find((widget) => widget is Text && widget.data == 'Focus timer'),
-    ).pop();
+    Navigator.of(running).pop();
     await _pause();
     await destination(WorkspaceArea.journal);
     await _capture('workspace-journal-$device');
