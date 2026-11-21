@@ -283,10 +283,13 @@ Future<void> main() async {
     );
     await _show(_app(DocumentWorkspace(repository: repository)));
     final startTimer = await _waitFor(
-      (widget) => widget is IconButton && widget.tooltip == 'Start timer',
+      (widget) => widget is IconButton && widget.tooltip == 'Open focus timer',
     );
     await _capture('today-$device');
     await tapElement(startTimer);
+    await tapElement(
+      await _waitFor((widget) => widget is Text && widget.data == 'Start'),
+    );
     final running = await _waitFor(
       (widget) => widget is Text && widget.data == 'Time tracked · Running',
     );

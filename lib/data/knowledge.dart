@@ -126,6 +126,7 @@ class KnowledgeTask {
     this.documentTodo,
     this.timerAction,
     this.workTime,
+    this.countdown,
     this.deleting = false,
   });
   final Notebook note;
@@ -134,23 +135,27 @@ class KnowledgeTask {
   final bool canPlan, deleting;
   final QuickTodo? quickTodo, documentTodo;
   final TodoTimerAction? timerAction;
-  final Duration? workTime;
+  final Duration? workTime, countdown;
   QuickTodo? get todo => quickTodo ?? documentTodo;
   bool get done => todo?.done ?? false;
 
-  KnowledgeTask withTimer({TodoTimerAction? timer, Duration? workTime}) =>
-      KnowledgeTask(
-        note,
-        offset,
-        line,
-        text,
-        revision,
-        canPlan: canPlan,
-        quickTodo: quickTodo,
-        documentTodo: documentTodo,
-        timerAction: timer,
-        workTime: workTime,
-      );
+  KnowledgeTask withTimer({
+    TodoTimerAction? timer,
+    Duration? workTime,
+    Duration? countdown,
+  }) => KnowledgeTask(
+    note,
+    offset,
+    line,
+    text,
+    revision,
+    canPlan: canPlan,
+    quickTodo: quickTodo,
+    documentTodo: documentTodo,
+    timerAction: timer,
+    workTime: workTime,
+    countdown: countdown,
+  );
 
   KnowledgeTask forDeletion() => KnowledgeTask(
     note,
@@ -162,6 +167,27 @@ class KnowledgeTask {
     documentTodo: documentTodo,
     deleting: true,
   );
+
+  KnowledgeTask afterQuickTodoTimerEdit(QuickTodo updated) => KnowledgeTask(
+    note,
+    offset,
+    line,
+    text,
+    updated.revision,
+    canPlan: canPlan,
+    quickTodo: updated,
+  );
+
+  KnowledgeTask afterDocumentTimerEdit(String source, DateTime modified) =>
+      KnowledgeTask(
+        note,
+        offset,
+        line,
+        text,
+        markdownRevision(source),
+        canPlan: canPlan,
+        documentTodo: documentTask(source, offset, text, fallback: modified),
+      );
 
   String editDocument(String source) {
     if (markdownRevision(source) != revision ||
@@ -176,6 +202,7 @@ class KnowledgeTask {
       done: timerAction == null && workTime == null ? !done : null,
       timer: timerAction,
       workTime: workTime,
+      countdown: countdown,
       previousModified: note.modified,
     );
   }
@@ -662,6 +689,26 @@ class KnowledgeStore {
     return updated;
   }
 
+  Future<QuickTodo> changeQuickTodoTimer(
+    String id, {
+    TodoTimerAction? timer,
+    Duration? workTime,
+    Duration? countdown,
+  }) => quickTodos.change((tasks) {
+    final current = tasks[id];
+    if (current == null || current.deleted) {
+      throw const FormatException('The to-do no longer exists.');
+    }
+    return tasks[id] = current.update(
+      DateTime.now(),
+      project: current.project,
+      due: current.due,
+      timer: timer,
+      workTime: workTime,
+      countdown: countdown,
+    );
+  });
+
   Future<void> changeTaskStatus(QuickTodo todo, bool done) =>
       _changeQuickTodo(todo, complete: done);
 
@@ -673,6 +720,7 @@ class KnowledgeStore {
     bool? complete,
     TodoTimerAction? timer,
     Duration? workTime,
+    Duration? countdown,
     bool delete = false,
   }) => quickTodos.change((tasks) {
     final current = tasks[expected.id];
@@ -694,6 +742,7 @@ class KnowledgeStore {
       done: complete,
       timer: timer,
       workTime: workTime,
+      countdown: countdown,
     );
   });
 
@@ -922,7 +971,7 @@ class KnowledgeStore {
     return KnowledgeScan(hits, tasks, warnings);
   }
 
-  Future<void> changeTask(KnowledgeTask task) async {
+  Future<KnowledgeTask?> changeTask(KnowledgeTask task) async {
     final todo = task.quickTodo;
     if (todo != null) {
       final timer = task.timerAction;
@@ -931,9 +980,14 @@ class KnowledgeStore {
       } else if (timer == null && task.workTime == null) {
         await changeTaskStatus(todo, !todo.done);
       } else {
-        await _changeQuickTodo(todo, timer: timer, workTime: task.workTime);
+        await _changeQuickTodo(
+          todo,
+          timer: timer,
+          workTime: task.workTime,
+          countdown: task.countdown,
+        );
       }
-      return;
+      return null;
     }
     final snapshot = await repository.snapshotForSync(task.note.id);
     if (snapshot == null) {
@@ -944,11 +998,15 @@ class KnowledgeStore {
     );
     final document = await decodeMarkdownAsync(bytes);
     final source = task.editDocument(document.source);
+    final modified = DateTime.now();
     final archive = await LocalNotebookRepository.encodeAsync(
-      note.copy(modified: DateTime.now()),
+      note.copy(modified: modified),
       document.copy(source: source).encode(),
     );
     await repository.applySync(note.id, snapshot.raw, archive);
+    return task.timerAction != null || task.workTime != null
+        ? task.afterDocumentTimerEdit(source, modified)
+        : null;
   }
 
   Future<void> renameTag(String from, String to) async {

@@ -61,7 +61,7 @@ class LibraryPage extends StatefulWidget {
   });
   final void Function(String)? onWorkspaceSection;
   final OpenNotebookTab? onOpenDestination;
-  final Future<void> Function(KnowledgeTask)? onChangeTask;
+  final Future<KnowledgeTask?> Function(KnowledgeTask)? onChangeTask;
   final Future<void> Function()? onRefreshDocuments;
   final LocalNotebookRepository repository;
   final SyncController? syncController;
@@ -192,7 +192,16 @@ class _LibraryPageState extends State<LibraryPage> {
     };
   }
 
-  Future<void> _syncQuickTodos() => _syncChangedNote(null);
+  Future<void> _quickTodoSync = Future.value();
+
+  Future<void> _syncQuickTodos() {
+    final pending = _quickTodoSync.then((_) => _syncChangedNote(null));
+    _quickTodoSync = pending.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return pending;
+  }
 
   Future<void> _syncChangedNote(Notebook? note) async {
     if (!mounted || _busy || !_sync.enabled || !_sync.automatic) return;
@@ -746,9 +755,11 @@ class _LibraryPageState extends State<LibraryPage> {
           initialSection: section,
           sharedText: sharedText,
           onChangeTask: (task) async {
-            await (widget.onChangeTask ??
-                KnowledgeStore(widget.repository).changeTask)(task);
+            final updated =
+                await (widget.onChangeTask ??
+                    KnowledgeStore(widget.repository).changeTask)(task);
             if (task.deleting) await _syncChangedNote(task.note);
+            return updated;
           },
           autofocusSearch: autofocusSearch,
           shortcuts: widget.shortcuts,
