@@ -310,12 +310,15 @@ class _FocusTimerState extends State<_FocusTimer> {
   Widget _countdownDisplay(
     TextTheme text,
     Duration remaining,
-    Duration target,
-  ) {
+    Duration target, {
+    required double dimension,
+    required bool expanded,
+  }) {
     final finished = remaining == Duration.zero;
     final seconds = (remaining.inMilliseconds + 999) ~/ 1000;
+    final time = _elapsedLabel(Duration(seconds: seconds));
     return SizedBox.square(
-      dimension: 154,
+      dimension: dimension,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -324,21 +327,40 @@ class _FocusTimerState extends State<_FocusTimer> {
               0.0,
               1.0,
             ),
-            strokeWidth: 8,
+            strokeWidth: expanded ? 12 : 8,
             semanticsLabel: 'Countdown progress',
           ),
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.all(expanded ? 32 : 16),
             child: Center(
               child: Semantics(
                 liveRegion: finished,
-                child: Text(
-                  finished
-                      ? 'Time is up'
-                      : '${_elapsedLabel(Duration(seconds: seconds))} remaining',
-                  textAlign: TextAlign.center,
-                  style: text.titleMedium,
-                ),
+                child: expanded && !finished
+                    ? FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              time,
+                              style: text.displayMedium?.copyWith(
+                                fontSize: dimension * .23,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                            ),
+                            Text('remaining', style: text.titleMedium),
+                          ],
+                        ),
+                      )
+                    : Text(
+                        finished ? 'Time is up' : '$time remaining',
+                        textAlign: TextAlign.center,
+                        style: expanded
+                            ? text.headlineMedium
+                            : text.titleMedium,
+                      ),
               ),
             ),
           ),
@@ -361,7 +383,15 @@ class _FocusTimerState extends State<_FocusTimer> {
       final running = todo.timerStartedAt != null;
       final active = running || todo.timerPaused;
       final elapsed = todo.workTimeAt(now);
-      final text = Theme.of(context).textTheme;
+      final theme = Theme.of(context);
+      final text = theme.textTheme;
+      final viewport = MediaQuery.sizeOf(context);
+      final expanded =
+          viewport.width >= 1000 &&
+          viewport.height >= 600 &&
+          (theme.platform == TargetPlatform.linux ||
+              theme.platform == TargetPlatform.macOS ||
+              theme.platform == TargetPlatform.windows);
       final countdown = active
           ? todo.countdownMilliseconds != null
           : _mode == _FocusMode.countdown;
@@ -437,7 +467,16 @@ class _FocusTimerState extends State<_FocusTimer> {
                     ),
                     const SizedBox(height: 16),
                     if (countdown) ...[
-                      _countdownDisplay(text, remaining, target),
+                      _countdownDisplay(
+                        text,
+                        remaining,
+                        target,
+                        dimension: expanded
+                            ? (viewport.height * .34).clamp(220.0, 320.0)
+                            : 154,
+                        expanded: expanded,
+                      ),
+                      if (expanded) const SizedBox(height: 16),
                       if (running && remaining == Duration.zero)
                         const Text('Work time is still being tracked.'),
                     ],

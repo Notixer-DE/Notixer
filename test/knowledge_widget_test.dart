@@ -6,10 +6,12 @@ import 'package:noter/data/file_gateway.dart';
 import 'package:noter/data/knowledge.dart';
 import 'package:noter/data/markdown_document.dart';
 import 'package:noter/data/notebook.dart';
+import 'package:noter/data/quick_todos.dart';
 import 'package:noter/ui/knowledge_page.dart';
 import 'package:noter/ui/journal_calendar.dart';
 import 'package:noter/ui/library.dart';
 import 'package:noter/ui/noter_theme.dart';
+import 'package:noter/ui/todo_timer.dart';
 
 Future<void> waitKnowledge(WidgetTester tester, bool Function() ready) async {
   for (var i = 0; i < 200; i++) {
@@ -66,6 +68,47 @@ void main() {
   tearDown(() async {
     await directory.delete(recursive: true);
   });
+
+  testWidgets('desktop focus countdown makes the remaining time prominent', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final date = DateTime(2026);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(platform: TargetPlatform.windows),
+        home: Scaffold(
+          body: TodoTimer(
+            todo: QuickTodo(
+              id: 'focus',
+              text: 'Read chapter',
+              created: date,
+              modified: date,
+            ),
+            directStart: true,
+            onChanged: ({timer, workTime, countdown}) => null,
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.byTooltip('Open focus timer'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Countdown'));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byType(CircularProgressIndicator)).width, 306);
+    expect(
+      tester.widget<Text>(find.text('25:00')).style!.fontSize,
+      greaterThan(60),
+    );
+    expect(find.text('Time tracked'), findsOneWidget);
+    expect(find.text('Start').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets(
     'swipe deletes a quick to-do and long press deletes a checklist row',
     (tester) async {
@@ -698,6 +741,57 @@ void main() {
     );
     await openSection(tester, 'Search');
     expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('all tasks can filter completed tasks and save that status', (
+    tester,
+  ) async {
+    final store = KnowledgeStore(repository);
+    await tester.runAsync(() async {
+      final todo = await store.addQuickTodo('Completed quick item');
+      await store.changeTaskStatus(todo, true);
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: KnowledgePage(repository: repository, initialSection: 'Tasks'),
+      ),
+    );
+    final openTask = find.text('Read the chapter');
+    final closedTask = find.text('Finished');
+    final closedQuickTask = find.text('Completed quick item');
+    await waitKnowledge(tester, () => openTask.evaluate().isNotEmpty);
+    await tester.tap(find.byTooltip('Show search filters'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open tasks only'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Completed tasks only').last);
+    await waitKnowledge(tester, () => closedTask.evaluate().isNotEmpty);
+    expect(openTask, findsNothing);
+    expect(closedQuickTask, findsOneWidget);
+
+    await tester.tap(find.text('Save view'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      ),
+      'Finished work',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await waitKnowledge(tester, () => closedTask.evaluate().isNotEmpty);
+    await tester.runAsync(store.reload);
+    expect(store.views.single.name, 'Finished work');
+    expect(store.views.single.completedTasks, isTrue);
+    expect(store.views.single.openTasks, isFalse);
+    await openSection(tester, 'Views');
+    await tester.tap(find.text('Finished work'));
+    await waitKnowledge(tester, () => closedTask.evaluate().isNotEmpty);
+    expect(openTask, findsNothing);
+    expect(closedQuickTask, findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 

@@ -109,6 +109,7 @@ class KnowledgePageState extends State<KnowledgePage> {
   String _tag = '', _folder = '', _kind = 'all';
   bool? _filtersExpanded;
   bool _completedOnly = false;
+  bool _completedAllTasksOnly = false;
   bool _onlyTasks = false,
       _busy = false,
       _searching = false,
@@ -122,6 +123,9 @@ class KnowledgePageState extends State<KnowledgePage> {
   DateTime _date = DateUtils.dateOnly(DateTime.now());
   late DateTime _journalMonth = DateTime(_date.year, _date.month);
   bool get _taskSection => _section == 'Tasks';
+  bool get _showCompletedTasks =>
+      _taskView == _TaskView.completed ||
+      (_taskView == _TaskView.all && _completedAllTasksOnly);
   bool get _fixedTag => _section == 'Inbox';
   bool get _autoSearch => _taskSection || _section == 'Inbox';
   @override
@@ -248,8 +252,12 @@ class KnowledgePageState extends State<KnowledgePage> {
     tag: _fixedTag ? _section : _tag,
     folder: _folder,
     kind: _kind,
-    openTasks: _taskSection || (_section == 'Search' && _onlyTasks),
-    completedTasks: _section == 'Search' && _completedOnly,
+    openTasks: _taskSection
+        ? !_showCompletedTasks
+        : _section == 'Search' && _onlyTasks,
+    completedTasks: _taskSection
+        ? _showCompletedTasks
+        : _section == 'Search' && _completedOnly,
   );
   void submitSearch() => unawaited(_search());
 
@@ -273,7 +281,6 @@ class KnowledgePageState extends State<KnowledgePage> {
       final result = await _store.scan(
         _view,
         onlyQuickTodos: onlyQuickTodos,
-        completedTasks: _taskSection && _taskView == _TaskView.completed,
         includeCompletedTasks:
             widget.embedded && _section == 'Search' && !_view.tasksOnly,
         cancelled: () =>
@@ -608,11 +615,11 @@ class KnowledgePageState extends State<KnowledgePage> {
               ? null
               : (_) {
                   if (view == _taskView) return;
-                  final wasCompleted = _taskView == _TaskView.completed;
+                  final wasCompleted = _showCompletedTasks;
                   setState(() => _taskView = view);
-                  if (wasCompleted ||
-                      view == _TaskView.completed ||
-                      (view == _TaskView.all && _scannedQuickTodosOnly)) {
+                  if (wasCompleted != _showCompletedTasks ||
+                      ((view == _TaskView.all || view == _TaskView.completed) &&
+                          _scannedQuickTodosOnly)) {
                     unawaited(_search());
                   }
                 },
@@ -663,6 +670,7 @@ class KnowledgePageState extends State<KnowledgePage> {
       !_fixedTag && _tag.isNotEmpty,
       _folder.isNotEmpty,
       _section == 'Search' && (_onlyTasks || _completedOnly),
+      _taskSection && _taskView == _TaskView.all && _completedAllTasksOnly,
     ].where((value) => value).length;
     return CustomScrollView(
       key: PageStorageKey('knowledge-results-$_section'),
@@ -854,41 +862,47 @@ class KnowledgePageState extends State<KnowledgePage> {
                                 ? null
                                 : (v) => setState(() => _folder = v!),
                           ),
-                          if (_section == 'Search' && widget.embedded)
+                          if (_section == 'Search' ||
+                              (_taskSection && _taskView == _TaskView.all))
                             DropdownButton<String>(
-                              value: _completedOnly
+                              value: _taskSection
+                                  ? (_completedAllTasksOnly
+                                        ? 'completed'
+                                        : 'open')
+                                  : _completedOnly
                                   ? 'completed'
                                   : _onlyTasks
                                   ? 'open'
                                   : '',
-                              items: const [
-                                DropdownMenuItem(
-                                  value: '',
-                                  child: Text('Any result'),
-                                ),
-                                DropdownMenuItem(
+                              items: [
+                                if (!_taskSection)
+                                  const DropdownMenuItem(
+                                    value: '',
+                                    child: Text('Any result'),
+                                  ),
+                                const DropdownMenuItem(
                                   value: 'open',
                                   child: Text('Open tasks only'),
                                 ),
-                                DropdownMenuItem(
+                                const DropdownMenuItem(
                                   value: 'completed',
                                   child: Text('Completed tasks only'),
                                 ),
                               ],
                               onChanged: _busy
                                   ? null
-                                  : (value) => setState(() {
-                                      _onlyTasks = value == 'open';
-                                      _completedOnly = value == 'completed';
-                                    }),
-                            )
-                          else if (_section == 'Search')
-                            FilterChip(
-                              label: const Text('Open tasks only'),
-                              selected: _onlyTasks,
-                              onSelected: _busy
-                                  ? null
-                                  : (v) => setState(() => _onlyTasks = v),
+                                  : (value) {
+                                      setState(() {
+                                        if (_taskSection) {
+                                          _completedAllTasksOnly =
+                                              value == 'completed';
+                                        } else {
+                                          _onlyTasks = value == 'open';
+                                          _completedOnly = value == 'completed';
+                                        }
+                                      });
+                                      if (_taskSection) unawaited(_search());
+                                    },
                             ),
 
                           if (!_taskSection || _taskView == _TaskView.all)
@@ -950,6 +964,8 @@ class KnowledgePageState extends State<KnowledgePage> {
                         _TaskView.today =>
                           'No open to-dos due today or overdue.',
                         _TaskView.projects => 'No open project to-dos.',
+                        _TaskView.all when _completedAllTasksOnly =>
+                          'No completed tasks.',
                         _TaskView.all => 'No matches.',
                         _TaskView.completed => 'No completed tasks.',
                       }

@@ -19,6 +19,8 @@ class LibraryGraphPage extends StatefulWidget {
 }
 
 class _LibraryGraphPageState extends State<LibraryGraphPage> {
+  static const _minScale = .01;
+
   late Future<LibraryGraph> _graph = LibraryGraph.load(
     widget.repository,
     sourceOverrides: widget.sourceOverrides,
@@ -43,10 +45,8 @@ class _LibraryGraphPageState extends State<LibraryGraphPage> {
 
   void _fit(Size viewport, double extent) {
     if (viewport.isEmpty || extent <= 0) return;
-    final scale = math.min(
-      1.25,
-      math.min(viewport.width / extent, viewport.height / extent) * .92,
-    );
+    final scale = (math.min(viewport.width, viewport.height) / extent * .92)
+        .clamp(_minScale, 1.25);
     _transform.value = Matrix4.identity()
       ..translateByDouble(
         (viewport.width - extent * scale) / 2,
@@ -54,7 +54,7 @@ class _LibraryGraphPageState extends State<LibraryGraphPage> {
         0,
         1,
       )
-      ..scaleByDouble(scale, scale, 1, 1);
+      ..scaleByDouble(scale, scale, scale, 1);
   }
 
   Future<void> _chooseFocus() async {
@@ -282,14 +282,26 @@ class _LibraryGraphPageState extends State<LibraryGraphPage> {
                   constraints.maxWidth,
                   constraints.maxHeight,
                 );
-                if (_viewport != viewport) {
-                  _viewport = viewport;
-                  _fitPending = true;
-                }
+                final previousViewport = _viewport;
+                _viewport = viewport;
                 if (_fitPending) {
                   _fitPending = false;
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (mounted) _fit(viewport, extent);
+                  });
+                } else if (previousViewport != null &&
+                    previousViewport != viewport) {
+                  final shift =
+                      viewport.center(Offset.zero) -
+                      previousViewport.center(Offset.zero);
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
+                    // Preserve the scene point at the center when resizing.
+                    _transform.value = Matrix4.translationValues(
+                      shift.dx,
+                      shift.dy,
+                      0,
+                    )..multiply(_transform.value);
                   });
                 }
                 return Stack(
@@ -300,9 +312,9 @@ class _LibraryGraphPageState extends State<LibraryGraphPage> {
                         child: InteractiveViewer(
                           transformationController: _transform,
                           constrained: false,
-                          minScale: .01,
+                          minScale: _minScale,
                           maxScale: 5,
-                          boundaryMargin: EdgeInsets.all(extent),
+                          boundaryMargin: const EdgeInsets.all(double.infinity),
                           child: SizedBox(
                             width: extent,
                             height: extent,
