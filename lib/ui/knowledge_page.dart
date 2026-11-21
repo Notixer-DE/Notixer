@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import '../data/document_task.dart';
 import '../data/file_gateway.dart';
 import '../data/knowledge.dart';
 import '../data/keyboard_shortcuts.dart';
@@ -1128,7 +1129,6 @@ class KnowledgePageState extends State<KnowledgePage> {
         return;
       }
       note = await _store.journal(day);
-      if (mounted) await widget.onJournalChanged?.call(note);
       final notes = await widget.repository.list();
       if (mounted) setState(() => _notes = notes);
     });
@@ -1333,13 +1333,22 @@ class KnowledgePageState extends State<KnowledgePage> {
         if (snapshot.hasError) return const Text('Could not load the entry.');
         final document = snapshot.data;
         if (document == null) return const LinearProgressIndicator();
+        final source = document.source;
+        const limit = 2400;
+        final cutoff = source.length <= limit
+            ? -1
+            : source.lastIndexOf('\n', limit);
+        final excerpt = source.length <= limit
+            ? source
+            : cutoff > 0
+            ? '${source.substring(0, cutoff)}…'
+            : '${visibleTaskText(source.split('\n').first).characters.take(limit)}…';
         return Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: MarkdownBody(
-              data: document.source.length <= 2400
-                  ? document.source
-                  : '${document.source.substring(0, 2400)}…',
+              inlineSyntaxes: [TaskMetadataSyntax()],
+              data: excerpt,
               imageBuilder: (_, _, alt) => Text(alt ?? 'Attachment'),
             ),
           ),

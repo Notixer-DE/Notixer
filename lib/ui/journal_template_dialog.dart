@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
+import '../data/document_task.dart';
 import '../data/journal_template.dart';
 import 'markdown_style.dart';
 
@@ -82,6 +83,7 @@ class _JournalTemplateDialogState extends State<JournalTemplateDialog> {
             const SizedBox(height: 12),
             if (_preview)
               MarkdownBody(
+                inlineSyntaxes: [TaskMetadataSyntax()],
                 key: const ValueKey('journal-template-preview'),
                 data: sample.trim().isEmpty
                     ? '# ${journalDate(widget.date)}'

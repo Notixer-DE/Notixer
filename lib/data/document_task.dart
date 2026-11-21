@@ -1,8 +1,19 @@
 import 'dart:convert';
 
+import 'package:markdown/markdown.dart' as md;
+
 import 'quick_todos.dart';
 
-final _taskMetadata = RegExp(r' <!-- notixer-task ([a-zA-Z0-9+/=]+) -->$');
+const _taskMetadataPattern = r' <!-- notixer-task ([a-zA-Z0-9+/=]+) -->';
+final _taskMetadata = RegExp(_taskMetadataPattern + r'$');
+
+/// Consume the task comment as Markdown syntax so code examples stay literal.
+class TaskMetadataSyntax extends md.InlineSyntax {
+  TaskMetadataSyntax() : super(_taskMetadataPattern);
+
+  @override
+  bool onMatch(md.InlineParser parser, Match match) => true;
+}
 
 String visibleTaskText(String line) => line.replaceFirst(_taskMetadata, '');
 

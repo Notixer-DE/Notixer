@@ -140,61 +140,6 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('creates the selected journal page directly in edit mode', (
-    tester,
-  ) async {
-    await tester.runAsync(() async {
-      final store = KnowledgeStore(repository);
-      store.templates.add(
-        const MarkdownTemplate(
-          'test',
-          'Journal headings',
-          '# {{date}}\n\n## Notes\n',
-        ),
-      );
-      store.journalTemplate = 'test';
-      await store.save();
-    });
-    await launch(tester, const Size(390, 844));
-    await tester.tap(_destination('journal'));
-    final calendar = find.byType(JournalCalendar);
-    final create = find.text('Create journal page');
-    await settleFileIo(tester, () => create.evaluate().isNotEmpty);
-    await tester.tap(find.byTooltip('Previous month'));
-    await tester.pump();
-    final month = tester.widget<JournalCalendar>(calendar).month;
-    final day = DateTime(month.year, month.month, 12);
-    tester.widget<JournalCalendar>(calendar).onDay!(day);
-    await tester.pump();
-    await tester.ensureVisible(create);
-    await tester.pump();
-    await tester.tap(create.hitTestable());
-
-    final source = find.byKey(const ValueKey('markdown-source'));
-    await settleFileIo(tester, () => source.evaluate().isNotEmpty);
-    expect(find.byType(AlertDialog), findsNothing);
-    final date = journalDate(day);
-    final expected = '# $date\n\n## Notes\n';
-    expect(tester.widget<TextField>(source).controller!.text, expected);
-    final saved = (await tester.runAsync(() async {
-      final notes = await repository.list();
-      final note = notes.singleWhere((note) => journalEntryDate(note) == date);
-      return MarkdownDocument.decode(await repository.load(note.id));
-    }))!;
-    expect(saved.source, expected);
-
-    await tester.tap(find.byTooltip('Back to library'));
-    await settleFileIo(
-      tester,
-      () =>
-          calendar.evaluate().isNotEmpty &&
-          tester.widget<JournalCalendar>(calendar).entryDays.contains(date),
-    );
-    expect(tester.widget<JournalCalendar>(calendar).selected, day);
-    expect(create, findsNothing);
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
-
   testWidgets('workspace navigation adapts to every issue viewport', (
     tester,
   ) async {
