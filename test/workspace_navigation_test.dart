@@ -108,7 +108,10 @@ void main() {
     expect(find.byKey(const ValueKey('markdown-source')), findsNothing);
     expect(find.text('An indexed handoff passage.'), findsOneWidget);
     await tester.tap(find.byTooltip('Back to library'));
-    await settleFileIo(tester, () => hit.evaluate().isNotEmpty);
+    await settleFileIo(
+      tester,
+      () => search.evaluate().isNotEmpty && hit.evaluate().isNotEmpty,
+    );
     expect(tester.widget<TextField>(search).controller!.text, 'handoff');
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();
