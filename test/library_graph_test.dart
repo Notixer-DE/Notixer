@@ -148,6 +148,39 @@ void main() {
               .label,
           '3 files · 5 connections',
         );
+        if (width == 1200) {
+          final viewer = find.byType(InteractiveViewer);
+          final transform = tester
+              .widget<InteractiveViewer>(viewer)
+              .transformationController!;
+          final node = find.byKey(ValueKey('graph-node-note:${a.id}'));
+          final fittedCenter = tester.getCenter(node);
+          for (var i = 0; i < 6; i++) {
+            final gesture = await tester.startGesture(
+              tester.getTopLeft(viewer) + const Offset(40, 40),
+            );
+            await gesture.moveBy(const Offset(360, 80));
+            await tester.pump(const Duration(milliseconds: 100));
+            await gesture.up();
+            await tester.pumpAndSettle();
+          }
+          expect(
+            tester.getCenter(node).dx - fittedCenter.dx,
+            greaterThan(1500),
+          );
+          final sceneCenter = transform.toScene(
+            tester.getSize(viewer).center(Offset.zero),
+          );
+          tester.view.physicalSize = const Size(1000, 750);
+          await tester.pumpAndSettle();
+          final resizedCenter = transform.toScene(
+            tester.getSize(viewer).center(Offset.zero),
+          );
+          expect((sceneCenter - resizedCenter).distance, lessThan(.001));
+          await tester.tap(find.byTooltip('Fit graph'));
+          await tester.pumpAndSettle();
+          expect(node.hitTestable(), findsOneWidget);
+        }
         await tester.tap(find.byTooltip('Graph options'));
         await tester.pumpAndSettle();
         await tester.tap(
