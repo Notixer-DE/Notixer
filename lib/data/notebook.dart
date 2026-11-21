@@ -191,7 +191,7 @@ class Notebook {
   }
 }
 
-void validatePdf(Uint8List bytes) {
+PdfDocument validatePdf(Uint8List bytes) {
   if (bytes.length < 8 ||
       !String.fromCharCodes(bytes.take(1024)).contains('%PDF-')) {
     throw const FormatException('The file is not a valid PDF.');
@@ -209,6 +209,7 @@ void validatePdf(Uint8List bytes) {
     for (var i = 0; i < pdf.pageCount; i++) {
       pdf.page(i);
     }
+    return pdf;
   } on FormatException {
     rethrow;
   } catch (_) {
@@ -225,6 +226,10 @@ void validateNotebookContent(Notebook note, Uint8List bytes) {
     validatePdf(bytes);
   }
 }
+
+typedef NotebookSearchEntry = ({Notebook note, int? checksum});
+
+const knowledgeIndexFolderName = '.knowledge-index';
 
 abstract class NotebookRepository {
   LibraryCatalog get catalog;
@@ -443,6 +448,7 @@ class LocalNotebookRepository
         _clock(),
         ink,
       );
+      if (incoming == null) await _forgetSearchIndex(id);
       _loadedInk.remove(id);
       _failedInkJournals.remove(id);
     });
@@ -457,12 +463,19 @@ class LocalNotebookRepository
 
   @override
   Future<List<Notebook>> list() async {
+    final listing = await listForSearch();
+    return [for (final entry in listing.entries) entry.note];
+  }
+
+  /// Read the payload checksum with the manifest, without inflating the payload.
+  Future<({List<NotebookSearchEntry> entries, List<String> errors})>
+  listForSearch() async {
     await _queue;
-    final result = await _listNotebooks(directory.path);
+    final listing = await _listNotebooks(directory.path);
     readErrors
       ..clear()
-      ..addAll(result.$2);
-    return result.$1;
+      ..addAll(listing.errors);
+    return listing;
   }
 
   @override
@@ -627,9 +640,20 @@ class LocalNotebookRepository
   @override
   Future<void> delete(String id) => _serialize(() async {
     await _trashNotebook(_file(id).path);
+    await _forgetSearchIndex(id);
     _loadedInk.remove(id);
     _failedInkJournals.remove(id);
   });
+
+  Future<void> _forgetSearchIndex(String id) async {
+    try {
+      await File(
+        p.join(directory.path, knowledgeIndexFolderName, '$id.json'),
+      ).delete();
+    } on FileSystemException {
+      // Search prunes any stale entry left in the derived index.
+    }
+  }
 
   File _recoveryFile(String id, String? revision) {
     _file(id); // Use the same strict ID validation for every recovery path.
@@ -778,7 +802,7 @@ Future<List<RecoveryEntry>> _listRecovery(String path, String? id) =>
         if (!RegExp(r'^[a-zA-Z0-9_-]{1,100}$').hasMatch(key)) {
           throw const FormatException('Invalid recovery file.');
         }
-        final note = _readNotebookMetadata(file);
+        final note = _readNotebookMetadata(file).note;
         if (note.id != (id ?? key)) {
           throw const FormatException('Incorrect recovery ID.');
         }
@@ -795,27 +819,27 @@ Future<List<RecoveryEntry>> _listRecovery(String path, String? id) =>
       return entries;
     }, debugName: 'noter:recovery-list');
 
-Future<(List<Notebook>, List<String>)> _listNotebooks(String directory) =>
-    Isolate.run(() {
-      Directory(directory).createSync(recursive: true);
-      final notes = <Notebook>[], errors = <String>[];
-      for (final entry in Directory(directory).listSync()) {
-        if (entry is! File || !entry.path.endsWith('.noter')) continue;
-        try {
-          final note = _readNotebookMetadata(entry);
-          if (p.basenameWithoutExtension(entry.path) != note.id) {
-            throw const FormatException('Incorrect ID');
-          }
-          notes.add(note);
-        } catch (_) {
-          errors.add(p.basename(entry.path));
-        }
+Future<({List<NotebookSearchEntry> entries, List<String> errors})>
+_listNotebooks(String directory) => Isolate.run(() {
+  Directory(directory).createSync(recursive: true);
+  final notes = <NotebookSearchEntry>[], errors = <String>[];
+  for (final entry in Directory(directory).listSync()) {
+    if (entry is! File || !entry.path.endsWith('.noter')) continue;
+    try {
+      final metadata = _readNotebookMetadata(entry);
+      if (p.basenameWithoutExtension(entry.path) != metadata.note.id) {
+        throw const FormatException('Incorrect ID');
       }
-      notes.sort((a, b) => b.modified.compareTo(a.modified));
-      return (notes, errors);
-    }, debugName: 'noter:library-metadata');
+      notes.add(metadata);
+    } catch (_) {
+      errors.add(p.basename(entry.path));
+    }
+  }
+  notes.sort((a, b) => b.note.modified.compareTo(a.note.modified));
+  return (entries: notes, errors: errors);
+}, debugName: 'noter:library-metadata');
 
-Notebook _readNotebookMetadata(File file) {
+NotebookSearchEntry _readNotebookMetadata(File file) {
   if (file.lengthSync() > 256 * 1024 * 1024) {
     throw const FormatException('The note is too large.');
   }
@@ -840,7 +864,7 @@ Notebook _readNotebookMetadata(File file) {
       throw const FormatException('Invalid note archive.');
     }
     // ZIP entries are lazy: never read the PDF while listing metadata.
-    return note!;
+    return (note: note!, checksum: pdf.crc32);
   } finally {
     input.closeSync();
   }

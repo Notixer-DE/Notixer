@@ -616,6 +616,119 @@ void main() {
     },
   );
 
+  test('index survives reopening and refreshes only affected notes', () async {
+    final note = await store.capture('Markdown', '# Article\n- [ ] Alpha');
+    final pdf = pw.Document()
+      ..addPage(pw.Page(build: (_) => pw.Text('Another page')))
+      ..addPage(pw.Page(build: (_) => pw.Text('ALPHA a.b')));
+    final pdfNote = await repository.create('Reference', await pdf.save());
+    File indexEntry(Notebook item) =>
+        File('${directory.path}/$knowledgeIndexFolderName/${item.id}.json');
+    final markdownIndex = indexEntry(note);
+    final pdfIndex = indexEntry(pdfNote);
+    const alpha = KnowledgeView('', query: 'alpha');
+    final cold = await store.scan(alpha);
+    expect(
+      cold.hits.map((hit) => hit.anchor),
+      containsAll(['line=2', 'page=2']),
+    );
+    expect(cold.warnings, isEmpty);
+    final marker = DateTime.utc(2000);
+    await markdownIndex.setLastModified(marker);
+    await pdfIndex.setLastModified(marker);
+    final reopened = KnowledgeStore(LocalNotebookRepository(directory));
+    final warm = await reopened.scan(alpha);
+    expect(
+      warm.hits.map((hit) => (hit.note.id, hit.anchor, hit.snippet)),
+      cold.hits.map((hit) => (hit.note.id, hit.anchor, hit.snippet)),
+    );
+    expect((await markdownIndex.lastModified()).toUtc(), marker);
+    expect((await pdfIndex.lastModified()).toUtc(), marker);
+    expect(
+      (await reopened.scan(
+        const KnowledgeView('', query: 'a.b'),
+      )).hits.single.anchor,
+      'page=2',
+    );
+
+    await store.changeTask(
+      cold.tasks.single.withTimer(workTime: const Duration(minutes: 3)),
+    );
+    const open = KnowledgeView('', openTasks: true);
+    final tracked = (await reopened.scan(open)).tasks.single;
+    expect(tracked.todo!.workMilliseconds, 180000);
+    expect(tracked.anchor, 'line=2');
+    expect((await markdownIndex.lastModified()).toUtc(), isNot(marker));
+    expect((await pdfIndex.lastModified()).toUtc(), marker);
+
+    final current = (await repository.snapshotForSync(note.id))!;
+    await repository.applySync(
+      note.id,
+      current.raw,
+      LocalNotebookRepository.encode(
+        note,
+        MarkdownDocument('# Article\n\n- [x] Beta').encode(),
+      ),
+    );
+    expect((await reopened.scan(open)).hits, isEmpty);
+    const completed = KnowledgeView('', query: 'bet', completedTasks: true);
+    expect((await reopened.scan(completed)).hits.single.anchor, 'line=3');
+
+    await markdownIndex.writeAsString('invalid index');
+    expect((await reopened.scan(completed)).hits.single.snippet, 'Beta');
+    expect(jsonDecode(await markdownIndex.readAsString()), isA<List>());
+
+    await repository.delete(note.id);
+    expect(await markdownIndex.exists(), isFalse);
+    expect((await reopened.scan(completed)).hits, isEmpty);
+    final restored = await repository.restore(
+      (await repository.recovery()).single,
+    );
+    expect((await reopened.scan(completed)).hits.single.note.id, restored.id);
+    await File('${directory.path}/${restored.id}.noter').delete();
+    expect((await reopened.scan(completed)).hits, isEmpty);
+    expect(await indexEntry(restored).exists(), isFalse);
+  });
+
+  test('scan publishes partial matches and stops between batches', () async {
+    final now = DateTime.utc(2026);
+    for (var i = 0; i < 130; i++) {
+      final note = Notebook(
+        id: 'batch-$i',
+        title: 'Note $i',
+        created: now,
+        modified: now,
+        paper: 'markdown',
+      );
+      File('${directory.path}/${note.id}.noter').writeAsBytesSync(
+        LocalNotebookRepository.encode(
+          note,
+          MarkdownDocument('- [ ] Learn $i').encode(),
+        ),
+      );
+    }
+    var cancelled = false;
+    final partials = <KnowledgeScan>[];
+    final result = await store.scan(
+      const KnowledgeView('', openTasks: true),
+      cancelled: () => cancelled,
+      onPartial: (partial) {
+        partials.add(partial);
+        cancelled = true;
+      },
+    );
+    expect(partials.single.hits.length, inInclusiveRange(1, 64));
+    expect(result.hits, partials.single.hits);
+    expect(result.warnings, isEmpty);
+
+    final index = Directory('${directory.path}/$knowledgeIndexFolderName');
+    await index.delete(recursive: true);
+    await File(index.path).writeAsString('No writable index directory');
+    final retry = await store.scan(const KnowledgeView('', openTasks: true));
+    expect(retry.hits, hasLength(130));
+    expect(retry.warnings, isEmpty);
+  });
+
   test(
     'tag merging deduplicates and updates saved filters without losing source',
     () async {

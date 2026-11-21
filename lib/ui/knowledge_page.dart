@@ -293,6 +293,11 @@ class KnowledgePageState extends State<KnowledgePage> {
             });
           }
         },
+        onPartial: (partial) {
+          if (mounted && generation == _generation && partial.hits.isNotEmpty) {
+            setState(() => _scan = partial);
+          }
+        },
       );
       if (mounted && generation == _generation) {
         setState(() {
@@ -949,7 +954,7 @@ class KnowledgePageState extends State<KnowledgePage> {
             ],
           ),
         ),
-        if (scan == null || hits.isEmpty)
+        if ((scan == null || hits.isEmpty) && !_searching)
           SliverFillRemaining(
             hasScrollBody: false,
             child: Center(
@@ -973,7 +978,7 @@ class KnowledgePageState extends State<KnowledgePage> {
               ),
             ),
           )
-        else
+        else if (scan != null && hits.isNotEmpty)
           SliverList.builder(
             itemCount: hits.length,
             findChildIndexCallback: (key) => key is ValueKey<(String, String)>
@@ -1082,7 +1087,7 @@ class KnowledgePageState extends State<KnowledgePage> {
                         ],
                       )
                     : null,
-                onTap: _busy
+                onTap: _busy && (!_searching || task?.quickTodo != null)
                     ? null
                     : task?.quickTodo != null
                     ? task!.quickTodo!.done
@@ -1903,7 +1908,7 @@ class KnowledgePageState extends State<KnowledgePage> {
               ? null
               : () => setState(() => _cancelRequested = true),
           child: Text(
-            _cancelRequested ? 'Finishing current file…' : 'Cancel search',
+            _cancelRequested ? 'Cancelling search…' : 'Cancel search',
           ),
         ),
       if (_error != null)

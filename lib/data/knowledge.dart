@@ -16,6 +16,8 @@ import 'todo_list.dart';
 
 export 'journal_template.dart';
 
+part 'knowledge_index.dart';
+
 typedef KnowledgeDestination = ({Notebook note, String anchor});
 
 /// Journal identity survives renaming titles/tags and restoring linked copies.
@@ -257,60 +259,6 @@ class KnowledgeScan {
   final Map<String, KnowledgeTask> tasksByLocation;
   final List<String> warnings;
 }
-
-Future<
-  ({
-    List<({int offset, int line, String text})> tasks,
-    List<({String snippet, int line})> matches,
-    String revision,
-    bool singleTask,
-  })
->
-_scanMarkdown(
-  String source,
-  String query, {
-  required bool plainTasks,
-  bool completed = false,
-  bool includeCompleted = false,
-}) => Isolate.run(() {
-  final offsets = markdownTaskOffsets(source);
-  final selected = _openTasks(source, offsets, completed: completed);
-  final additional = includeCompleted
-      ? _openTasks(source, offsets, completed: !completed)
-      : const <({int offset, int line, String text})>[];
-  final tasks = [
-    for (final task in [...selected, ...additional])
-      (
-        offset: task.offset,
-        line: task.line,
-        text: plainTasks ? todoItemText(task.text) : task.text,
-      ),
-  ];
-  final matches = <({String snippet, int line})>[];
-  if (query.isNotEmpty) {
-    final lines = const LineSplitter().convert(source);
-    for (var i = 0; i < lines.length && matches.length < 50; i++) {
-      final line = plainTasks ? todoItemText(lines[i]) : lines[i];
-      if (line.toLowerCase().contains(query.toLowerCase())) {
-        final offset = line.toLowerCase().indexOf(query.toLowerCase());
-        final start = (offset - 60).clamp(0, line.length);
-        matches.add((
-          snippet: line.substring(
-            start,
-            (offset + query.length + 120).clamp(start, line.length),
-          ),
-          line: i + 1,
-        ));
-      }
-    }
-  }
-  return (
-    tasks: tasks,
-    matches: matches,
-    revision: markdownRevision(source),
-    singleTask: offsets.length == 1,
-  );
-});
 
 /// Shared, local preferences. Notes, journal entries and tags remain ordinary
 /// portable notebook documents; this file contains only views and templates.
@@ -775,6 +723,7 @@ class KnowledgeStore {
     bool includeCompletedTasks = false,
     bool Function()? cancelled,
     void Function(int, int)? onProgress,
+    void Function(KnowledgeScan)? onPartial,
   }) async {
     final completed = completedTasks || view.completedTasks;
     bool matchesFilters(Notebook note) =>
@@ -788,15 +737,38 @@ class KnowledgeStore {
               (tag) => tag.toLowerCase() == view.tag.toLowerCase(),
             )) &&
         (view.folder.isEmpty || note.folderId == view.folder);
-    final notes = (await repository.list())
+    final listing = await repository.listForSearch();
+    final notes = listing.entries
         .where(
-          (note) =>
-              (!onlyQuickTodos || _isQuickTodo(note)) && matchesFilters(note),
+          (entry) =>
+              (!onlyQuickTodos || _isQuickTodo(entry.note)) &&
+              matchesFilters(entry.note),
         )
         .toList();
     final hits = <KnowledgeHit>[], tasks = <KnowledgeTask>[];
-    final warnings = List<String>.of(repository.readErrors);
-    if (view.tasksOnly || view.query.trim().isNotEmpty) {
+    final warnings = List<String>.of(listing.errors);
+    final query = view.query.trim().toLowerCase();
+    KnowledgeScan snapshot({required bool partial}) {
+      final ordered = partial ? List<KnowledgeHit>.of(hits) : hits;
+      if (completed && view.tasksOnly && !includeCompletedTasks) {
+        final completedByLocation = {
+          for (final task in tasks)
+            '${task.note.id}:${task.anchor}': task.todo!.completionTime!,
+        };
+        ordered.sort(
+          (a, b) => completedByLocation['${b.note.id}:${b.anchor}']!.compareTo(
+            completedByLocation['${a.note.id}:${a.anchor}']!,
+          ),
+        );
+      }
+      return KnowledgeScan(
+        ordered,
+        partial ? List<KnowledgeTask>.of(tasks) : tasks,
+        partial ? List<String>.of(warnings) : warnings,
+      );
+    }
+
+    if (view.tasksOnly || query.isNotEmpty) {
       try {
         final inbox = (await quickTodos.read()).values.toList()
           ..sort(
@@ -809,9 +781,7 @@ class KnowledgeStore {
         for (final todo in inbox) {
           if (cancelled?.call() == true) break;
           if ((!includeCompletedTasks && todo.done != completed) ||
-              !todo.text.toLowerCase().contains(
-                view.query.trim().toLowerCase(),
-              )) {
+              !todo.text.toLowerCase().contains(query)) {
             continue;
           }
           // Keep document and inbox results in the same list without creating
@@ -845,130 +815,41 @@ class KnowledgeStore {
         warnings.add('Quick to-dos: $error');
       }
     }
-    for (var i = 0; i < notes.length; i++) {
+    final progress = Stopwatch()..start();
+    var shown = false;
+    if (hits.isNotEmpty && notes.isNotEmpty && cancelled?.call() != true) {
+      onPartial?.call(snapshot(partial: true));
+      shown = onPartial != null;
+    }
+    for (var done = 0; done < notes.length;) {
       if (cancelled?.call() == true) break;
-      final note = notes[i];
-      try {
-        if (note.isMedia) {
-          if (view.query.isEmpty ||
-              note.title.toLowerCase().contains(view.query.toLowerCase())) {
-            hits.add(KnowledgeHit(note, note.mediaFormat!.kind, ''));
-          }
-          onProgress?.call(i + 1, notes.length);
-          continue;
-        }
-        if (!note.isMarkdown && view.query.trim().isEmpty) {
-          hits.add(KnowledgeHit(note, 'PDF / handwriting', ''));
-          onProgress?.call(i + 1, notes.length);
-          continue;
-        }
-        final bytes = await repository.load(note.id);
-        if (note.isMarkdown) {
-          final document = await decodeMarkdownAsync(bytes);
-          final result = await _scanMarkdown(
-            document.source,
-            view.query.trim(),
-            plainTasks: note.isTodoList,
-            completed: completed,
-            includeCompleted: includeCompletedTasks,
-          );
-          if (view.query.trim().isEmpty ||
-              note.title.toLowerCase().contains(view.query.toLowerCase()) ||
-              result.matches.isNotEmpty) {
-            tasks.addAll(
-              result.tasks.map(
-                (task) => KnowledgeTask(
-                  note,
-                  task.offset,
-                  task.line,
-                  task.text,
-                  result.revision,
-                  canPlan: result.singleTask && _isQuickTodo(note),
-                  documentTodo: documentTask(
-                    document.source,
-                    task.offset,
-                    task.text,
-                    fallback: note.modified,
-                  ),
-                ),
-              ),
-            );
-          }
-          if (view.tasksOnly) {
-            for (final task in result.tasks.where(
-              (task) =>
-                  view.query.isEmpty ||
-                  task.text.toLowerCase().contains(view.query.toLowerCase()) ||
-                  note.title.toLowerCase().contains(view.query.toLowerCase()),
-            )) {
-              hits.add(KnowledgeHit(note, task.text, 'line=${task.line}'));
-            }
-          } else {
-            if (view.query.isEmpty ||
-                note.title.toLowerCase().contains(view.query.toLowerCase())) {
-              hits.add(
-                KnowledgeHit(
-                  note,
-                  document.source.length > 180
-                      ? document.source.substring(0, 180)
-                      : document.source,
-                  '',
-                ),
-              );
-            }
-            hits.addAll(
-              result.matches.map(
-                (match) =>
-                    KnowledgeHit(note, match.snippet, 'line=${match.line}'),
-              ),
-            );
-          }
-        } else if (!view.tasksOnly) {
-          if (view.query.trim().isEmpty) {
-            hits.add(KnowledgeHit(note, 'PDF / handwriting', ''));
-          } else {
-            final result = await searchPdf(bytes, view.query, limit: 50);
-            hits.addAll(
-              result.hits.map(
-                (hit) => KnowledgeHit(
-                  note,
-                  hit.snippet,
-                  'page=${hit.pageIndex + 1}',
-                ),
-              ),
-            );
-            if (result.hits.isEmpty &&
-                note.title.toLowerCase().contains(view.query.toLowerCase())) {
-              hits.add(
-                KnowledgeHit(
-                  note,
-                  result.hasText ? 'PDF' : 'PDF · No searchable text',
-                  '',
-                ),
-              );
-            }
-            if (result.truncated) {
-              warnings.add('${note.title}: first 50 matches shown.');
-            }
-          }
-        }
-      } catch (error) {
-        warnings.add('${note.title}: $error');
-      }
-      onProgress?.call(i + 1, notes.length);
-    }
-    if (completed && view.tasksOnly && !includeCompletedTasks) {
-      final completedByLocation = {
-        for (final task in tasks)
-          '${task.note.id}:${task.anchor}': task.todo!.completionTime!,
-      };
-      hits.sort(
-        (a, b) => completedByLocation['${b.note.id}:${b.anchor}']!.compareTo(
-          completedByLocation['${a.note.id}:${a.anchor}']!,
-        ),
+      final end = (done + _knowledgeBatchSize).clamp(0, notes.length);
+      final batch = await _scanKnowledgeBatch(
+        repository.directory.path,
+        notes.sublist(done, end),
+        view,
+        completed: completed,
+        includeCompleted: includeCompletedTasks,
       );
+      hits.addAll(batch.hits);
+      tasks.addAll(batch.tasks);
+      warnings.addAll(batch.warnings);
+      done += batch.processed;
+      if (done == notes.length ||
+          !shown ||
+          progress.elapsedMilliseconds >= 120) {
+        onProgress?.call(done, notes.length);
+        if (done < notes.length && cancelled?.call() != true) {
+          onPartial?.call(snapshot(partial: true));
+          shown = true;
+        }
+        progress.reset();
+      }
     }
-    return KnowledgeScan(hits, tasks, warnings);
+    if (cancelled?.call() != true) {
+      await _pruneKnowledgeIndex(repository.directory.path, listing.entries);
+    }
+    return snapshot(partial: false);
   }
 
   Future<KnowledgeTask?> changeTask(KnowledgeTask task) async {
