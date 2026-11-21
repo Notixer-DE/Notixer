@@ -1088,9 +1088,9 @@ class KnowledgePageState extends State<KnowledgePage> {
     );
   }
 
-  Future<void> _showJournalNote(Notebook note) async {
+  Future<void> _showJournalNote(Notebook note, {String anchor = ''}) async {
     if (widget.onOpenDestination case final open?) {
-      await open((note: note, anchor: ''));
+      await open((note: note, anchor: anchor));
       return;
     }
     await _work(() async {
@@ -1104,7 +1104,7 @@ class KnowledgePageState extends State<KnowledgePage> {
             note: note,
             bytes: bytes,
             repository: widget.repository,
-            initialAnchor: '',
+            initialAnchor: anchor,
             backLabel: 'Back to journal',
             onQuickTodosChanged: widget.onQuickTodosChanged,
             onJournalChanged: widget.onJournalChanged,
@@ -1118,6 +1118,23 @@ class KnowledgePageState extends State<KnowledgePage> {
       final notes = await widget.repository.list();
       if (mounted) setState(() => _notes = notes);
     });
+  }
+
+  Future<void> _createJournalPage() async {
+    final day = _date;
+    Notebook? note;
+    await _work(() async {
+      if (!await FileGateway.prepareClose() || !mounted || !widget.active) {
+        return;
+      }
+      note = await _store.journal(day);
+      if (mounted) await widget.onJournalChanged?.call(note);
+      final notes = await widget.repository.list();
+      if (mounted) setState(() => _notes = notes);
+    });
+    if (mounted && widget.active && note != null) {
+      await _showJournalNote(note!, anchor: 'edit:end');
+    }
   }
 
   Future<void> _appendJournal() async {
@@ -1252,10 +1269,22 @@ class KnowledgePageState extends State<KnowledgePage> {
                       label: Text(selectedNote.title),
                     ),
                   const SizedBox(height: 8),
-                  FilledButton.icon(
-                    onPressed: _busy ? null : _appendJournal,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add entry'),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      if (selectedNote == null)
+                        FilledButton.icon(
+                          onPressed: _busy ? null : _createJournalPage,
+                          icon: const Icon(Icons.note_add_outlined),
+                          label: const Text('Create journal page'),
+                        ),
+                      FilledButton.tonalIcon(
+                        onPressed: _busy ? null : _appendJournal,
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add entry'),
+                      ),
+                    ],
                   ),
                 ],
               ),
