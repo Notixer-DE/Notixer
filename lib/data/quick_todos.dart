@@ -8,6 +8,9 @@ import 'package:path/path.dart' as p;
 enum TodoTimerAction { start, pause, stop, reset }
 
 class QuickTodo {
+  static const _maxWorkMilliseconds = 9007199254740991;
+  static const _maxCountdownMilliseconds = 3599999999000;
+
   const QuickTodo({
     required this.id,
     required this.text,
@@ -21,6 +24,8 @@ class QuickTodo {
     this.timerStartedAt,
     this.workMilliseconds = 0,
     this.timerPaused = false,
+    this.countdownMilliseconds,
+    this.countdownEndAtWorkMilliseconds,
   });
 
   final String id, text;
@@ -31,6 +36,7 @@ class QuickTodo {
 
   final DateTime? completedAt, timerStartedAt;
   final int workMilliseconds;
+  final int? countdownMilliseconds, countdownEndAtWorkMilliseconds;
   final bool timerPaused;
 
   DateTime? get completionTime => done ? completedAt ?? modified : null;
@@ -43,6 +49,14 @@ class QuickTodo {
     return Duration(
       milliseconds: workMilliseconds + (elapsed < 0 ? 0 : elapsed),
     );
+  }
+
+  Duration? countdownRemainingAt(DateTime now) {
+    final end = countdownEndAtWorkMilliseconds;
+    if (end == null) return null;
+    final remaining = end - workTimeAt(now).inMilliseconds;
+    if (remaining <= 0) return Duration.zero;
+    return Duration(milliseconds: remaining);
   }
 
   QuickTodo withProject(String? project) => QuickTodo(
@@ -58,6 +72,8 @@ class QuickTodo {
     timerStartedAt: timerStartedAt,
     workMilliseconds: workMilliseconds,
     timerPaused: timerPaused,
+    countdownMilliseconds: countdownMilliseconds,
+    countdownEndAtWorkMilliseconds: countdownEndAtWorkMilliseconds,
   );
 
   QuickTodo delete(DateTime now) => QuickTodo(
@@ -80,15 +96,36 @@ class QuickTodo {
     bool? done,
     TodoTimerAction? timer,
     Duration? workTime,
+    Duration? countdown,
   }) {
     final checked = done ?? this.done;
     if (workTime != null &&
-        (workTime.isNegative || workTime.inMilliseconds > 9007199254740991)) {
+        (workTime.isNegative ||
+            workTime.inMilliseconds > _maxWorkMilliseconds)) {
       throw const FormatException('Enter a valid work time.');
     }
     final reset = timer == TodoTimerAction.reset;
     final stop = checked || timer == TodoTimerAction.stop || reset;
     final settle = stop || timer == TodoTimerAction.pause;
+    var target = countdownMilliseconds;
+    var end = countdownEndAtWorkMilliseconds;
+    final elapsed = workTimeAt(now).inMilliseconds;
+    if (reset) {
+      target = null;
+      end = null;
+    } else if (timer == TodoTimerAction.start &&
+        countdown != null &&
+        timerStartedAt == null &&
+        !checked) {
+      final duration = countdown.inMilliseconds;
+      if (duration < 0 || duration > _maxCountdownMilliseconds) {
+        throw const FormatException('Enter a valid countdown duration.');
+      }
+      target = duration == 0 ? null : duration;
+      end = target == null ? null : elapsed + duration;
+    } else if (workTime != null && end != null) {
+      end += workTime.inMilliseconds - elapsed;
+    }
     return QuickTodo(
       id: id,
       text: text ?? this.text,
@@ -106,8 +143,9 @@ class QuickTodo {
                 : timerStartedAt),
       workMilliseconds: reset
           ? 0
-          : workTime?.inMilliseconds ??
-                (settle ? workTimeAt(now).inMilliseconds : workMilliseconds),
+          : workTime?.inMilliseconds ?? (settle ? elapsed : workMilliseconds),
+      countdownMilliseconds: target,
+      countdownEndAtWorkMilliseconds: end,
       timerPaused:
           !stop &&
           (timer == TodoTimerAction.pause || (timer == null && timerPaused)),
@@ -128,6 +166,8 @@ class QuickTodo {
       'timerStartedAt': timerStartedAt!.toUtc().toIso8601String(),
     if (workMilliseconds != 0) 'workMilliseconds': workMilliseconds,
     if (timerPaused) 'timerPaused': true,
+    'countdownMilliseconds': ?countdownMilliseconds,
+    'countdownEndAtWorkMilliseconds': ?countdownEndAtWorkMilliseconds,
   };
 
   factory QuickTodo.fromJson(String id, Object? value) {
@@ -147,6 +187,8 @@ class QuickTodo {
     );
     final work = value['workMilliseconds'] ?? 0;
     final paused = value['timerPaused'] ?? false;
+    final countdown = value['countdownMilliseconds'];
+    final countdownEnd = value['countdownEndAtWorkMilliseconds'];
     if (text is! String ||
         text.trim().isEmpty ||
         text.contains(RegExp(r'[\r\n]')) ||
@@ -159,9 +201,18 @@ class QuickTodo {
         (value['timerStartedAt'] != null && (started == null || done)) ||
         work is! int ||
         work < 0 ||
-        work > 9007199254740991 ||
+        work > _maxWorkMilliseconds ||
         paused is! bool ||
         (paused && (started != null || done)) ||
+        ((countdown == null) != (countdownEnd == null)) ||
+        (countdown != null &&
+            (countdown is! int ||
+                countdown < 1 ||
+                countdown > _maxCountdownMilliseconds)) ||
+        (countdownEnd != null &&
+            (countdownEnd is! int ||
+                countdownEnd.abs() >
+                    _maxWorkMilliseconds + _maxCountdownMilliseconds)) ||
         (project != null &&
             (project is! String ||
                 project.trim().isEmpty ||
@@ -182,6 +233,8 @@ class QuickTodo {
       timerStartedAt: started,
       workMilliseconds: work,
       timerPaused: paused,
+      countdownMilliseconds: countdown as int?,
+      countdownEndAtWorkMilliseconds: countdownEnd as int?,
     );
   }
 
@@ -250,12 +303,13 @@ class QuickTodoStore {
     return result;
   }
 
-  Future<void> change(void Function(Map<String, QuickTodo>) update) =>
+  Future<T> change<T>(T Function(Map<String, QuickTodo>) update) =>
       _serialize(() async {
         final before = await snapshot();
         final tasks = decode(before);
-        update(tasks);
+        final result = update(tasks);
         await _write(tasks, before);
+        return result;
       });
 
   Future<void> applySync(

@@ -10,7 +10,7 @@ import 'package:flutter/services.dart';
 
 class FileGateway {
   static Future<void> Function(Notebook, {String? anchor})? openDocument;
-  static Future<void> Function(KnowledgeTask)? changeKnowledgeTask;
+  static Future<KnowledgeTask?> Function(KnowledgeTask)? changeKnowledgeTask;
   static Future<void> Function()? refreshOpenDocuments;
   static final sharedText = ValueNotifier<String?>(null);
   static Future<bool> Function()? beforeClose;

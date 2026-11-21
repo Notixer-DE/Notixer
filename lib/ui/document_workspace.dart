@@ -96,14 +96,15 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
   String? get activeNotebookId =>
       _selected < 0 ? null : _tabs[_selected].note.id;
 
-  Future<void> _changeKnowledgeTask(KnowledgeTask task) async {
+  Future<KnowledgeTask?> _changeKnowledgeTask(KnowledgeTask task) async {
     final tabs = _tabs.where((tab) => tab.note.id == task.note.id);
-    if (tabs.isNotEmpty && tabs.first.controller.changeTask != null) {
-      await tabs.first.controller.changeTask!(task);
-    } else {
-      await KnowledgeStore(widget.repository).changeTask(task);
+    final updated = tabs.firstOrNull?.controller.changeTask;
+    final result =
+        await (updated ?? KnowledgeStore(widget.repository).changeTask)(task);
+    if (mounted && task.timerAction == null && task.workTime == null) {
+      setState(() => _homeRevision++);
     }
-    if (mounted) setState(() => _homeRevision++);
+    return result;
   }
 
   Future<void> _refreshOpenDocuments() async {
@@ -402,12 +403,13 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
     onOpenDestination: (destination) =>
         openNotebook(destination.note, anchor: destination.anchor),
     onChangeTask: (task) async {
-      await _changeKnowledgeTask(task);
+      final updated = await _changeKnowledgeTask(task);
       if (task.deleting || task.quickTodo != null) {
         await _library.syncJournal?.call(
           task.quickTodo == null ? task.note : null,
         );
       }
+      return updated;
     },
     shortcuts: _shortcuts,
     onQuickTodo: () async => await _library.addQuickTodo?.call() ?? false,

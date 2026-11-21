@@ -715,7 +715,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     _insert('\n$fence\n', '\n$fence\n', 'Code');
   }
 
-  Future<void> _applyTask(KnowledgeTask task) async {
+  Future<KnowledgeTask?> _applyTask(KnowledgeTask task) async {
     if (task.note.id != _session.note.id) {
       throw const FormatException('The task changed. Reload the list first.');
     }
@@ -723,6 +723,9 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     if (!await _saveDocument()) {
       throw const FormatException('Could not save the task.');
     }
+    return task.timerAction != null || task.workTime != null
+        ? task.afterDocumentTimerEdit(_text.text, _session.note.modified)
+        : null;
   }
 
   Future<void> _knowledge(String section) async {
@@ -744,11 +747,11 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
           },
           onChangeTask: (task) async {
             if (task.note.id == _session.note.id) {
-              await _applyTask(task);
+              return _applyTask(task);
             } else if (FileGateway.changeKnowledgeTask != null) {
-              await FileGateway.changeKnowledgeTask!(task);
+              return FileGateway.changeKnowledgeTask!(task);
             } else {
-              await KnowledgeStore(widget.repository).changeTask(task);
+              return KnowledgeStore(widget.repository).changeTask(task);
             }
           },
         ),

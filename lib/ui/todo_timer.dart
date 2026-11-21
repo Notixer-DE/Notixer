@@ -16,9 +16,21 @@ String completedTaskLabel(BuildContext context, DateTime completed) {
 }
 
 typedef ChangeTodoTimer =
-    FutureOr<QuickTodo?> Function({TodoTimerAction? timer, Duration? workTime});
+    FutureOr<QuickTodo?> Function({
+      TodoTimerAction? timer,
+      Duration? workTime,
+      Duration? countdown,
+    });
 
-enum _TimerMenu { start, focus, pause, stop, edit, reset }
+enum _TimerMenu { focus, pause, stop, edit, reset }
+
+enum _FocusMode {
+  stopwatch('Stopwatch'),
+  countdown('Countdown');
+
+  const _FocusMode(this.label);
+  final String label;
+}
 
 String _elapsedLabel(Duration duration) {
   final hours = duration.inHours;
@@ -33,11 +45,13 @@ class TodoTimer extends StatefulWidget {
     required this.todo,
     required this.onChanged,
     this.directStart = false,
+    this.onTimerClosed,
   });
 
   final QuickTodo todo;
   final ChangeTodoTimer? onChanged;
   final bool directStart;
+  final VoidCallback? onTimerClosed;
 
   @override
   State<TodoTimer> createState() => _TodoTimerState();
@@ -87,32 +101,24 @@ class _TodoTimerState extends State<TodoTimer> {
   }
 
   Future<void> _apply({TodoTimerAction? timer, Duration? workTime}) async {
-    if (!mounted) return;
+    final update = widget.onChanged;
+    if (update == null) return;
     try {
-      final focus = _focusedTodo;
-      final current = await widget.onChanged?.call(
-        timer: timer,
-        workTime: workTime,
-      );
-      if (current != null && focus != null && identical(_focusedTodo, focus)) {
-        focus.value = current;
-      }
+      await update(timer: timer, workTime: workTime);
+      if (mounted) widget.onTimerClosed?.call();
     } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not update the task timer: $error')),
-        );
-      }
+      if (mounted) _showTimerError(context, error);
     }
   }
 
-  Future<void> _focus({bool start = false}) async {
-    if (_focusedTodo != null) return;
+  Future<void> _focus() async {
+    final update = widget.onChanged;
+    if (_focusedTodo != null || update == null) return;
     final todo = ValueNotifier(widget.todo);
     _focusedTodo = todo;
     final route = MaterialPageRoute<void>(
       fullscreenDialog: true,
-      builder: (_) => _FocusTimer(todo: todo, onChanged: _apply, start: start),
+      builder: (_) => _FocusTimer(todo: todo, onChanged: update),
     );
     try {
       await Navigator.of(context).push(route);
@@ -120,13 +126,12 @@ class _TodoTimerState extends State<TodoTimer> {
     } finally {
       _focusedTodo = null;
       todo.dispose();
+      if (mounted) widget.onTimerClosed?.call();
     }
   }
 
   Future<void> _select(_TimerMenu value) async {
     switch (value) {
-      case _TimerMenu.start:
-        await _focus(start: true);
       case _TimerMenu.focus:
         await _focus();
       case _TimerMenu.pause:
@@ -157,15 +162,10 @@ class _TodoTimerState extends State<TodoTimer> {
       onSelected: _select,
       itemBuilder: (_) => [
         if (!todo.done) ...[
-          if (!quick && running)
+          if (!quick)
             const PopupMenuItem(
               value: _TimerMenu.focus,
               child: Text('Open focus timer'),
-            )
-          else if (!quick)
-            PopupMenuItem(
-              value: _TimerMenu.start,
-              child: Text(todo.timerPaused ? 'Resume timer' : 'Start timer'),
             ),
           if (running)
             const PopupMenuItem(
@@ -212,11 +212,6 @@ class _TodoTimerState extends State<TodoTimer> {
             ),
     );
     if (!quick) return menu;
-    final label = running
-        ? 'Open focus timer'
-        : todo.timerPaused
-        ? 'Resume timer'
-        : 'Start timer';
     final status = running
         ? 'Running'
         : todo.timerPaused
@@ -228,16 +223,19 @@ class _TodoTimerState extends State<TodoTimer> {
         if (status != null || duration != Duration.zero)
           Tooltip(
             message: [status, _elapsedLabel(duration)].nonNulls.join(' · '),
-            child: Icon(
-              running ? Icons.timelapse : Icons.timer_outlined,
-              size: 17,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 60),
+              child: Text(
+                _elapsedLabel(duration),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
             ),
           ),
         IconButton(
-          tooltip: label,
-          onPressed: widget.onChanged == null
-              ? null
-              : () => _focus(start: !running),
+          tooltip: 'Open focus timer',
+          onPressed: widget.onChanged == null ? null : _focus,
           icon: Icon(running ? Icons.open_in_full : Icons.play_circle_outline),
         ),
         menu,
@@ -247,15 +245,10 @@ class _TodoTimerState extends State<TodoTimer> {
 }
 
 class _FocusTimer extends StatefulWidget {
-  const _FocusTimer({
-    required this.todo,
-    required this.onChanged,
-    required this.start,
-  });
+  const _FocusTimer({required this.todo, required this.onChanged});
+
   final ValueNotifier<QuickTodo> todo;
-  final Future<void> Function({TodoTimerAction? timer, Duration? workTime})
-  onChanged;
-  final bool start;
+  final ChangeTodoTimer onChanged;
 
   @override
   State<_FocusTimer> createState() => _FocusTimerState();
@@ -263,7 +256,14 @@ class _FocusTimer extends StatefulWidget {
 
 class _FocusTimerState extends State<_FocusTimer> {
   Timer? _ticker;
-  Duration? _target;
+  late _FocusMode _mode = widget.todo.value.countdownMilliseconds == null
+      ? _FocusMode.stopwatch
+      : _FocusMode.countdown;
+  late Duration _countdownLength = Duration(
+    milliseconds:
+        widget.todo.value.countdownMilliseconds ??
+        const Duration(minutes: 25).inMilliseconds,
+  );
   bool _busy = false;
 
   @override
@@ -272,32 +272,79 @@ class _FocusTimerState extends State<_FocusTimer> {
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (widget.todo.value.timerStartedAt != null) setState(() {});
     });
-    if (widget.start) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(_apply(TodoTimerAction.start));
-      });
-    }
   }
 
-  Future<void> _apply(TodoTimerAction? action, {Duration? workTime}) async {
+  Future<void> _apply(
+    TodoTimerAction? action, {
+    Duration? workTime,
+    Duration? countdown,
+  }) async {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      await widget.onChanged(timer: action, workTime: workTime);
+      final updated = await widget.onChanged(
+        timer: action,
+        workTime: workTime,
+        countdown: countdown,
+      );
+      if (mounted && updated != null) widget.todo.value = updated;
+    } catch (error) {
+      if (mounted) _showTimerError(context, error);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  Future<void> _setTarget() async {
+  Future<void> _setCountdown() async {
     final duration = await _askDuration(
       context,
-      'Set target time',
-      _target ?? const Duration(minutes: 25),
+      'Set countdown',
+      _countdownLength,
+      positive: true,
     );
     if (duration != null && mounted) {
-      setState(() => _target = duration == Duration.zero ? null : duration);
+      setState(() => _countdownLength = duration);
     }
+  }
+
+  Widget _countdownDisplay(
+    TextTheme text,
+    Duration remaining,
+    Duration target,
+  ) {
+    final finished = remaining == Duration.zero;
+    final seconds = (remaining.inMilliseconds + 999) ~/ 1000;
+    return SizedBox.square(
+      dimension: 154,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          CircularProgressIndicator(
+            value: (1 - remaining.inMilliseconds / target.inMilliseconds).clamp(
+              0.0,
+              1.0,
+            ),
+            strokeWidth: 8,
+            semanticsLabel: 'Countdown progress',
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Center(
+              child: Semantics(
+                liveRegion: finished,
+                child: Text(
+                  finished
+                      ? 'Time is up'
+                      : '${_elapsedLabel(Duration(seconds: seconds))} remaining',
+                  textAlign: TextAlign.center,
+                  style: text.titleMedium,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -307,47 +354,59 @@ class _FocusTimerState extends State<_FocusTimer> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Focus timer'),
-      actions: [
-        PopupMenuButton<_TimerMenu>(
-          tooltip: 'Time options',
-          enabled: !_busy,
-          onSelected: (value) async {
-            if (value == _TimerMenu.reset) {
-              await _apply(TodoTimerAction.reset);
-            } else {
-              final duration = await _askDuration(
-                context,
-                'Set tracked time',
-                widget.todo.value.workTimeAt(DateTime.now()),
-              );
-              if (duration != null && mounted) {
-                await _apply(null, workTime: duration);
-              }
-            }
-          },
-          itemBuilder: (_) => const [
-            PopupMenuItem(
-              value: _TimerMenu.edit,
-              child: Text('Set tracked time'),
+  Widget build(BuildContext context) => ValueListenableBuilder(
+    valueListenable: widget.todo,
+    builder: (context, todo, _) {
+      final now = DateTime.now();
+      final running = todo.timerStartedAt != null;
+      final active = running || todo.timerPaused;
+      final elapsed = todo.workTimeAt(now);
+      final text = Theme.of(context).textTheme;
+      final countdown = active
+          ? todo.countdownMilliseconds != null
+          : _mode == _FocusMode.countdown;
+      final target = active && todo.countdownMilliseconds != null
+          ? Duration(milliseconds: todo.countdownMilliseconds!)
+          : _countdownLength;
+      final remaining = active
+          ? todo.countdownRemainingAt(now) ?? target
+          : target;
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Focus timer'),
+          actions: [
+            PopupMenuButton<_TimerMenu>(
+              tooltip: 'Time options',
+              enabled: !_busy,
+              onSelected: (value) async {
+                if (value == _TimerMenu.reset) {
+                  await _apply(TodoTimerAction.reset);
+                } else {
+                  final duration = await _askDuration(
+                    context,
+                    'Set tracked time',
+                    widget.todo.value.workTimeAt(DateTime.now()),
+                  );
+                  if (duration != null && mounted) {
+                    await _apply(null, workTime: duration);
+                  }
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: _TimerMenu.edit,
+                  child: Text('Set tracked time'),
+                ),
+                PopupMenuItem(
+                  value: _TimerMenu.reset,
+                  child: Text('Reset timer'),
+                ),
+              ],
             ),
-            PopupMenuItem(value: _TimerMenu.reset, child: Text('Reset timer')),
           ],
         ),
-      ],
-    ),
-    body: SafeArea(
-      child: ValueListenableBuilder(
-        valueListenable: widget.todo,
-        builder: (context, todo, _) {
-          final running = todo.timerStartedAt != null;
-          final elapsed = todo.workTimeAt(DateTime.now());
-          final target = _target;
-          final remaining = target == null ? null : target - elapsed;
-          final text = Theme.of(context).textTheme;
-          return Center(
+        body: SafeArea(
+          child: Center(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
               child: ConstrainedBox(
@@ -360,47 +419,40 @@ class _FocusTimerState extends State<_FocusTimer> {
                       textAlign: TextAlign.center,
                       style: text.headlineSmall,
                     ),
-                    const SizedBox(height: 24),
-                    if (target != null && remaining != null) ...[
-                      SizedBox.square(
-                        dimension: 160,
-                        child: Stack(
-                          alignment: Alignment.center,
-                          fit: StackFit.expand,
-                          children: [
-                            CircularProgressIndicator(
-                              value: target.inMilliseconds == 0
-                                  ? 1
-                                  : (elapsed.inMilliseconds /
-                                            target.inMilliseconds)
-                                        .clamp(0.0, 1.0),
-                              strokeWidth: 8,
-                              semanticsLabel: 'Target progress',
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.all(18),
-                              child: Center(
-                                child: Text(
-                                  remaining <= Duration.zero
-                                      ? 'Target reached'
-                                      : '${_elapsedLabel(remaining)} remaining',
-                                  textAlign: TextAlign.center,
-                                  style: text.titleMedium,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 8,
+                      children: [
+                        for (final mode in _FocusMode.values)
+                          ChoiceChip(
+                            label: Text(mode.label),
+                            selected:
+                                (mode == _FocusMode.countdown) == countdown,
+                            onSelected: _busy || active || todo.done
+                                ? null
+                                : (_) => setState(() => _mode = mode),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    if (countdown) ...[
+                      _countdownDisplay(text, remaining, target),
+                      if (running && remaining == Duration.zero)
+                        const Text('Work time is still being tracked.'),
                     ],
-                    Text(_elapsedLabel(elapsed), style: text.displayMedium),
+                    Text(
+                      _elapsedLabel(elapsed),
+                      style: countdown
+                          ? text.headlineMedium
+                          : text.displayMedium,
+                    ),
                     Text(switch ((running, todo.timerPaused)) {
                       (true, _) => 'Time tracked · Running',
                       (_, true) => 'Time tracked · Paused',
                       _ => 'Time tracked',
                     }),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 16),
                     Wrap(
                       alignment: WrapAlignment.center,
                       spacing: 8,
@@ -414,6 +466,9 @@ class _FocusTimerState extends State<_FocusTimer> {
                                     running
                                         ? TodoTimerAction.pause
                                         : TodoTimerAction.start,
+                                    countdown: active
+                                        ? null
+                                        : (countdown ? target : Duration.zero),
                                   ),
                             icon: Icon(
                               running ? Icons.pause : Icons.play_arrow,
@@ -426,7 +481,7 @@ class _FocusTimerState extends State<_FocusTimer> {
                                   : 'Start',
                             ),
                           ),
-                        if (running || todo.timerPaused)
+                        if (active)
                           OutlinedButton.icon(
                             onPressed: _busy
                                 ? null
@@ -434,32 +489,36 @@ class _FocusTimerState extends State<_FocusTimer> {
                             icon: const Icon(Icons.stop),
                             label: const Text('Stop'),
                           ),
-                        TextButton(
-                          onPressed: _setTarget,
-                          child: Text(
-                            target == null
-                                ? 'Set target time'
-                                : 'Change target time',
+                        if (countdown && !active && !todo.done)
+                          TextButton(
+                            onPressed: _busy ? null : _setCountdown,
+                            child: const Text('Set countdown'),
                           ),
-                        ),
                       ],
                     ),
                   ],
                 ),
               ),
             ),
-          );
-        },
-      ),
-    ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+void _showTimerError(BuildContext context, Object error) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text('Could not update the task timer: $error')),
   );
 }
 
 Future<Duration?> _askDuration(
   BuildContext context,
   String title,
-  Duration initial,
-) async {
+  Duration initial, {
+  bool positive = false,
+}) async {
   final form = GlobalKey<FormState>();
   final fields = [
     ('Hours', initial.inHours, null as int?),
@@ -486,11 +545,17 @@ Future<Duration?> _askDuration(
                   validator: (value) {
                     final number = int.tryParse(value ?? '');
                     final max = fields[i].$3 ?? 999999;
-                    return number == null || number > max
-                        ? 'Enter 0 to $max'
-                        : null;
+                    if (number == null || number > max) {
+                      return 'Enter 0 to $max';
+                    }
+                    if (positive &&
+                        i == 2 &&
+                        values.every((value) => value == 0)) {
+                      return 'Enter a duration above zero';
+                    }
+                    return null;
                   },
-                  onSaved: (value) => values[i] = int.parse(value!),
+                  onChanged: (value) => values[i] = int.tryParse(value) ?? 0,
                 ),
             ],
           ),
@@ -504,7 +569,6 @@ Future<Duration?> _askDuration(
         FilledButton(
           onPressed: () {
             if (!form.currentState!.validate()) return;
-            form.currentState!.save();
             Navigator.pop(
               context,
               Duration(

@@ -45,7 +45,7 @@ void main() {
     );
   }
 
-  testWidgets('Today opens a timer directly and keeps it running in Tasks', (
+  testWidgets('Today opens the timer and keeps it running in Tasks', (
     tester,
   ) async {
     final store = KnowledgeStore(repository);
@@ -55,7 +55,9 @@ void main() {
     );
     await launch(tester, const Size(390, 844));
     expect(find.text('Read chapter four'), findsOneWidget);
-    await tester.tap(find.byTooltip('Start timer'));
+    await tester.tap(find.byTooltip('Open focus timer'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Start'));
     await settleFileIo(
       tester,
       () => find.text('Time tracked · Running').evaluate().isNotEmpty,
@@ -63,7 +65,11 @@ void main() {
     final started = (await tester.runAsync(store.quickTodos.read))![due!.id]!;
     expect(started.timerStartedAt, isNotNull);
     await tester.tap(find.byTooltip('Close'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+    await settleFileIo(
+      tester,
+      () => find.text('All tasks due today').evaluate().isNotEmpty,
+    );
     await tester.tap(find.text('All tasks due today'));
     final today = find.widgetWithText(ChoiceChip, 'Today');
     await settleFileIo(

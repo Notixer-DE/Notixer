@@ -82,44 +82,19 @@ class _WorkspaceTodayState extends State<WorkspaceToday> {
     );
   }
 
-  Future<void> _change(
-    QuickTodo todo, {
-    bool? done,
-    TodoTimerAction? timer,
-    Duration? workTime,
-  }) async {
-    if (!_pending.add(todo.id)) return;
+  void _taskChanged() {
+    if (!mounted) return;
+    setState(() {
+      _data = _load();
+    });
+    unawaited(widget.onChangeTask());
+  }
+
+  Future<void> _change(QuickTodo todo, bool? done) async {
+    if (done == null || !_pending.add(todo.id)) return;
     try {
-      if (done != null) {
-        await _store.changeTaskStatus(todo, done);
-      } else {
-        final now = DateTime.now();
-        final note = Notebook(
-          id: 'quick:${todo.id}',
-          title: todo.text,
-          paper: 'markdown',
-          created: now,
-          modified: now,
-        );
-        await _store.changeTask(
-          KnowledgeTask(
-            note,
-            0,
-            0,
-            todo.text,
-            todo.revision,
-            quickTodo: todo,
-            timerAction: timer,
-            workTime: workTime,
-          ),
-        );
-      }
-      if (mounted) {
-        setState(() {
-          _data = _load();
-        });
-        await widget.onChangeTask();
-      }
+      await _store.changeTaskStatus(todo, done);
+      _taskChanged();
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -224,8 +199,7 @@ class _WorkspaceTodayState extends State<WorkspaceToday> {
                                     leading: Checkbox(
                                       value: todo.done,
                                       semanticLabel: todo.text,
-                                      onChanged: (done) =>
-                                          _change(todo, done: done),
+                                      onChanged: (done) => _change(todo, done),
                                     ),
                                     title: Text(todo.text),
                                     subtitle: Text(
@@ -245,18 +219,18 @@ class _WorkspaceTodayState extends State<WorkspaceToday> {
                                     trailing: TodoTimer(
                                       todo: todo,
                                       directStart: true,
-                                      onChanged: ({timer, workTime}) async {
-                                        final latest = (await _store.quickTodos
-                                            .read())[todo.id];
-                                        if (latest == null) return null;
-                                        await _change(
-                                          latest,
-                                          timer: timer,
-                                          workTime: workTime,
-                                        );
-                                        return (await _store.quickTodos
-                                            .read())[todo.id];
-                                      },
+                                      onChanged:
+                                          ({timer, workTime, countdown}) async {
+                                            final updated = await _store
+                                                .changeQuickTodoTimer(
+                                                  todo.id,
+                                                  timer: timer,
+                                                  workTime: workTime,
+                                                  countdown: countdown,
+                                                );
+                                            _taskChanged();
+                                            return updated;
+                                          },
                                     ),
                                   ),
                                 ListTile(

@@ -65,6 +65,7 @@ String updateDocumentTask(
   bool? done,
   TodoTimerAction? timer,
   Duration? workTime,
+  Duration? countdown,
   DateTime? previousModified,
   DateTime? now,
 }) {
@@ -84,6 +85,7 @@ String updateDocumentTask(
     done: done,
     timer: timer,
     workTime: workTime,
+    countdown: countdown,
   );
   final metadata = updated.toJson()
     ..removeWhere(
@@ -92,6 +94,8 @@ String updateDocumentTask(
         'timerStartedAt',
         'timerPaused',
         'workMilliseconds',
+        'countdownMilliseconds',
+        'countdownEndAtWorkMilliseconds',
       }.contains(key),
     );
   final suffix = metadata.isEmpty

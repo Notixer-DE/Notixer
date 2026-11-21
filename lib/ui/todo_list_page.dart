@@ -203,12 +203,15 @@ class _TodoListEditorState extends State<_TodoListEditor> {
     );
   }
 
-  Future<void> _changeTask(KnowledgeTask task) async {
+  Future<KnowledgeTask?> _changeTask(KnowledgeTask task) async {
     if (task.note.id != _session.note.id) {
       throw const FormatException('The task changed. Reload the task list.');
     }
     _replace(task.editDocument(_source));
     if (!await _session.save()) throw StateError(_session.error!);
+    return task.timerAction != null || task.workTime != null
+        ? task.afterDocumentTimerEdit(_source, _session.note.modified)
+        : null;
   }
 
   void _message(String message) {
@@ -398,17 +401,27 @@ class _TodoListEditorState extends State<_TodoListEditor> {
                                         ),
                                         onChanged: _leaving
                                             ? null
-                                            : ({timer, workTime}) {
+                                            : ({
+                                                timer,
+                                                workTime,
+                                                countdown,
+                                              }) async {
                                                 _replace(
                                                   updateDocumentTask(
                                                     _source,
                                                     item.offset,
                                                     timer: timer,
                                                     workTime: workTime,
+                                                    countdown: countdown,
                                                     previousModified:
                                                         _session.note.modified,
                                                   ),
                                                 );
+                                                if (!await _session.save()) {
+                                                  throw StateError(
+                                                    _session.error!,
+                                                  );
+                                                }
                                                 return documentTask(
                                                   _source,
                                                   item.offset,

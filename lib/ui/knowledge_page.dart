@@ -8,6 +8,7 @@ import '../data/knowledge.dart';
 import '../data/keyboard_shortcuts.dart';
 import '../data/library_backup.dart';
 import '../data/notebook.dart';
+import '../data/quick_todos.dart';
 import '../data/markdown_document.dart';
 import 'journal_calendar.dart';
 import 'journal_template_dialog.dart';
@@ -53,7 +54,7 @@ class KnowledgePage extends StatefulWidget {
   final LocalNotebookRepository repository;
   final String initialSection;
   final String? sharedText;
-  final Future<void> Function(KnowledgeTask)? onChangeTask;
+  final Future<KnowledgeTask?> Function(KnowledgeTask)? onChangeTask;
   final bool autofocusSearch;
   final KeyboardShortcuts? shortcuts;
   final Future<void> Function(VoidCallback onImported)? onImportFile;
@@ -465,6 +466,49 @@ class KnowledgePageState extends State<KnowledgePage> {
       await (widget.onChangeTask ?? _store.changeTask)(task);
     });
     if (mounted && _error == null) await _search(keepResults: true);
+  }
+
+  Future<void> _syncTimerEdit() async {
+    try {
+      await widget.onQuickTodosChanged?.call();
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = 'Could not sync task changes: $error');
+      }
+    }
+  }
+
+  ChangeTodoTimer _timerUpdate(KnowledgeTask task) {
+    final location = '${task.note.id}:${task.anchor}';
+    var current = task;
+    return ({timer, workTime, countdown}) async {
+      QuickTodo? updated;
+      if (current.quickTodo case final quickTodo?) {
+        updated = await _store.changeQuickTodoTimer(
+          quickTodo.id,
+          timer: timer,
+          workTime: workTime,
+          countdown: countdown,
+        );
+        current = current.afterQuickTodoTimerEdit(updated);
+        if (mounted) unawaited(_syncTimerEdit());
+      } else {
+        final documentTask = await (widget.onChangeTask ?? _store.changeTask)(
+          current.withTimer(
+            timer: timer,
+            workTime: workTime,
+            countdown: countdown,
+          ),
+        );
+        if (documentTask == null) {
+          throw StateError('Could not save the task timer.');
+        }
+        current = documentTask;
+        updated = current.todo;
+      }
+      if (mounted) setState(() => _scan?.tasksByLocation[location] = current);
+      return updated;
+    };
   }
 
   Future<void> _quickTodo() async {
@@ -981,24 +1025,10 @@ class KnowledgePageState extends State<KnowledgePage> {
                             TodoTimer(
                               todo: todo,
                               directStart: widget.embedded,
-                              onChanged: _busy
-                                  ? null
-                                  : ({timer, workTime}) async {
-                                      final location =
-                                          '${hit.note.id}:${hit.anchor}';
-                                      final latest =
-                                          _scan?.tasksByLocation[location] ??
-                                          task;
-                                      await _changeTask(
-                                        latest.withTimer(
-                                          timer: timer,
-                                          workTime: workTime,
-                                        ),
-                                      );
-                                      return _scan
-                                          ?.tasksByLocation[location]
-                                          ?.todo;
-                                    },
+                              onChanged: _busy ? null : _timerUpdate(task),
+                              onTimerClosed: task.quickTodo == null
+                                  ? () => _search(keepResults: true)
+                                  : null,
                             ),
                           if (widget.embedded)
                             PopupMenuButton<String>(

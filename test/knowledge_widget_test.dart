@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -103,15 +104,20 @@ void main() {
   );
 
   testWidgets(
-    'focus starts a task timer and allows a manual correction and reset',
+    'stopwatch pauses, resumes and stops while task sync is pending',
     (tester) async {
       final store = KnowledgeStore(repository);
+      final pendingSync = Completer<void>();
       final todo = await tester.runAsync(
         () => store.addQuickTodo('Focused task'),
       );
       await tester.pumpWidget(
         MaterialApp(
-          home: KnowledgePage(repository: repository, initialSection: 'Tasks'),
+          home: KnowledgePage(
+            repository: repository,
+            initialSection: 'Tasks',
+            onQuickTodosChanged: () => pendingSync.future,
+          ),
         ),
       );
       final task = find.ancestor(
@@ -123,23 +129,32 @@ void main() {
         find.descendant(of: task, matching: find.byTooltip('Task timer')),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Start timer'));
+      await tester.tap(find.text('Open focus timer'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Start'));
       await waitKnowledge(
         tester,
         () => find.text('Time tracked · Running').evaluate().isNotEmpty,
       );
       expect(find.text('Focus timer'), findsOneWidget);
-      await tester.tap(find.text('Set target time'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Save'));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('remaining'), findsOneWidget);
-
       await tester.tap(find.text('Pause'));
       await waitKnowledge(
         tester,
         () => find.text('Resume').evaluate().isNotEmpty,
       );
+      await tester.tap(find.text('Resume'));
+      await waitKnowledge(
+        tester,
+        () => find.text('Time tracked · Running').evaluate().isNotEmpty,
+      );
+      await tester.tap(find.text('Stop'));
+      await waitKnowledge(
+        tester,
+        () => find.text('Start').evaluate().isNotEmpty,
+      );
+      expect(find.text('Stop'), findsNothing);
+      expect(pendingSync.isCompleted, isFalse);
+
       Future<void> timeMenu(String label) async {
         await tester.tap(find.byTooltip('Time options'));
         await tester.pumpAndSettle();
@@ -169,10 +184,97 @@ void main() {
       final updated = await tester.runAsync(() => store.quickTodos.read());
       expect(updated![todo!.id]!.workMilliseconds, 0);
       expect(updated[todo.id]!.timerStartedAt, isNull);
+      pendingSync.complete();
       await tester.tap(find.byType(CloseButton));
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 400));
+      await waitKnowledge(tester, () => task.evaluate().isNotEmpty);
     },
   );
+
+  testWidgets('countdown expiration keeps tracking task time after reopening', (
+    tester,
+  ) async {
+    final store = KnowledgeStore(repository);
+    final task = (await tester.runAsync(
+      () => store.addQuickTodo('Countdown task'),
+    ))!;
+    await tester.runAsync(
+      () => store.changeQuickTodoTimer(
+        task.id,
+        workTime: const Duration(minutes: 12),
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: KnowledgePage(repository: repository, initialSection: 'Tasks'),
+      ),
+    );
+    final row = find.widgetWithText(ListTile, 'Countdown task');
+    final menu = find.descendant(
+      of: row,
+      matching: find.byTooltip('Task timer'),
+    );
+
+    Future<void> openTimer() async {
+      await waitKnowledge(tester, () => menu.evaluate().isNotEmpty);
+      await tester.tap(menu);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Open focus timer'));
+      await tester.pumpAndSettle();
+    }
+
+    await openTimer();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Countdown'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Stopwatch'))
+          .selected,
+      isFalse,
+    );
+    expect(find.text('12:00'), findsOneWidget);
+    await tester.tap(find.text('Set countdown'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextFormField, 'Minutes'), '0');
+    await tester.enterText(find.widgetWithText(TextFormField, 'Seconds'), '1');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(find.text('00:01 remaining'), findsOneWidget);
+
+    await tester.tap(find.text('Start'));
+    await waitKnowledge(
+      tester,
+      () => find.text('Time tracked · Running').evaluate().isNotEmpty,
+    );
+    await tester.tap(find.byType(CloseButton));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 1150)),
+    );
+    await openTimer();
+    expect(find.text('Time is up'), findsOneWidget);
+    expect(find.text('Work time is still being tracked.'), findsOneWidget);
+    final running = (await tester.runAsync(store.quickTodos.read))![task.id]!;
+    expect(running.timerStartedAt, isNotNull);
+    expect(
+      running.workTimeAt(DateTime.now()),
+      greaterThan(const Duration(minutes: 12, seconds: 1)),
+    );
+
+    await tester.tap(find.text('Pause'));
+    await waitKnowledge(
+      tester,
+      () => find.text('Resume').evaluate().isNotEmpty,
+    );
+    expect(find.text('Time is up'), findsOneWidget);
+    await tester.tap(find.text('Stop'));
+    await waitKnowledge(tester, () => find.text('Start').evaluate().isNotEmpty);
+    final stopped = (await tester.runAsync(store.quickTodos.read))![task.id]!;
+    expect(stopped.timerStartedAt, isNull);
+    expect(stopped.timerPaused, isFalse);
+    expect(stopped.workMilliseconds, greaterThan(721000));
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   testWidgets('plan a to-do from Unsorted and review Today and Projects', (
     tester,

@@ -81,6 +81,7 @@ void main() {
       raw,
       first.offset,
       timer: TodoTimerAction.start,
+      countdown: const Duration(minutes: 2),
       now: start,
     );
     source = todoListItems(source).first.rename(source, 'Renamed task');
@@ -100,6 +101,7 @@ void main() {
     );
     expect(task.completionTime, start.add(const Duration(minutes: 3)));
     expect(task.workTimeAt(DateTime.utc(2027)).inMinutes, 3);
+    expect(task.countdownRemainingAt(DateTime.utc(2027)), Duration.zero);
     expect(source.split('\r\n').length, 3);
   });
 
