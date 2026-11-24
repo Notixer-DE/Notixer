@@ -341,8 +341,9 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       _updating = false;
       unawaited(_session.save());
     }
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Copied linked to-do.')));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Copied linked to-do.')));
   }
 
   ShortcutAction? _commandFor(AppShortcut action) {
@@ -581,8 +582,9 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     if (mounted) setState(() => _loadingNotes = true);
     try {
       final notes = await widget.repository.list();
-      final backlinks = await MarkdownLibrary(widget.repository)
-          .backlinks(_session.note);
+      final backlinks = await MarkdownLibrary(
+        widget.repository,
+      ).backlinks(_session.note);
       final linkedTasks = await findLinkedTaskGroups(
         widget.repository,
         _session.note,
@@ -1135,9 +1137,9 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                   final number = int.parse(page);
                   Navigator.pop(context, (
                     '${note.title} · Page $number',
-                    Uri.parse(MarkdownLibrary.linkTo(_session.note, note))
-                        .replace(fragment: 'page=$number')
-                        .toString(),
+                    Uri.parse(
+                      MarkdownLibrary.linkTo(_session.note, note),
+                    ).replace(fragment: 'page=$number').toString(),
                   ));
                 }
               },
@@ -1158,8 +1160,9 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     try {
       final source = note.id == _session.note.id
           ? _text.text
-          : (await decodeMarkdownAsync(await widget.repository.load(note.id)))
-                .source;
+          : (await decodeMarkdownAsync(
+              await widget.repository.load(note.id),
+            )).source;
       final headings = markdownHeadingTargets(source);
       if (!mounted) return null;
       return await showDialog<(String, String)>(
@@ -1178,9 +1181,9 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                       final base = note.id == _session.note.id
                           ? ''
                           : MarkdownLibrary.linkTo(_session.note, note);
-                      final href = Uri.parse(base)
-                          .replace(fragment: heading.slug)
-                          .toString();
+                      final href = Uri.parse(
+                        base,
+                      ).replace(fragment: heading.slug).toString();
                       return ListTile(
                         title: Text(heading.title),
                         subtitle: Text('H${heading.level} · #${heading.slug}'),
@@ -1420,8 +1423,9 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     await Future<void>.delayed(const Duration(milliseconds: 250));
     title.dispose();
     if (result == null || !mounted) return;
-    final note = await MarkdownLibrary(widget.repository)
-        .create(result.isEmpty ? 'Text note' : result);
+    final note = await MarkdownLibrary(
+      widget.repository,
+    ).create(result.isEmpty ? 'Text note' : result);
     await _reload();
     // End the current operation before opening through the guarded navigator.
     if (mounted) {
@@ -2260,9 +2264,9 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                                   : Icons.check_circle_outline,
                                               size: 18,
                                               color: _session.error != null
-                                                  ? Theme.of(context)
-                                                        .colorScheme
-                                                        .error
+                                                  ? Theme.of(
+                                                      context,
+                                                    ).colorScheme.error
                                                   : NoterTheme.accent,
                                             ),
                                           ),
@@ -2282,9 +2286,9 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                           maxLines: 4,
                                           overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .error,
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.error,
                                           ),
                                         ),
                                       ),

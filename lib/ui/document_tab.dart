@@ -9,10 +9,8 @@ import '../data/knowledge.dart';
 import '../data/keyboard_shortcuts.dart';
 import '../input/stylus_eraser.dart';
 
-typedef OpenNotebookTab = Future<void> Function(
-  Notebook note, {
-  String? anchor,
-});
+typedef OpenNotebookTab =
+    Future<void> Function(Notebook note, {String? anchor});
 
 /// The workspace owns tab lifetime; editors keep their own document state.
 class DocumentTabController extends ChangeNotifier {

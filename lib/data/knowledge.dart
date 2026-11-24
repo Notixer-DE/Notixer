@@ -27,8 +27,9 @@ typedef KnowledgeDestination = ({Notebook note, String anchor});
 /// Journal identity survives renaming titles/tags and restoring linked copies.
 String? journalEntryDate(Notebook note) {
   if (!note.isMarkdown) return null;
-  final path = RegExp(r'(?:^|/)journals/(\d{4}-\d{2}-\d{2})\.md$')
-      .firstMatch(note.documentPath);
+  final path = RegExp(
+    r'(?:^|/)journals/(\d{4}-\d{2}-\d{2})\.md$',
+  ).firstMatch(note.documentPath);
   if (path != null) return path[1];
   final id = RegExp(r'^journal-(\d{4}-\d{2}-\d{2})$').firstMatch(note.id);
   if (id != null) return id[1];
@@ -529,8 +530,9 @@ class KnowledgeStore {
         continue;
       }
       final document = await decodeMarkdownAsync(bytes);
-      final match = RegExp(r'^- \[([ xX])\] ([^\r\n]+)\r?\n?$')
-          .firstMatch(document.source);
+      final match = RegExp(
+        r'^- \[([ xX])\] ([^\r\n]+)\r?\n?$',
+      ).firstMatch(document.source);
       if (match == null ||
           document.assets.isNotEmpty ||
           match[2]!.trim().isEmpty ||

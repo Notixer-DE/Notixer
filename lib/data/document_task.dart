@@ -149,10 +149,7 @@ String setDocumentTaskLinkId(String source, int offset, String linkId) {
   final raw = source.substring(offset + 2, end);
   final visible = visibleTaskText(raw);
   final existing = _readTaskMetadata(raw);
-  final metadata = <String, Object?>{
-    if (existing != null) ...existing,
-    'linkId': linkId,
-  };
+  final metadata = <String, Object?>{...?existing, 'linkId': linkId};
   return source.replaceRange(
     offset + 2,
     end,

@@ -271,9 +271,9 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
           value.replaceAll(RegExp(r'\s+'), ' ').trim();
       final sourceLine = source.substring(start, stop);
       final plain = normalize(
-        parseMarkdownForPreview(sourceLine)
-            .map((node) => node.textContent)
-            .join(' '),
+        parseMarkdownForPreview(
+          sourceLine,
+        ).map((node) => node.textContent).join(' '),
       );
       if (plain.isEmpty) return false;
       final prefix = const LineSplitter().convert(source.substring(0, start));

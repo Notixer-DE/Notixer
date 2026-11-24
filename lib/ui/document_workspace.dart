@@ -118,9 +118,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
   }
 
   Map<String, String> _openMarkdownSources() => {
-    for (final tab in _tabs)
-      if (tab.controller.currentSource?.call() case final source?)
-        tab.note.id: source,
+    for (final tab in _tabs) tab.note.id: ?tab.controller.currentSource?.call(),
   };
 
   Future<void> _syncLinkedTask(
@@ -847,9 +845,9 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                                   ),
                                   child: Material(
                                     color: i == _selected
-                                        ? Theme.of(context)
-                                              .colorScheme
-                                              .secondaryContainer
+                                        ? Theme.of(
+                                            context,
+                                          ).colorScheme.secondaryContainer
                                         : Colors.transparent,
                                     borderRadius: BorderRadius.circular(8),
                                     child: Row(
