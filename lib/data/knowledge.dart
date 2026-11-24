@@ -3,10 +3,14 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
+
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
+
 import 'journal_template.dart';
 import 'document_task.dart';
+import 'file_gateway.dart';
+import 'linked_tasks.dart';
 import 'markdown_document.dart';
 import 'markdown_library.dart';
 import 'notebook.dart';
@@ -23,9 +27,8 @@ typedef KnowledgeDestination = ({Notebook note, String anchor});
 /// Journal identity survives renaming titles/tags and restoring linked copies.
 String? journalEntryDate(Notebook note) {
   if (!note.isMarkdown) return null;
-  final path = RegExp(
-    r'(?:^|/)journals/(\d{4}-\d{2}-\d{2})\.md$',
-  ).firstMatch(note.documentPath);
+  final path = RegExp(r'(?:^|/)journals/(\d{4}-\d{2}-\d{2})\.md$')
+      .firstMatch(note.documentPath);
   if (path != null) return path[1];
   final id = RegExp(r'^journal-(\d{4}-\d{2}-\d{2})$').firstMatch(note.id);
   if (id != null) return id[1];
@@ -526,9 +529,8 @@ class KnowledgeStore {
         continue;
       }
       final document = await decodeMarkdownAsync(bytes);
-      final match = RegExp(
-        r'^- \[([ xX])\] ([^\r\n]+)\r?\n?$',
-      ).firstMatch(document.source);
+      final match = RegExp(r'^- \[([ xX])\] ([^\r\n]+)\r?\n?$')
+          .firstMatch(document.source);
       if (match == null ||
           document.assets.isNotEmpty ||
           match[2]!.trim().isEmpty ||
@@ -878,13 +880,39 @@ class KnowledgeStore {
       snapshot.archive,
     );
     final document = await decodeMarkdownAsync(bytes);
-    final source = task.editDocument(document.source);
+    final linkId =
+        !task.deleting && task.timerAction == null && task.workTime == null
+        ? documentTaskLinkId(document.source, task.offset)
+        : null;
+    var source = task.editDocument(document.source);
     final modified = DateTime.now();
+    if (linkId != null) {
+      source = syncDocumentTasksByLinkId(
+        source,
+        linkId,
+        done: !task.done,
+        previousModified: note.modified,
+        now: modified,
+      );
+    }
     final archive = await LocalNotebookRepository.encodeAsync(
       note.copy(modified: modified),
       document.copy(source: source).encode(),
     );
     await repository.applySync(note.id, snapshot.raw, archive);
+    if (linkId != null) {
+      if (FileGateway.syncLinkedTask case final sync?) {
+        await sync(linkId, !task.done, excludeNoteId: note.id);
+      } else {
+        await syncLinkedTaskStatus(
+          repository,
+          linkId,
+          done: !task.done,
+          excludeNoteId: note.id,
+          now: modified,
+        );
+      }
+    }
     return task.timerAction != null || task.workTime != null
         ? task.afterDocumentTimerEdit(source, modified)
         : null;

@@ -1,13 +1,18 @@
 import 'package:flutter/gestures.dart';
+
 import '../data/document_session.dart';
+
 import 'package:flutter/foundation.dart';
+
 import '../data/notebook.dart';
 import '../data/knowledge.dart';
 import '../data/keyboard_shortcuts.dart';
 import '../input/stylus_eraser.dart';
 
-typedef OpenNotebookTab =
-    Future<void> Function(Notebook note, {String? anchor});
+typedef OpenNotebookTab = Future<void> Function(
+  Notebook note, {
+  String? anchor,
+});
 
 /// The workspace owns tab lifetime; editors keep their own document state.
 class DocumentTabController extends ChangeNotifier {
@@ -24,6 +29,9 @@ class DocumentTabController extends ChangeNotifier {
   Future<void> Function(String)? revealAnchor;
   Future<KnowledgeTask?> Function(KnowledgeTask)? changeTask;
   Future<void> Function()? refreshMetadata;
+  String Function()? currentSource;
+  Future<bool> Function(String linkId, bool done)? syncLinkedTask;
+  Future<void> Function()? refreshLinks;
   ShortcutAction? Function(AppShortcut)? commandFor;
 
   void attach(
@@ -52,6 +60,9 @@ class DocumentTabController extends ChangeNotifier {
     revealAnchor = null;
     changeTask = null;
     refreshMetadata = null;
+    currentSource = null;
+    syncLinkedTask = null;
+    refreshLinks = null;
     commandFor = null;
   }
 
@@ -75,6 +86,9 @@ class DocumentTabController extends ChangeNotifier {
     revealAnchor = null;
     changeTask = null;
     refreshMetadata = null;
+    currentSource = null;
+    syncLinkedTask = null;
+    refreshLinks = null;
     commandFor = null;
     super.dispose();
   }

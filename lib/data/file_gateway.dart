@@ -1,9 +1,11 @@
 import 'dart:io';
 import 'dart:async';
+
 import 'knowledge.dart';
 import 'notebook.dart';
 import 'media.dart';
 import 'media_gateway.dart';
+
 import 'package:flutter/foundation.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/services.dart';
@@ -12,6 +14,13 @@ class FileGateway {
   static Future<void> Function(Notebook, {String? anchor})? openDocument;
   static Future<KnowledgeTask?> Function(KnowledgeTask)? changeKnowledgeTask;
   static Future<void> Function()? refreshOpenDocuments;
+  static Map<String, String> Function()? openMarkdownSources;
+  static Future<void> Function(
+    String linkId,
+    bool done, {
+    String? excludeNoteId,
+  })?
+  syncLinkedTask;
   static final sharedText = ValueNotifier<String?>(null);
   static Future<bool> Function()? beforeClose;
   static Future<bool> Function()? workspaceBeforeClose;

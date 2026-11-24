@@ -1,11 +1,15 @@
 import 'media_page.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import '../data/file_gateway.dart';
+import '../data/linked_tasks.dart';
 import '../data/notebook.dart';
 import '../data/knowledge.dart';
 import '../data/keyboard_shortcuts.dart';
@@ -113,6 +117,34 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
     }
   }
 
+  Map<String, String> _openMarkdownSources() => {
+    for (final tab in _tabs)
+      if (tab.controller.currentSource?.call() case final source?)
+        tab.note.id: source,
+  };
+
+  Future<void> _syncLinkedTask(
+    String linkId,
+    bool done, {
+    String? excludeNoteId,
+  }) async {
+    await syncLinkedTaskStatus(
+      widget.repository,
+      linkId,
+      done: done,
+      excludeNoteId: excludeNoteId,
+      updateOpenNote: (noteId, id, checked) async {
+        final tab = _tabs.where((t) => t.note.id == noteId).firstOrNull;
+        final handler = tab?.controller.syncLinkedTask;
+        if (handler == null) return false;
+        return handler(id, checked);
+      },
+    );
+    if (mounted) {
+      setState(() => _homeRevision++);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -125,6 +157,8 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
     FileGateway.openDocument = openNotebook;
     FileGateway.changeKnowledgeTask = _changeKnowledgeTask;
     FileGateway.refreshOpenDocuments = _refreshOpenDocuments;
+    FileGateway.openMarkdownSources = _openMarkdownSources;
+    FileGateway.syncLinkedTask = _syncLinkedTask;
     WidgetsBinding.instance.addObserver(this);
     _previousClose = FileGateway.beforeClose;
     _previousWorkspaceClose = FileGateway.workspaceBeforeClose;
@@ -560,6 +594,9 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
     if (_selected >= 0) _tabs[_selected].controller.deactivate();
     _workspaceFocus.requestFocus();
     setState(() => _selected = index);
+    if (index >= 0) {
+      unawaited(_tabs[index].controller.refreshLinks?.call());
+    }
   }
 
   Future<void> openNotebook(Notebook note, {String? anchor}) async {
@@ -810,9 +847,9 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                                   ),
                                   child: Material(
                                     color: i == _selected
-                                        ? Theme.of(
-                                            context,
-                                          ).colorScheme.secondaryContainer
+                                        ? Theme.of(context)
+                                              .colorScheme
+                                              .secondaryContainer
                                         : Colors.transparent,
                                     borderRadius: BorderRadius.circular(8),
                                     child: Row(
@@ -980,6 +1017,8 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
     FileGateway.openDocument = null;
     FileGateway.changeKnowledgeTask = null;
     FileGateway.refreshOpenDocuments = null;
+    FileGateway.openMarkdownSources = null;
+    FileGateway.syncLinkedTask = null;
     if (identical(FileGateway.beforeClose, _closeHandler)) {
       FileGateway.beforeClose = _previousClose;
     }
