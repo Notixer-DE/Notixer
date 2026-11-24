@@ -1,14 +1,18 @@
 import 'dart:convert';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/foundation.dart' show compute, mapEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+
 import 'dart:typed_data';
+
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:markdown/markdown.dart' as md;
 
 import '../data/markdown_document.dart';
 import 'markdown_style.dart';
+import 'noter_theme.dart';
 
 class _PreviewBlock {
   _PreviewBlock(this.node, this.key, this.offsets, this.headings);
@@ -89,12 +93,14 @@ class MarkdownPreview extends StatefulWidget {
     required this.scrollController,
     required this.onToggle,
     required this.onFollow,
+    this.onCopyTask,
   });
   final MarkdownDocument document;
   final double zoom;
   final ScrollController scrollController;
   final void Function(int offset, bool checked) onToggle;
   final void Function(String href) onFollow;
+  final void Function(int offset)? onCopyTask;
   @override
   State<MarkdownPreview> createState() => MarkdownPreviewState();
 }
@@ -127,11 +133,13 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
       widget.document.assets,
     );
     final zoomChanged = oldWidget.zoom != widget.zoom;
-    if (assetsChanged || zoomChanged) _widgets.clear();
+    final copyChanged =
+        (oldWidget.onCopyTask == null) != (widget.onCopyTask == null);
+    if (assetsChanged || zoomChanged || copyChanged) _widgets.clear();
     if (oldWidget.document.source != widget.document.source) {
       _navigation++;
       _load();
-    } else if (assetsChanged || zoomChanged) {
+    } else if (assetsChanged || zoomChanged || copyChanged) {
       _makeDelegate();
     }
   }
@@ -204,6 +212,13 @@ class MarkdownPreviewState extends State<MarkdownPreview> {
                 }
               },
               onFollow: (href) => widget.onFollow(href),
+              onCopyTask: widget.onCopyTask == null
+                  ? null
+                  : (offset) {
+                      if (_pendingSource == null) {
+                        widget.onCopyTask!(offset);
+                      }
+                    },
             );
         if (cached == null) debugBlockBuilds++;
         _widgets[cacheKey] = child;
@@ -342,6 +357,7 @@ class _MarkdownBlock extends StatefulWidget {
     required this.assets,
     required this.onToggle,
     required this.onFollow,
+    this.onCopyTask,
   });
   final md.Node node;
   final double zoom;
@@ -351,6 +367,7 @@ class _MarkdownBlock extends StatefulWidget {
   final Map<String, Uint8List> assets;
   final void Function(int, bool) onToggle;
   final void Function(String) onFollow;
+  final void Function(int)? onCopyTask;
   @override
   State<_MarkdownBlock> createState() => _MarkdownBlockState();
 }
@@ -424,18 +441,42 @@ class _MarkdownBlockState extends State<_MarkdownBlock>
             metrics.computeDistanceToActualBaseline(TextBaseline.alphabetic) -
             metrics.height / 2;
         metrics.dispose();
+        final checkboxWidget = SizedBox(
+          width: 44,
+          height: 44,
+          child: Checkbox(
+            value: checked,
+            onChanged: index >= widget.offsets.length
+                ? null
+                : (value) => widget.onToggle(widget.offsets[index], value!),
+          ),
+        );
         return _CheckboxBaseline(
           baseline: baseline,
-          child: SizedBox(
-            width: 44,
-            height: 44,
-            child: Checkbox(
-              value: checked,
-              onChanged: index >= widget.offsets.length
-                  ? null
-                  : (value) => widget.onToggle(widget.offsets[index], value!),
-            ),
-          ),
+          child:
+              widget.onCopyTask != null &&
+                  widget.offsets.length > 1 &&
+                  index < widget.offsets.length
+              ? Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    checkboxWidget,
+                    IconButton(
+                      tooltip: 'Copy linked to-do',
+                      constraints: const BoxConstraints.tightFor(
+                        width: 28,
+                        height: 44,
+                      ),
+                      padding: EdgeInsets.zero,
+                      iconSize: 15,
+                      color: NoterTheme.muted,
+                      onPressed: () =>
+                          widget.onCopyTask!(widget.offsets[index]),
+                      icon: const Icon(Icons.content_copy_outlined),
+                    ),
+                  ],
+                )
+              : checkboxWidget,
         );
       },
       bulletBuilder: null,
@@ -465,17 +506,44 @@ class _MarkdownBlockState extends State<_MarkdownBlock>
     text: code.replaceAll(RegExp(r'\n$'), ''),
   );
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: EdgeInsets.only(
-      bottom: widget.compactTaskSpacing
-          ? 2
-          : noterMarkdownStyle(context).blockSpacing!,
-    ),
-    child: Column(
+  Widget build(BuildContext context) {
+    final column = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: _children,
-    ),
-  );
+    );
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: widget.compactTaskSpacing
+            ? 2
+            : noterMarkdownStyle(context).blockSpacing!,
+      ),
+      child: widget.onCopyTask != null && widget.offsets.length == 1
+          ? Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: column),
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: IconButton(
+                    tooltip: 'Copy linked to-do',
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 36,
+                      height: 36,
+                    ),
+                    padding: EdgeInsets.zero,
+                    iconSize: 16,
+                    color: NoterTheme.muted,
+                    onPressed: () => widget.onCopyTask!(widget.offsets.single),
+                    icon: const Icon(Icons.content_copy_outlined),
+                  ),
+                ),
+              ],
+            )
+          : column,
+    );
+  }
+
   @override
   void dispose() {
     _release();

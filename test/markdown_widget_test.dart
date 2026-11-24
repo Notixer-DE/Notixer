@@ -572,7 +572,7 @@ void main() {
       await tester.pump();
       await tester.enterText(source, '# Edited target');
       await tester.tap(find.byKey(ValueKey('document-tab-${a.id}')));
-      await tester.pumpAndSettle();
+      await markdownIo(tester, () => link.evaluate().isNotEmpty);
       await tester.tap(link);
       await markdownIo(
         tester,
@@ -847,7 +847,10 @@ void main() {
         await tester.pumpAndSettle();
         final source = find.byKey(const ValueKey('markdown-source'));
         await tester.enterText(source, 'Text auf dem Handy\n\n- [ ] Eine Task');
-        await tester.runAsync(() => FileGateway.beforeClose!());
+        bool? closed;
+        FileGateway.beforeClose!().then((ok) => closed = ok);
+        await markdownIo(tester, () => closed != null);
+        expect(closed, isTrue);
         final saved = await tester.runAsync(() => repository.load(b.id));
         expect(
           MarkdownDocument.decode(saved!).source,

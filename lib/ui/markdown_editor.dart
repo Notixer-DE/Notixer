@@ -2,6 +2,7 @@ import 'media_acquisition.dart';
 import 'media_page.dart';
 import '../data/media.dart';
 import 'markdown_zoom_surface.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' show AppExitResponse;
@@ -29,6 +30,7 @@ import 'library_graph_page.dart';
 import 'organize_dialog.dart';
 import '../data/knowledge.dart';
 import '../data/document_task.dart';
+import '../data/linked_tasks.dart';
 import 'knowledge_page.dart';
 import 'wiki_link_suggestions.dart';
 
@@ -136,6 +138,10 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   final _scroll = ScrollController();
   final _previewKey = GlobalKey<MarkdownPreviewState>();
   List<Notebook> _notes = [], _backlinks = [];
+  List<LinkedTaskGroup> _linkedTasks = [];
+  Map<String, bool> _lastLinkedTaskStates = {};
+  Future<void> _linkedSyncQueue = Future.value();
+  bool _applyingPeerLinkedSync = false;
   String? _folder, _message;
   String _query = '';
   bool _showNotes = false, _source = false, _busy = false, _canPop = false;
@@ -176,7 +182,169 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   bool _updating = false;
   Future<bool> Function()? _previousClose;
   late final Future<bool> Function() _closeHandler = _saveBeforeClose;
-  Future<bool> _saveDocument() => _session.save();
+  Future<bool> _saveDocument() {
+    _propagateEditedLinkedTasks();
+    return _session.save();
+  }
+
+  Map<String, bool> _linkedTaskStates(String source) {
+    final states = <String, bool>{};
+    for (final task in linkedDocumentTasks(source)) {
+      states.putIfAbsent(task.linkId, () => task.done);
+    }
+    return states;
+  }
+
+  void _enqueueLinkedSync(String linkId, bool done) {
+    _linkedSyncQueue = _linkedSyncQueue
+        .then((_) async {
+          await _session.save();
+          if (!mounted) return;
+          if (FileGateway.syncLinkedTask case final sync?) {
+            await sync(linkId, done, excludeNoteId: _session.note.id);
+          } else {
+            await syncLinkedTaskStatus(
+              widget.repository,
+              linkId,
+              done: done,
+              excludeNoteId: _session.note.id,
+            );
+          }
+          if (mounted) await _reload();
+        })
+        .catchError((Object _) {});
+  }
+
+  void _propagateEditedLinkedTasks() {
+    if (_applyingPeerLinkedSync) return;
+    final tasks = linkedDocumentTasks(_text.text);
+    final current = <String, bool>{};
+    for (final task in tasks) {
+      final previous = _lastLinkedTaskStates[task.linkId];
+      if (previous != null && task.done != previous) {
+        current[task.linkId] = task.done;
+      } else {
+        current.putIfAbsent(task.linkId, () => task.done);
+      }
+    }
+    final changed = <String, bool>{};
+    for (final entry in current.entries) {
+      final previous = _lastLinkedTaskStates[entry.key];
+      if (previous != null && previous != entry.value) {
+        changed[entry.key] = entry.value;
+      }
+    }
+    _lastLinkedTaskStates = current;
+    for (final entry in changed.entries) {
+      final synced = syncDocumentTasksByLinkId(
+        _text.text,
+        entry.key,
+        done: entry.value,
+        previousModified: _session.note.modified,
+      );
+      if (synced != _text.text) {
+        _updating = true;
+        final offset = _text.selection.extentOffset.clamp(0, synced.length);
+        _text.value = TextEditingValue(
+          text: synced,
+          selection: TextSelection.collapsed(offset: offset),
+        );
+        _session.update(_session.document.copy(source: synced));
+        _updating = false;
+      }
+      _enqueueLinkedSync(entry.key, entry.value);
+    }
+  }
+
+  Future<bool> _syncLinkedTaskFromPeer(String linkId, bool done) async {
+    if (!mounted) return false;
+    final updated = syncDocumentTasksByLinkId(
+      _text.text,
+      linkId,
+      done: done,
+      previousModified: _session.note.modified,
+    );
+    if (updated == _text.text) return true;
+    _applyingPeerLinkedSync = true;
+    try {
+      final selection = _text.selection;
+      final nextSelection = selection.isValid
+          ? TextSelection(
+              baseOffset: selection.baseOffset.clamp(0, updated.length),
+              extentOffset: selection.extentOffset.clamp(0, updated.length),
+              affinity: selection.affinity,
+              isDirectional: selection.isDirectional,
+            )
+          : TextSelection.collapsed(offset: updated.length);
+      _updating = true;
+      _text.value = TextEditingValue(text: updated, selection: nextSelection);
+      _session.update(_session.document.copy(source: updated));
+      _lastLinkedTaskStates = _linkedTaskStates(updated);
+      _updating = false;
+      final saved = await _session.save();
+      if (mounted) await _reload();
+      return saved;
+    } finally {
+      _applyingPeerLinkedSync = false;
+    }
+  }
+
+  bool _copySourceSelection() {
+    final selection = _text.selection;
+    if (!selection.isValid || selection.isCollapsed) return false;
+    final result = copyLinkedMarkdownSelection(
+      _text.text,
+      selection.start,
+      selection.end,
+      generateId: LocalNotebookRepository.newId,
+    );
+    if (!result.linked) return false;
+    unawaited(Clipboard.setData(ClipboardData(text: result.clipboard)));
+    if (result.source != _text.text) {
+      final reversed = selection.baseOffset > selection.extentOffset;
+      final nextSelection = TextSelection(
+        baseOffset: reversed ? result.selectionEnd : result.selectionStart,
+        extentOffset: reversed ? result.selectionStart : result.selectionEnd,
+      );
+      _updating = true;
+      _text.value = TextEditingValue(
+        text: result.source,
+        selection: nextSelection,
+      );
+      _session.update(_session.document.copy(source: result.source));
+      _lastLinkedTaskStates = _linkedTaskStates(result.source);
+      _updating = false;
+    }
+    return true;
+  }
+
+  void _copyPreviewTask(int offset) {
+    if (_busy || _leaving) return;
+    final result = copyLinkedDocumentTask(
+      _text.text,
+      offset,
+      generateId: LocalNotebookRepository.newId,
+    );
+    unawaited(Clipboard.setData(ClipboardData(text: result.clipboard)));
+    if (result.source != _text.text) {
+      _updating = true;
+      final cursor = _text.selection.extentOffset.clamp(
+        0,
+        result.source.length,
+      );
+      _text.value = TextEditingValue(
+        text: result.source,
+        selection: TextSelection.collapsed(offset: cursor),
+      );
+      _session.update(_session.document.copy(source: result.source));
+      _lastLinkedTaskStates = _linkedTaskStates(result.source);
+      _updating = false;
+      unawaited(_session.save());
+    }
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Copied linked to-do.')));
+  }
 
   ShortcutAction? _commandFor(AppShortcut action) {
     if (_busy || _leaving) return null;
@@ -207,6 +375,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       _focus.unfocus();
       _titleFocus.unfocus();
       await _saveDocument();
+      await _linkedSyncQueue;
       if (mounted) await _reload();
     }
   }
@@ -215,6 +384,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     final noteId = _session.note.id;
     final offset = _scroll.hasClients ? _scroll.offset : null;
     final saved = await _saveDocument();
+    await _linkedSyncQueue;
     if (offset != null) {
       try {
         await widget.repository.catalog.readingPositions.saveMarkdown(
@@ -250,6 +420,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       ..addListener(_changed);
     _text = TextEditingController(text: _session.document.source)
       ..addListener(_edited);
+    _lastLinkedTaskStates = _linkedTaskStates(_text.text);
     _focus.onKeyEvent = (_, event) {
       if (!HardwareKeyboard.instance.isControlPressed &&
           !HardwareKeyboard.instance.isMetaPressed &&
@@ -257,6 +428,20 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
         return KeyEventResult.handled;
       }
       final keyboard = HardwareKeyboard.instance;
+      if (event is KeyDownEvent &&
+          (keyboard.isControlPressed || keyboard.isMetaPressed) &&
+          !keyboard.isAltPressed &&
+          !keyboard.isShiftPressed &&
+          (event.logicalKey == LogicalKeyboardKey.keyC ||
+              (keyboard.isControlPressed &&
+                  event.logicalKey == LogicalKeyboardKey.insert)) &&
+          !_busy &&
+          !_leaving &&
+          _text.selection.isValid &&
+          !_text.selection.isCollapsed &&
+          _copySourceSelection()) {
+        return KeyEventResult.handled;
+      }
       if (widget.tabController?.shortcuts == null &&
           (keyboard.isControlPressed || keyboard.isMetaPressed) &&
           !keyboard.isAltPressed) {
@@ -304,6 +489,9 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     if (widget.tabController case final tab?) {
       tab.attach(this, save: _saveBeforeClose, anchor: _anchor);
       tab.changeTask = _applyTask;
+      tab.currentSource = () => _text.text;
+      tab.syncLinkedTask = _syncLinkedTaskFromPeer;
+      tab.refreshLinks = _reload;
       tab.commandFor = _commandFor;
       tab.refreshMetadata = () async {
         final notes = await widget.repository.list();
@@ -334,6 +522,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
               selection: TextSelection.collapsed(offset: offset),
             );
             _title.text = note.title;
+            _lastLinkedTaskStates = _linkedTaskStates(document.source);
             _updating = false;
           }
           _session.note = note;
@@ -396,10 +585,17 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       final backlinks = await MarkdownLibrary(
         widget.repository,
       ).backlinks(_session.note);
+      final linkedTasks = await findLinkedTaskGroups(
+        widget.repository,
+        _session.note,
+        _text.text,
+        openSources: FileGateway.openMarkdownSources?.call() ?? const {},
+      );
       if (mounted && generation == _loadGeneration) {
         setState(() {
           _notes = notes;
           _backlinks = backlinks;
+          _linkedTasks = linkedTasks;
         });
       }
     } catch (e) {
@@ -545,6 +741,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     _updating = true;
     _text.text = document.source;
     _title.text = note.title;
+    _lastLinkedTaskStates = _linkedTaskStates(document.source);
     _updating = false;
     _source = false;
     setState(() {});
@@ -719,10 +916,40 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     if (task.note.id != _session.note.id) {
       throw const FormatException('The task changed. Reload the list first.');
     }
-    _text.text = task.editDocument(_text.text);
-    if (!await _saveDocument()) {
+    final linkId =
+        !task.deleting && task.timerAction == null && task.workTime == null
+        ? documentTaskLinkId(_text.text, task.offset)
+        : null;
+    var updated = task.editDocument(_text.text);
+    if (linkId != null) {
+      updated = syncDocumentTasksByLinkId(
+        updated,
+        linkId,
+        done: !task.done,
+        previousModified: _session.note.modified,
+      );
+    }
+    _updating = true;
+    _text.text = updated;
+    _session.update(_session.document.copy(source: updated));
+    _lastLinkedTaskStates = _linkedTaskStates(updated);
+    _updating = false;
+    if (!await _session.save()) {
       throw const FormatException('Could not save the task.');
     }
+    if (linkId != null) {
+      if (FileGateway.syncLinkedTask case final sync?) {
+        await sync(linkId, !task.done, excludeNoteId: _session.note.id);
+      } else {
+        await syncLinkedTaskStatus(
+          widget.repository,
+          linkId,
+          done: !task.done,
+          excludeNoteId: _session.note.id,
+        );
+      }
+    }
+    if (mounted) await _reload();
     return task.timerAction != null || task.workTime != null
         ? task.afterDocumentTimerEdit(_text.text, _session.note.modified)
         : null;
@@ -1317,6 +1544,59 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
             icon: const Icon(Icons.link, size: 16),
             label: Text(note.title),
           ),
+        if (_linkedTasks.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          const Divider(),
+          Text('Linked to-dos', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 8),
+          for (final group in _linkedTasks)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        group.done
+                            ? Icons.check_box_outlined
+                            : Icons.check_box_outline_blank,
+                        size: 16,
+                        color: NoterTheme.muted,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          group.text.isEmpty ? '(Empty task)' : group.text,
+                          style: TextStyle(
+                            decoration: group.done
+                                ? TextDecoration.lineThrough
+                                : null,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      for (final occurrence in group.others)
+                        TextButton.icon(
+                          onPressed: () =>
+                              _open(occurrence.note, anchor: occurrence.anchor),
+                          icon: const Icon(Icons.checklist_outlined, size: 16),
+                          label: Text(
+                            '${occurrence.note.title} · Line ${occurrence.line}',
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+        ],
       ],
     );
   }
@@ -1640,6 +1920,36 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                       maxLines: null,
                                       expands: true,
                                       keyboardType: TextInputType.multiline,
+                                      contextMenuBuilder:
+                                          (context, editableTextState) {
+                                            final items = editableTextState
+                                                .contextMenuButtonItems
+                                                .map((item) {
+                                                  if (item.type !=
+                                                      ContextMenuButtonType
+                                                          .copy) {
+                                                    return item;
+                                                  }
+                                                  return ContextMenuButtonItem(
+                                                    label: item.label,
+                                                    type: item.type,
+                                                    onPressed: () {
+                                                      if (_copySourceSelection()) {
+                                                        editableTextState
+                                                            .hideToolbar();
+                                                      } else {
+                                                        item.onPressed?.call();
+                                                      }
+                                                    },
+                                                  );
+                                                })
+                                                .toList();
+                                            return AdaptiveTextSelectionToolbar.buttonItems(
+                                              anchors: editableTextState
+                                                  .contextMenuAnchors,
+                                              buttonItems: items,
+                                            );
+                                          },
                                       decoration: const InputDecoration(
                                         hintText: 'Write your note …',
                                         border: InputBorder.none,
@@ -1670,13 +1980,32 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                               document: _session.document,
                               scrollController: _scroll,
                               onFollow: _follow,
+                              onCopyTask: _copyPreviewTask,
                               onToggle: (offset, checked) {
                                 if (_busy || _leaving) return;
-                                _text.text = updateDocumentTask(
+                                final linkId = documentTaskLinkId(
+                                  _text.text,
+                                  offset,
+                                );
+                                var updated = updateDocumentTask(
                                   _text.text,
                                   offset,
                                   done: checked,
                                 );
+                                if (linkId != null) {
+                                  updated = syncDocumentTasksByLinkId(
+                                    updated,
+                                    linkId,
+                                    done: checked,
+                                  );
+                                }
+                                _text.text = updated;
+                                _lastLinkedTaskStates = _linkedTaskStates(
+                                  updated,
+                                );
+                                if (linkId != null) {
+                                  _enqueueLinkedSync(linkId, checked);
+                                }
                               },
                             ),
                           ),

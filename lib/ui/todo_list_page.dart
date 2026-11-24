@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import '../data/file_gateway.dart';
 import '../data/document_task.dart';
 import '../data/keyboard_shortcuts.dart';
 import '../data/knowledge.dart';
+import '../data/linked_tasks.dart';
 import '../data/markdown_document.dart';
 import '../data/markdown_session.dart';
 import '../data/notebook.dart';
@@ -100,6 +102,8 @@ class _TodoListEditorState extends State<_TodoListEditor> {
     if (_page.tabController case final tab?) {
       tab.attach(this, save: _session.save, anchor: _reveal);
       tab.changeTask = _changeTask;
+      tab.currentSource = () => _source;
+      tab.syncLinkedTask = _syncLinkedTaskFromPeer;
       tab.commandFor = (action) =>
           action == AppShortcut.export ? _export : null;
       tab.refreshMetadata = () async {
@@ -203,12 +207,91 @@ class _TodoListEditorState extends State<_TodoListEditor> {
     );
   }
 
+  Future<bool> _syncLinkedTaskFromPeer(String linkId, bool done) async {
+    if (!mounted) return false;
+    final updated = syncDocumentTasksByLinkId(
+      _source,
+      linkId,
+      done: done,
+      previousModified: _session.note.modified,
+    );
+    if (updated == _source) return true;
+    _replace(updated);
+    return _session.save();
+  }
+
+  Future<void> _propagateLinkedTask(String linkId, bool done) async {
+    if (!await _session.save() || !mounted) return;
+    if (FileGateway.syncLinkedTask case final sync?) {
+      await sync(linkId, done, excludeNoteId: _session.note.id);
+    } else {
+      await syncLinkedTaskStatus(
+        _page.repository,
+        linkId,
+        done: done,
+        excludeNoteId: _session.note.id,
+      );
+    }
+  }
+
+  void _copyItem(TodoListItem item) {
+    if (_leaving) return;
+    final result = copyLinkedDocumentTask(
+      _source,
+      item.offset,
+      generateId: LocalNotebookRepository.newId,
+    );
+    unawaited(Clipboard.setData(ClipboardData(text: result.clipboard)));
+    if (result.source != _source) {
+      _replace(result.source);
+      unawaited(_session.save());
+    }
+    _message('Copied linked to-do.');
+  }
+
+  void _toggleItem(TodoListItem item, bool done) {
+    final linkId = documentTaskLinkId(_source, item.offset);
+    var updated = item.check(_source, done);
+    if (linkId != null) {
+      updated = syncDocumentTasksByLinkId(updated, linkId, done: done);
+    }
+    _replace(updated);
+    if (linkId != null) {
+      unawaited(_propagateLinkedTask(linkId, done));
+    }
+  }
+
   Future<KnowledgeTask?> _changeTask(KnowledgeTask task) async {
     if (task.note.id != _session.note.id) {
       throw const FormatException('The task changed. Reload the task list.');
     }
-    _replace(task.editDocument(_source));
+    final linkId =
+        !task.deleting && task.timerAction == null && task.workTime == null
+        ? documentTaskLinkId(_source, task.offset)
+        : null;
+    var updated = task.editDocument(_source);
+    if (linkId != null) {
+      updated = syncDocumentTasksByLinkId(
+        updated,
+        linkId,
+        done: !task.done,
+        previousModified: _session.note.modified,
+      );
+    }
+    _replace(updated);
     if (!await _session.save()) throw StateError(_session.error!);
+    if (linkId != null) {
+      if (FileGateway.syncLinkedTask case final sync?) {
+        await sync(linkId, !task.done, excludeNoteId: _session.note.id);
+      } else {
+        await syncLinkedTaskStatus(
+          _page.repository,
+          linkId,
+          done: !task.done,
+          excludeNoteId: _session.note.id,
+        );
+      }
+    }
     return task.timerAction != null || task.workTime != null
         ? task.afterDocumentTimerEdit(_source, _session.note.modified)
         : null;
@@ -370,9 +453,7 @@ class _TodoListEditorState extends State<_TodoListEditor> {
                                     semanticLabel: item.text,
                                     onChanged: _leaving
                                         ? null
-                                        : (value) => _replace(
-                                            item.check(_source, value!),
-                                          ),
+                                        : (value) => _toggleItem(item, value!),
                                   ),
                                   title: Text(
                                     item.text.isEmpty
@@ -430,6 +511,17 @@ class _TodoListEditorState extends State<_TodoListEditor> {
                                                       _session.note.modified,
                                                 );
                                               },
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Copy linked to-do',
+                                        visualDensity: VisualDensity.compact,
+                                        onPressed: _leaving
+                                            ? null
+                                            : () => _copyItem(item),
+                                        icon: const Icon(
+                                          Icons.content_copy_outlined,
+                                          size: 18,
+                                        ),
                                       ),
                                       IconButton(
                                         tooltip: 'Edit task',
