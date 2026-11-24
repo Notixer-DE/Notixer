@@ -101,8 +101,16 @@ class LibraryCatalog extends ChangeNotifier {
   }
 
   String? loadWarning;
+  bool _needsSyncRestore = false;
+
+  /// True after a damaged catalog was replaced by placeholders until a sync
+  /// restored folders and presets from other devices. Survives restarts so a
+  /// catalog rewritten from placeholders is never uploaded as deletions.
+  bool get needsSyncRestore => _needsSyncRestore;
+  File get _restoreMarker => File('${file.path}.recovered');
   Future<void> load() => _loading ??= _loadSafely();
   Future<void> _loadSafely() async {
+    loadWarning = null;
     try {
       await _load();
     } on FormatException catch (error) {
@@ -110,14 +118,43 @@ class LibraryCatalog extends ChangeNotifier {
     } on TypeError catch (error) {
       await _recover(error);
     }
+    _needsSyncRestore = await _restoreMarker.exists();
   }
 
   Future<void> _recover(Object error) async {
     // Optional library metadata must not prevent opening intact documents.
     // Preserve the source before replacing the in-memory catalog defaults.
     await file.copy('${file.path}.invalid');
+    await _restoreMarker.writeAsString('', flush: true);
     _folders = [];
+    // Keep IDs still referenced by documents, so notes stay in their folders
+    // and folders restored by sync (matched by name) reuse the same identity.
+    final source = recoverFolders;
+    if (source != null) {
+      try {
+        final ids = <String>{}, names = <String>{};
+        _folders = [
+          for (final folder in await source())
+            if (folder.name.trim().isNotEmpty &&
+                !ids.contains(folder.id) &&
+                names.add(folder.name.toLowerCase()) &&
+                ids.add(folder.id))
+              folder,
+        ];
+      } catch (_) {
+        // Best effort only; sync can still restore folders by name.
+      }
+    }
     loadWarning = 'Could not read the library catalog: $error';
+  }
+
+  /// Supplies folder identities still referenced by documents.
+  Future<List<NoteFolder>> Function()? recoverFolders;
+
+  /// Called by sync once remote folders and presets were applied locally.
+  Future<void> markSyncRestored() async {
+    if (await _restoreMarker.exists()) await _restoreMarker.delete();
+    _needsSyncRestore = false;
   }
 
   Future<void> _load() async {

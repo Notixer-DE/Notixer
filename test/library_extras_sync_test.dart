@@ -7,6 +7,7 @@ import 'package:noter/data/drawing_preferences.dart';
 import 'package:noter/data/knowledge.dart';
 import 'package:noter/data/notebook.dart';
 import 'package:noter/data/paper.dart';
+import 'package:noter/data/quick_todos.dart';
 import 'package:noter/sync/library_extras_sync.dart';
 import 'package:noter/sync/notebook_sync.dart';
 import 'package:noter/sync/sync_revision.dart';
@@ -353,6 +354,88 @@ void main() {
       final report = await sync(b);
       expect(report.uploaded, 0);
       expect(report.conflicts, 0);
+    },
+  );
+  test(
+    'a corrupt library catalog neither deletes synced folders nor resets presets elsewhere',
+    () async {
+      await a.catalog.ensureFolder('Work');
+      await a.catalog.setPreset(
+        0,
+        const PenPreset('Fine', 'ink', 0xff123456, 1.5, .8),
+      );
+      await sync(a);
+      await sync(b);
+      expect(b.catalog.folderName(b.catalog.folders.single.id), 'Work');
+      await a.flush();
+      await File('${a.directory.path}/.library.json').writeAsString('{broken');
+      a = LocalNotebookRepository(Directory('${root.path}/a'));
+      await a.catalog.load();
+      expect(a.catalog.loadWarning, isNotNull);
+      final report = await LibraryExtrasSync(
+        a,
+        SyncSessionRemote(remote),
+      ).run();
+      expect(report.uploaded, 0);
+      await sync(b);
+      expect(b.catalog.folders.map((f) => f.name), ['Work']);
+      expect(b.catalog.presets.first.name, 'Fine');
+      // The intact remote catalog restores the corrupt device locally.
+      expect(a.catalog.folders.map((f) => f.name), ['Work']);
+      expect(a.catalog.presets.first.name, 'Fine');
+      expect(
+        await File('${a.directory.path}/.library.json.invalid').exists(),
+        true,
+      );
+    },
+  );
+  test(
+    'a corrupt library catalog keeps folders of notes, quick to-dos and views',
+    () async {
+      final work = await a.catalog.ensureFolder('Work');
+      // Without documents, this folder's local ID is lost with the catalog.
+      final empty = await a.catalog.ensureFolder('Empty');
+      final created = await a.create('Plan', await createPaper('blank'));
+      await a.save(
+        created.copy(folderId: work.id, folderName: work.name),
+        await a.load(created.id),
+      );
+      final store = KnowledgeStore(a);
+      await store.load();
+      final todo = await store.addQuickTodo('Call', projectId: empty.id);
+      store.views.add(KnowledgeView('Empty view', folder: empty.id));
+      await store.save();
+      await sync(a);
+      await sync(b);
+      await a.flush();
+      await File('${a.directory.path}/.library.json').writeAsString('{broken');
+      a = LocalNotebookRepository(Directory('${root.path}/a'));
+      await a.catalog.load();
+      expect(a.catalog.needsSyncRestore, true);
+      // Folder identities referenced by documents survive the recovery.
+      expect(a.catalog.folderName(work.id), 'Work');
+      final report = await sync(a);
+      expect(report.uploaded, 0);
+      expect(a.catalog.needsSyncRestore, false);
+      expect(a.catalog.loadWarning, isNull);
+      expect(a.catalog.folders.map((f) => f.name).toSet(), {'Work', 'Empty'});
+      expect(a.catalog.folderName(work.id), 'Work');
+      expect((await a.list()).single.folderId, work.id);
+      final localTodo = (await QuickTodoStore(a.directory).read())[todo.id]!;
+      expect(a.catalog.folderName(localTodo.project), 'Empty');
+      final localViews = KnowledgeStore(a);
+      await localViews.load();
+      expect(a.catalog.folderName(localViews.views.single.folder), 'Empty');
+      await sync(b);
+      expect(b.catalog.folders.map((f) => f.name).toSet(), {'Work', 'Empty'});
+      expect(b.catalog.folderName((await b.list()).single.folderId), 'Work');
+      final remoteTodo = (await QuickTodoStore(b.directory).read())[todo.id]!;
+      expect(b.catalog.folderName(remoteTodo.project), 'Empty');
+      final remoteViews = KnowledgeStore(b);
+      await remoteViews.load();
+      expect(b.catalog.folderName(remoteViews.views.single.folder), 'Empty');
+      // Once restored, the device syncs normally again without churn.
+      expect((await sync(a)).uploaded, 0);
     },
   );
 }

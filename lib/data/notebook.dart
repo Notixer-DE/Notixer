@@ -266,7 +266,24 @@ class LocalNotebookRepository
       templates = TemplateRepository(
         Directory(p.join(directory.path, '.templates')),
       ),
-      catalog = LibraryCatalog(File(p.join(directory.path, '.library.json')));
+      catalog = LibraryCatalog(File(p.join(directory.path, '.library.json'))) {
+    catalog.recoverFolders = _referencedFolders;
+  }
+
+  /// Folder identities stored in documents, newest first. Bypasses the queue:
+  /// the catalog may be loaded from inside a serialized operation.
+  Future<List<NoteFolder>> _referencedFolders() async {
+    final notes = [
+      for (final entry in (await _listNotebooks(directory.path)).entries)
+        entry.note,
+    ]..sort((a, b) => b.modified.compareTo(a.modified));
+    return [
+      for (final note in notes)
+        if (note.folderId != null && note.folderName != null)
+          NoteFolder(note.folderId!, note.folderName!),
+    ];
+  }
+
   @override
   final LibraryCatalog catalog;
   @override
