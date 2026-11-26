@@ -144,7 +144,7 @@ class _TodoTimerState extends State<TodoTimer> {
           'Set tracked time',
           widget.todo.workTimeAt(DateTime.now()),
         );
-        if (duration != null) await _apply(workTime: duration);
+        if (duration != null && mounted) await _apply(workTime: duration);
       case _TimerMenu.reset:
         await _apply(timer: TodoTimerAction.reset);
     }

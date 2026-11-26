@@ -91,7 +91,6 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _showNavigation = true;
   String? _previewId;
   bool _canPreview = false;
-  ImportedMedia? _pendingMedia;
   List<String> _recoverableCaptures = [];
   final _scaffold = GlobalKey<ScaffoldState>();
   final _searchFocus = FocusNode();
@@ -403,8 +402,7 @@ class _LibraryPageState extends State<LibraryPage> {
     );
     if (path == null || !mounted) return;
     try {
-      _pendingMedia = await MediaGateway.consumeCapture(path);
-      await _addMedia();
+      await _addMedia(recoverPath: path);
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -414,13 +412,16 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
-  Future<void> _addMedia() => _perform(() async {
-    final media = _pendingMedia ?? await acquireMedia(context);
+  Future<void> _addMedia({String? recoverPath}) => _perform(() async {
+    final media = recoverPath == null
+        ? await acquireMedia(context)
+        : await MediaGateway.consumeCapture(recoverPath);
     if (media == null || !mounted) return;
-    _pendingMedia = media;
     final now = DateTime.now();
+    final Notebook note;
+    final recoverable = media.temporaryPath;
     try {
-      final note = await widget.repository.save(
+      note = await widget.repository.save(
         Notebook(
           id: LocalNotebookRepository.newId(),
           title: p.basenameWithoutExtension(media.name),
@@ -432,20 +433,25 @@ class _LibraryPageState extends State<LibraryPage> {
         ),
         media.bytes,
       );
-      _pendingMedia = null;
-      await media.release();
-      await _refresh();
-      await _open(note);
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Media could not be saved: $error'),
-            action: SnackBarAction(label: 'Retry', onPressed: _addMedia),
+            action: recoverable != null
+                ? SnackBarAction(
+                    label: 'Retry',
+                    onPressed: () => _addMedia(recoverPath: recoverable),
+                  )
+                : null,
           ),
         );
       }
+      return;
     }
+    await media.release();
+    await _refresh();
+    if (mounted) await _open(note);
   });
 
   Future<void> _open(Notebook note) async {

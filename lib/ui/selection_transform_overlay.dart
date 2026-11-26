@@ -123,6 +123,13 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay> {
 
   @override
   void dispose() {
+    final value = _value;
+    final onFinish = widget.onFinish;
+    if (value != null) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => onFinish(value, true),
+      );
+    }
     _focus.dispose();
     super.dispose();
   }

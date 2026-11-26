@@ -416,19 +416,20 @@ class EditorPaneState extends State<EditorPane> {
   );
 
   Future<void> _pageNumber() async {
-    final text = TextEditingController(text: '${viewer.currentPage + 1}');
+    var text = '${viewer.currentPage + 1}';
     final page = await showDialog<int>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Go to page'),
-        content: TextField(
-          controller: text,
+        content: TextFormField(
+          initialValue: text,
+          onChanged: (value) => text = value,
           autofocus: true,
           keyboardType: TextInputType.number,
           decoration: InputDecoration(
             labelText: 'Page (1–${editing.document.pageCount})',
           ),
-          onSubmitted: (value) {
+          onFieldSubmitted: (value) {
             final page = int.tryParse(value);
             if (page != null &&
                 page > 0 &&
@@ -444,7 +445,7 @@ class EditorPaneState extends State<EditorPane> {
           ),
           FilledButton(
             onPressed: () {
-              final page = int.tryParse(text.text);
+              final page = int.tryParse(text);
               if (page != null &&
                   page > 0 &&
                   page <= editing.document.pageCount) {
@@ -457,7 +458,6 @@ class EditorPaneState extends State<EditorPane> {
       ),
     );
     if (mounted && page != null) navigation.jumpToPage(page);
-    WidgetsBinding.instance.addPostFrameCallback((_) => text.dispose());
   }
 
   Widget _pageTiles({bool closeOnTap = false}) => ListenableBuilder(
@@ -977,6 +977,7 @@ class EditorPaneState extends State<EditorPane> {
           }
         },
         onFinish: (value, cancel) {
+          if (!mounted) return;
           final valid =
               _transformOriginal != null &&
               _transformRevision == editing.revisionId;

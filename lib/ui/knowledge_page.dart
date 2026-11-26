@@ -1469,6 +1469,7 @@ class KnowledgePageState extends State<KnowledgePage> {
                         );
                       }
                       await _store.renameTag(entry.value.$1, value);
+                      await FileGateway.refreshOpenDocuments?.call();
                       _notes = await widget.repository.list();
                       if (_tag.toLowerCase() == entry.value.$1.toLowerCase()) {
                         _tag = value;
@@ -1615,9 +1616,14 @@ class KnowledgePageState extends State<KnowledgePage> {
                     if (await file.length() > LibraryBackup.maxBytes) {
                       throw const FormatException('Backup exceeds 512 MB.');
                     }
+                    if (!mounted || !await FileGateway.prepareClose()) {
+                      throw const FormatException('Could not save open files.');
+                    }
                     final notes = await _backup.restore(
                       await file.readAsBytes(),
                     );
+                    await FileGateway.refreshOpenDocuments?.call();
+                    await widget.onQuickTodosChanged?.call();
                     await _store.reload();
                     _notes = await widget.repository.list();
                     if (mounted) {

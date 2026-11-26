@@ -136,6 +136,16 @@ class _NotebookPreviewState extends State<NotebookPreview> {
               );
             }
             final page = snapshot.data!.page(0);
+            final box = page.cropBox;
+            if (!box.width.isFinite ||
+                !box.height.isFinite ||
+                box.width <= 0 ||
+                box.height <= 0) {
+              return NotebookCover(
+                paper: widget.note.paper,
+                height: widget.height,
+              );
+            }
             return Semantics(
               label: 'First-page preview',
               child: ExcludeSemantics(

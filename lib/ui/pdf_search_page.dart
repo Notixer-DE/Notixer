@@ -27,7 +27,7 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
   final _hits = <(Notebook, PdfSearchHit)>[];
   final _messages = <String>[];
   bool _choosing = true, _searching = false;
-  bool _cancelled = false;
+  bool _cancelled = false, _opening = false;
   int _generation = 0, _completed = 0;
   String _searchedQuery = '';
   String? _openError;
@@ -120,6 +120,8 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
   }
 
   Future<void> _open(Notebook note, PdfSearchHit hit) async {
+    if (_opening) return;
+    _opening = true;
     try {
       final current = (await widget.repository.list()).where(
         (n) => n.id == note.id,
@@ -143,6 +145,8 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
       await _reload();
     } catch (e) {
       if (mounted) setState(() => _openError = 'Could not open: $e');
+    } finally {
+      _opening = false;
     }
   }
 

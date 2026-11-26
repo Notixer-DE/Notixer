@@ -359,8 +359,8 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _closeSide() async {
-    if (!await _saveAll() || !mounted) return;
+  Future<void> _closeSide() => _perform(() async {
+    if (_panes.length < 2 || !await _saveAll() || !mounted) return;
     setState(() {
       _panes.removeLast();
       _active = 0;
@@ -369,7 +369,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) active.key.currentState?.activateTools();
     });
-  }
+  });
 
   Future<void> _export(bool archive) => _perform(() async {
     final target = session;
@@ -396,13 +396,14 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
           ],
         ),
       );
-      if (result == null) return;
+      if (result == null || !mounted) return;
       withTapes = result;
     }
-    if (!await target.save()) return;
+    if (!await target.save() || !mounted) return;
     final bytes = archive
         ? await widget.repository.exportArchive(target.note)
         : await target.exportSnapshot(withTapes: withTapes);
+    if (!mounted) return;
     final name = FileGateway.exportName(
       target.note.title,
       archive ? 'noter' : 'pdf',
@@ -446,6 +447,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
       s.note.paper == 'pdf' ? 'blank' : s.note.paper,
       lineColor: s.note.lineColor,
     );
+    if (!mounted) return;
     s.editing.finishInk();
     s.editing.insertPagesFromBytes(bytes);
   });
@@ -470,6 +472,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         'Could not read the image. Please select PNG or JPEG.',
       );
     }
+    if (!mounted) return;
     editing.selectAnnotation(
       page,
       editing.document.page(page).annotations.length - 1,
