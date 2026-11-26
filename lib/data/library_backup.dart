@@ -11,7 +11,6 @@ import 'notebook.dart';
 import 'quick_todos.dart';
 import 'knowledge.dart';
 import 'templates.dart';
-import 'ink.dart';
 import 'catalog.dart';
 
 /// Complete, checksummed snapshots, separate from bounded per-note history.
