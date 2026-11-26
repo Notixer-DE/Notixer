@@ -285,7 +285,7 @@ class _WorkspaceTodayState extends State<WorkspaceToday> {
                                           title: Text(
                                             queue == null
                                                 ? 'Checking reviews…'
-                                                : '${queue.$1.length} due reviews',
+                                                : '${queue.$1.length} ${queue.$1.length == 1 ? 'review' : 'reviews'} due',
                                           ),
                                           subtitle:
                                               queue != null &&
@@ -327,7 +327,7 @@ class _WorkspaceTodayState extends State<WorkspaceToday> {
                                   if (recent.isEmpty)
                                     const ListTile(
                                       title: Text(
-                                        'Open a PDF or text note to start.',
+                                        'Open a PDF or Markdown note to start.',
                                       ),
                                     ),
                                   for (final note in recent.take(3))

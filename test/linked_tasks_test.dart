@@ -538,7 +538,7 @@ void main() {
               .isNotEmpty,
         );
 
-        await tester.tap(find.text('Markdown'));
+        await tester.tap(find.text('Edit'));
         await tester.pumpAndSettle();
         final field = find.byKey(const ValueKey('markdown-source'));
         await tester.tap(field);

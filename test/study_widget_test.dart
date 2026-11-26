@@ -209,7 +209,7 @@ void main() {
         tester,
         () => find.text('Lecture · Page 2').evaluate().isNotEmpty,
       );
-      expect(find.textContaining('1 task due now'), findsOneWidget);
+      expect(find.textContaining('1 review due'), findsOneWidget);
       await tester.tap(find.text('Lecture · Page 2'));
       await waitStudyIo(
         tester,
@@ -299,7 +299,7 @@ void main() {
         () => find.text('All done for now.').evaluate().isNotEmpty,
       );
       clock = now.add(const Duration(days: 1));
-      await tester.tap(find.byTooltip('Reload tasks'));
+      await tester.tap(find.byTooltip('Reload reviews'));
       await waitStudyIo(
         tester,
         () => find.text('Lecture · Page 2').evaluate().isNotEmpty,
@@ -310,12 +310,12 @@ void main() {
       session.save().then((ok) => saved = ok);
       await waitStudyIo(tester, () => saved != null);
       expect(saved, isTrue);
-      await tester.tap(find.byTooltip('Reload tasks'));
+      await tester.tap(find.byTooltip('Reload reviews'));
       await waitStudyIo(
         tester,
         () => find.text('All done for now.').evaluate().isNotEmpty,
       );
-      expect(find.textContaining('0 tasks due now'), findsOneWidget);
+      expect(find.textContaining('0 reviews due'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       session.dispose();

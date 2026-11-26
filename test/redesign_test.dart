@@ -363,7 +363,7 @@ void main() {
             find.byTooltip('Hide folders'),
             viewport.name == 'desktop' ? findsOneWidget : findsNothing,
           );
-          expect(find.byTooltip('Show note list'), findsOneWidget);
+          expect(find.byTooltip('Show file list'), findsOneWidget);
           final paragraphFinder = find.byWidgetPredicate(
             (widget) =>
                 widget is SelectableText &&
@@ -400,8 +400,8 @@ void main() {
           await tester.pumpAndSettle();
           expect(tester.takeException(), isNull);
           await _capture(tester, 'markdown-${viewport.name}');
-          await tester.ensureVisible(find.text('Markdown'));
-          await tester.tap(find.text('Markdown'));
+          await tester.ensureVisible(find.text('Edit'));
+          await tester.tap(find.text('Edit'));
           await tester.pumpAndSettle();
           final source = tester.widget<TextField>(
             find.byKey(const ValueKey('markdown-source')),

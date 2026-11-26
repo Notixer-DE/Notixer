@@ -108,7 +108,7 @@ class _PageManagerState extends State<PageManager> {
       builder: (context) => AlertDialog(
         title: const Text('Delete pages?'),
         content: Text(
-          '${selected.length}selected pages will be removed. You can undo this in the editor.',
+          '${selected.length} selected ${selected.length == 1 ? 'page' : 'pages'} will be removed. You can undo this in the editor.',
         ),
         actions: [
           TextButton(

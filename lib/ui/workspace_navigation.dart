@@ -3,10 +3,10 @@ import 'package:flutter/material.dart';
 import 'workspace_chrome.dart';
 
 enum WorkspaceArea {
-  today('Today', Icons.today_outlined),
+  today('Today', Icons.wb_sunny_outlined),
   files('Files', Icons.folder_outlined),
   tasks('Tasks', Icons.checklist),
-  journal('Journal', Icons.calendar_month_outlined),
+  journal('Journal', Icons.menu_book_outlined),
   more('More', Icons.more_horiz),
   search('Search', Icons.search),
   inbox('Inbox', Icons.inbox_outlined),

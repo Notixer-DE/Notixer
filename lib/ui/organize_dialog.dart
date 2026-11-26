@@ -92,7 +92,7 @@ Future<String?> pickMoveFolder(BuildContext context, List<NoteFolder> folders) {
     builder: (context) => StatefulBuilder(
       builder: (context, setState) => AlertDialog(
         scrollable: true,
-        title: const Text('Move selected notes'),
+        title: const Text('Move selected files'),
         content: SizedBox(
           width: 380,
           child: _FolderField(
@@ -225,8 +225,8 @@ class _FolderManagerState extends State<FolderManager> {
         title: const Text('Delete folder?'),
         content: Text(
           notes.length == 1
-              ? 'One note will be moved to “Unfiled”. The note is preserved.'
-              : '${notes.length}notes will be moved to “Unfiled”. The notes are preserved.',
+              ? 'One file will be moved to “Unfiled”. The file is preserved.'
+              : '${notes.length} files will be moved to “Unfiled”. The files are preserved.',
         ),
         actions: [
           TextButton(

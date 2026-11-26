@@ -770,7 +770,7 @@ class EditorPaneState extends State<EditorPane> {
       final detail = tape == null
           ? 'Tap a study cover to review'
           : schedule == null
-          ? 'New task · due now'
+          ? 'New review · due now'
           : '${schedule.concurrent ? "Concurrent ratings · " : ""}'
                 '${schedule.count} ${schedule.count == 1 ? 'rating' : 'ratings'} · due ${_date(schedule.due)}';
       final description = [widget.reviewProgress, detail].nonNulls.join(' · ');

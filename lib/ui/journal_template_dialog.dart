@@ -73,8 +73,8 @@ class _JournalTemplateDialogState extends State<JournalTemplateDialog> {
             const SizedBox(height: 12),
             SegmentedButton<bool>(
               segments: const [
-                ButtonSegment(value: false, label: Text('Markdown')),
-                ButtonSegment(value: true, label: Text('Preview')),
+                ButtonSegment(value: true, label: Text('Read')),
+                ButtonSegment(value: false, label: Text('Edit')),
               ],
               selected: {_preview},
               onSelectionChanged: (value) =>

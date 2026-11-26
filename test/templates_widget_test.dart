@@ -130,7 +130,7 @@ void main() {
     await settleFileIo(
       tester,
       () => find
-          .text('0 notes · Most recently modified first')
+          .text('0 files · Most recently modified first')
           .evaluate()
           .isNotEmpty,
     );

@@ -282,7 +282,7 @@ void main() {
       await _control(tester, LogicalKeyboardKey.keyF);
       await tester.pump();
       expect(
-        find.text('Already assigned to Search note titles.'),
+        find.text('Already assigned to Search file titles.'),
         findsOneWidget,
       );
       expect(pickerOpens, 1);

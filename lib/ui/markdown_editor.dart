@@ -71,12 +71,14 @@ class _MarkdownLoaderState extends State<MarkdownEditorPage> {
     builder: (context, snapshot) {
       if (!snapshot.hasData) {
         return Scaffold(
-          appBar: AppBar(title: const Text('Open text note')),
+          appBar: AppBar(title: const Text('Open Markdown note')),
           body: Center(
             child: snapshot.hasError
                 ? Padding(
                     padding: const EdgeInsets.all(24),
-                    child: Text('Could not load text note: ${snapshot.error}'),
+                    child: Text(
+                      'Could not load Markdown note: ${snapshot.error}',
+                    ),
                   )
                 : const CircularProgressIndicator(),
           ),
@@ -1269,7 +1271,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                       note.isMedia
                           ? note.mediaFormat!.kind
                           : note.isMarkdown
-                          ? 'Text note'
+                          ? 'Markdown'
                           : 'PDF / handwriting',
                     ),
                     trailing: note.isMedia
@@ -1423,7 +1425,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     final result = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('New text note'),
+        title: const Text('New Markdown note'),
         content: TextField(
           controller: title,
           autofocus: true,
@@ -1447,7 +1449,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     if (result == null || !mounted) return;
     final note = await MarkdownLibrary(
       widget.repository,
-    ).create(result.isEmpty ? 'Text note' : result);
+    ).create(result.isEmpty ? 'Markdown note' : result);
     await _reload();
     // End the current operation before opening through the guarded navigator.
     if (mounted) {
@@ -1683,7 +1685,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
             const Padding(
               padding: EdgeInsets.all(16),
               child: Text(
-                'My notes',
+                'Files',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
@@ -1695,7 +1697,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: TextField(
                 decoration: const InputDecoration(
-                  hintText: 'Search notes',
+                  hintText: 'Search file titles',
                   prefixIcon: Icon(Icons.search),
                 ),
                 onChanged: (value) {
@@ -1781,11 +1783,11 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                         _newNote();
                       },
                 icon: const Icon(Icons.add),
-                label: const Text('New text note'),
+                label: const Text('New Markdown note'),
               ),
               const SizedBox(height: 16),
               ListTile(
-                title: const Text('All notes'),
+                title: const Text('All files'),
                 leading: const Icon(Icons.grid_view_outlined),
                 selected: _folder == null,
                 onTap: () {
@@ -1882,7 +1884,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                               children: [
                                 const Align(
                                   alignment: Alignment.centerLeft,
-                                  child: DocumentTypeBadge('MD'),
+                                  child: DocumentTypeBadge('Markdown'),
                                 ),
                                 const SizedBox(height: 16),
                                 TextField(
@@ -1918,7 +1920,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                   ),
                                   onChanged: (value) => _session.rename(
                                     value.trim().isEmpty
-                                        ? 'Text note'
+                                        ? 'Markdown note'
                                         : value.trim(),
                                   ),
                                 ),
@@ -2083,11 +2085,11 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                           if (!desktop || widget.tabController == null)
                             IconButton(
                               tooltip: desktop && _showNotes
-                                  ? 'Hide note list'
-                                  : 'Show note list',
+                                  ? 'Hide file list'
+                                  : 'Show file list',
                               isSelected: desktop ? _showNotes : null,
-                              icon: const Icon(Icons.list_alt_outlined),
-                              selectedIcon: const Icon(Icons.list_alt),
+                              icon: const Icon(Icons.file_copy_outlined),
+                              selectedIcon: const Icon(Icons.file_copy),
                               onPressed: () => _toggleNoteList(desktop),
                             ),
                           const SizedBox(width: 8),
@@ -2255,22 +2257,14 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                               segments: [
                                                 ButtonSegment(
                                                   value: false,
-                                                  label: Text(
-                                                    widget.tabController == null
-                                                        ? 'Formatted'
-                                                        : 'Read',
-                                                  ),
+                                                  label: Text('Read'),
                                                   icon: Icon(
                                                     Icons.article_outlined,
                                                   ),
                                                 ),
                                                 ButtonSegment(
                                                   value: true,
-                                                  label: Text(
-                                                    widget.tabController == null
-                                                        ? 'Markdown'
-                                                        : 'Edit',
-                                                  ),
+                                                  label: Text('Edit'),
                                                   icon: Icon(Icons.code),
                                                 ),
                                               ],

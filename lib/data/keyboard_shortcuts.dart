@@ -66,7 +66,7 @@ enum AppShortcut {
     alt: true,
   ),
 
-  newNote(ShortcutSection.library, 'Create a note', LogicalKeyboardKey.keyN),
+  newNote(ShortcutSection.library, 'Create a file', LogicalKeyboardKey.keyN),
   quickTodo(
     ShortcutSection.library,
     'Add to-do',
@@ -75,7 +75,7 @@ enum AppShortcut {
   ),
   searchLibrary(
     ShortcutSection.library,
-    'Search note titles',
+    'Search file titles',
     LogicalKeyboardKey.keyF,
   ),
   graph(
@@ -203,7 +203,7 @@ enum AppShortcut {
 
   markdownPreview(
     ShortcutSection.markdown,
-    'Switch between formatted view and Markdown',
+    'Switch between Read and Edit',
     LogicalKeyboardKey.keyM,
     alt: true,
   ),
