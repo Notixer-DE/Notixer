@@ -33,7 +33,12 @@ class FileGateway {
         return true;
       }
       if (call.method == 'prepareClose') {
-        return prepareClose();
+        try {
+          return await prepareClose();
+        } catch (error) {
+          debugPrint('Could not save open files before closing: $error');
+          return false;
+        }
       }
       throw MissingPluginException();
     });

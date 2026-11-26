@@ -24,14 +24,17 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
 // Ask Dart to flush edits before closing the window.
 static void close_ready_cb(GObject* source, GAsyncResult* result, gpointer data) {
   GtkWidget* window = GTK_WIDGET(data);
-  MyApplication* self = MY_APPLICATION(gtk_window_get_application(GTK_WINDOW(window)));
-  self->close_pending = FALSE;
+  GtkApplication* application = gtk_window_get_application(GTK_WINDOW(window));
   g_autoptr(GError) error = nullptr;
   g_autoptr(FlMethodResponse) response = fl_method_channel_invoke_method_finish(
       FL_METHOD_CHANNEL(source), result, &error);
-  if (response != nullptr && FL_IS_METHOD_SUCCESS_RESPONSE(response)) {
-    FlValue* value = fl_method_success_response_get_result(FL_METHOD_SUCCESS_RESPONSE(response));
-    if (value != nullptr && fl_value_get_type(value) == FL_VALUE_TYPE_BOOL &&
+  if (application != nullptr) {
+    MY_APPLICATION(application)->close_pending = FALSE;
+    FlValue* value = response != nullptr && FL_IS_METHOD_SUCCESS_RESPONSE(response)
+        ? fl_method_success_response_get_result(FL_METHOD_SUCCESS_RESPONSE(response))
+        : nullptr;
+    // Only an explicit veto from Dart keeps the window open.
+    if (value == nullptr || fl_value_get_type(value) != FL_VALUE_TYPE_BOOL ||
         fl_value_get_bool(value)) {
       gtk_widget_destroy(window);
     }
@@ -41,6 +44,7 @@ static void close_ready_cb(GObject* source, GAsyncResult* result, gpointer data)
 
 static gboolean window_delete_cb(GtkWidget* window, GdkEvent*, gpointer data) {
   MyApplication* self = MY_APPLICATION(data);
+  if (self->close_channel == nullptr) return FALSE;
   if (!self->close_pending) {
     self->close_pending = TRUE;
     fl_method_channel_invoke_method(self->close_channel, "prepareClose", nullptr,
