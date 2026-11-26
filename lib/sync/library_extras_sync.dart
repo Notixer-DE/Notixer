@@ -277,6 +277,7 @@ class LibraryExtrasSync {
       );
       return jsonDecode((await decodeMarkdownAsync(bytes)).source);
     }
+
     Future<void> stage(
       String kind,
       String key,
