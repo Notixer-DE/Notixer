@@ -204,8 +204,10 @@ class NotebookSync {
       for (final r in await remote.list())
         if (r.noteId.startsWith('extra_') == extras) r.revision: r,
     };
+    final byNote = <String, List<SyncRevision>>{};
     // A corrupt history must never turn a live document into a deletion.
     for (final r in revisions.values) {
+      (byNote[r.noteId] ??= []).add(r);
       if (noteId != null && r.noteId != noteId) continue;
       for (final parent in r.parents) {
         final previous = revisions[parent];
@@ -217,17 +219,14 @@ class NotebookSync {
       }
     }
     final ids = noteId == null
-        ? ({
-            ...localIds,
-            ...state.keys,
-            ...revisions.values.map((r) => r.noteId),
-          }.toList()..sort())
+        ? ({...localIds, ...state.keys, ...byNote.keys}.toList()..sort())
         : [noteId];
     final cache = <String, Uint8List>{};
     Future<void> publish(SyncRevision r, Uint8List bytes) async {
       if (!revisions.containsKey(r.revision)) {
         await remote.upload(r, bytes);
         revisions[r.revision] = r;
+        (byNote[r.noteId] ??= []).add(r);
         cache[r.revision] = bytes;
         report.uploaded++;
       }
@@ -264,7 +263,7 @@ class NotebookSync {
           snapshot == null &&
           baseline == null &&
           local is LocalNotebookRepository &&
-          revisions.values.any((revision) => revision.noteId == id) &&
+          byNote.containsKey(id) &&
           await File(
             p.join(local.directory.path, '.trash', '$id.noter'),
           ).exists();
@@ -285,7 +284,7 @@ class NotebookSync {
           snapshot?.archive ?? Uint8List(0),
         );
       }
-      final versions = revisions.values.where((r) => r.noteId == id).toList();
+      final versions = byNote[id] ?? const <SyncRevision>[];
       if (versions.isEmpty) continue;
       final superseded = versions.expand((r) => r.parents).toSet();
       final heads =
@@ -361,8 +360,7 @@ class NotebookSync {
         final conflictIdentity = extras ? losing.revision : losing.digest;
         final conflictId =
             '${extras ? 'extra_conflict_' : 'conflict_'}${sha256.convert(utf8.encode('$id:$conflictIdentity')).toString().substring(0, 40)}';
-        if (revisions.values.any((r) => r.noteId == conflictId) ||
-            localIds.contains(conflictId)) {
+        if (byNote.containsKey(conflictId) || localIds.contains(conflictId)) {
           continue;
         }
         final (note, pdf, ink) = await _decodeInkValidated(bytes);

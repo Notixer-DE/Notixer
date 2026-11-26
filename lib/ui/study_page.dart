@@ -17,19 +17,23 @@ class StudyTask {
 Future<(List<StudyTask>, List<String>, int)> loadStudyQueue(
   NotebookRepository repository,
   DateTime clock, {
+  Future<List<Notebook>>? listing,
   bool Function()? cancelled,
 }) async {
   final tasks = <StudyTask>[], errors = <String>[];
   var total = 0;
   final now = clock.toUtc();
   try {
-    final notes = await repository.list();
+    final notes = await (listing ?? repository.list());
     for (final note in notes) {
       if (!note.isPdf) continue;
       if (cancelled?.call() == true) break;
       try {
         // One PDF at a time; parsing and target scanning run off the UI thread.
-        final targets = await scanTapes(await repository.load(note.id));
+        final bytes = await repository.load(note.id);
+        if (cancelled?.call() == true) break;
+        final targets = await scanTapes(bytes);
+        if (cancelled?.call() == true) break;
         total += targets.length;
         for (final target in targets) {
           final schedule = note.learning.schedule(target.id);

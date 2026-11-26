@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 import 'disk_sync_files.dart';
@@ -10,6 +11,14 @@ import 'sync_crypto.dart';
 import 'sync_revision.dart';
 
 const syncBlockBytes = 4 * 1024 * 1024;
+
+Future<String> _hashBlock(Uint8List bytes) async {
+  if (bytes.length < 64 * 1024) return sha256.convert(bytes).toString();
+  final block = TransferableTypedData.fromList([bytes]);
+  return Isolate.run(
+    () => sha256.convert(block.materialize().asUint8List()).toString(),
+  );
+}
 
 bool isLoopbackServer(Uri uri) =>
     ['localhost', '127.0.0.1', '::1', '[::1]'].contains(uri.host.toLowerCase());
@@ -199,14 +208,15 @@ class ServerRemote implements RevisionRemote {
       final plain = Uint8List.sublistView(bytes, offset, end);
       // Local keyed lookup reuses the exact random-nonce ciphertext on retry.
       // Neither this lookup nor the plaintext hash is sent to the server.
-      final lookup = crypto.identify('chunk:${sha256.convert(plain)}');
+      final lookup = crypto.identify('chunk:${await _hashBlock(plain)}');
       final location = 'chunks/$lookup';
       Uint8List? encrypted;
       final cached = await _cache.read(location, maxBytes: syncBlockBytes + 28);
       if (cached != null) {
         try {
           final restored = await crypto.decrypt(cached, 'chunk');
-          if (crypto.identify('chunk:${sha256.convert(restored)}') == lookup) {
+          if (crypto.identify('chunk:${await _hashBlock(restored)}') ==
+              lookup) {
             encrypted = cached;
           }
         } catch (_) {
@@ -217,7 +227,7 @@ class ServerRemote implements RevisionRemote {
         encrypted = await crypto.encrypt(plain, 'chunk');
         await _cache.write(location, encrypted);
       }
-      final id = sha256.convert(encrypted).toString();
+      final id = await _hashBlock(encrypted);
       blobs.add(id);
       locations[id] = location;
     }
@@ -289,7 +299,7 @@ class ServerRemote implements RevisionRemote {
       Uint8List? encrypted;
       var reused = false;
       final cached = await _cache.read(location, maxBytes: syncBlockBytes + 28);
-      if (cached != null && sha256.convert(cached).toString() == id) {
+      if (cached != null && await _hashBlock(cached) == id) {
         encrypted = cached;
         reused = true;
       }
@@ -299,13 +309,13 @@ class ServerRemote implements RevisionRemote {
           '/blobs/$id',
           limit: syncBlockBytes + 28,
         );
-        if (sha256.convert(encrypted).toString() != id) {
+        if (await _hashBlock(encrypted) != id) {
           throw const SyncFailure('An encrypted block is corrupted.');
         }
       }
       final plain = await crypto.decrypt(encrypted, 'chunk');
       if (!reused) await _cache.write(location, encrypted);
-      final lookup = crypto.identify('chunk:${sha256.convert(plain)}');
+      final lookup = crypto.identify('chunk:${await _hashBlock(plain)}');
       await chunkWrites.putIfAbsent(lookup, () async {
         final chunkKey = 'chunks/$lookup';
         if (await _cache.read(chunkKey) == null) {

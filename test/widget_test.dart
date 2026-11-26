@@ -391,12 +391,11 @@ void main() {
       expect(find.byType(SliverGrid), findsNothing);
       await tester.tap(find.byTooltip('Grid view'));
       await tester.pumpAndSettle();
-      final grid = tester.widget<SliverGrid>(find.byType(SliverGrid));
-      expect(
-        (grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount)
-            .crossAxisCount,
-        2,
-      );
+      expect(find.byType(SliverGrid), findsOneWidget);
+      final lecture = tester.getCenter(find.text('Lecture'));
+      final pdf = tester.getCenter(find.text('PDF-Unterlagen'));
+      expect(lecture.dy, closeTo(pdf.dy, 1));
+      expect((lecture.dx - pdf.dx).abs(), greaterThan(100));
       await tester.tap(find.byTooltip('Show folders'));
       await tester.pumpAndSettle();
       await tester.tap(

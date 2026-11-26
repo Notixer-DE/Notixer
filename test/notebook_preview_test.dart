@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:noter/data/markdown_document.dart';
 import 'package:noter/data/notebook.dart';
 import 'package:noter/data/paper.dart';
 import 'package:noter/ui/notebook_preview.dart';
@@ -9,7 +10,14 @@ import 'package:pdf_document/pdf_document.dart';
 class _Repository extends LocalNotebookRepository {
   _Repository(super.directory);
   int loads = 0, concurrent = 0, maximum = 0;
+  int markdownLoads = 0;
   bool fail = false;
+  @override
+  Future<Uint8List> load(String id) {
+    markdownLoads++;
+    return super.load(id);
+  }
+
   @override
   Future<Uint8List> loadPdf(String id) async {
     loads++;
@@ -78,6 +86,30 @@ void main() {
     expect(current, same(old));
     expect(await current, isNotNull);
     expect(repository.loads, 1);
+  });
+
+  test('reuses Markdown previews until the file revision changes', () async {
+    var markdown = await repository.create(
+      'Checklist',
+      MarkdownDocument('- [ ] Draft\n- [x] Done').encode(),
+      paper: 'markdown',
+    );
+    expect(await cache.loadMarkdown(markdown, () => false), isNull);
+    expect(repository.markdownLoads, 0);
+    final first = cache.loadMarkdown(markdown, () => true);
+    expect(cache.loadMarkdown(markdown, () => true), same(first));
+    expect((await first)?.$2, 1);
+    expect((await first)?.$3, 2);
+    expect(repository.markdownLoads, 1);
+
+    markdown = await repository.save(
+      markdown.copy(
+        modified: markdown.modified.add(const Duration(seconds: 1)),
+      ),
+      MarkdownDocument('- [x] Done').encode(),
+    );
+    expect((await cache.loadMarkdown(markdown, () => true))?.$3, 1);
+    expect(repository.markdownLoads, 2);
   });
 
   test(
