@@ -593,7 +593,7 @@ class KnowledgePageState extends State<KnowledgePage> {
       if (task == null || !task.canPlan) return false;
       final project = _taskProject(task);
       return switch (_taskView) {
-        _TaskView.unsorted => project == null,
+        _TaskView.unsorted => task.isQuickTodo && project == null,
         _TaskView.projects =>
           project != null &&
               (selected == null ||

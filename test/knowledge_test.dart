@@ -83,7 +83,7 @@ void main() {
       );
       expect(scan.hits.single.snippet, task);
       final open = scan.tasksByLocation['${todo.id}:line=1']!;
-      expect(open.canPlan, isFalse);
+      expect(open.canPlan, isTrue);
       await store.changeTask(open);
 
       final remote = MemoryRemote();

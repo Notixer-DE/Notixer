@@ -167,6 +167,7 @@ class KnowledgeTask {
   final TodoTimerAction? timerAction;
   final Duration? workTime, countdown;
   QuickTodo? get todo => quickTodo ?? documentTodo;
+  bool get isQuickTodo => quickTodo != null || _isQuickTodo(note);
   String? get projectFolderId =>
       quickTodo?.project ?? (_isQuickTodo(note) ? note.folderId : null);
   bool get done => todo?.done ?? false;
@@ -241,7 +242,9 @@ class KnowledgeTask {
 
   String get anchor => quickTodo == null ? 'line=$line' : 'task';
   String? get due =>
-      quickTodo?.due ?? documentTodo?.due ?? quickTodoDueDate(note);
+      quickTodo?.due ??
+      documentTodo?.due ??
+      (_isQuickTodo(note) ? quickTodoDueDate(note) : null);
 }
 
 String markdownRevision(String source) =>
@@ -692,9 +695,7 @@ class KnowledgeStore {
       await repository.applySync(current.id, snapshot.raw, archive);
       return updated;
     }
-    if (!_isQuickTodo(current) ||
-        markdownRevision(document.source) != task.revision ||
-        offsets.singleOrNull != task.offset ||
+    if (markdownRevision(document.source) != task.revision ||
         document.source[task.offset] != ' ' ||
         current.folderId != task.note.folderId ||
         quickTodoDueDate(current) != quickTodoDueDate(task.note)) {

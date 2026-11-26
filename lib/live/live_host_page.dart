@@ -60,6 +60,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
   Color _markerColor = const Color(0xfff4ca22);
   double _penWidth = 3, _markerWidth = 15;
   double _penOpacity = 1, _markerOpacity = 0x75 / 255;
+  double _eraserDiameter = 22;
   final _presetPressure = <_CanvasTool, bool>{};
   InkEraserGesture? _eraser;
 
@@ -141,7 +142,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
           _eraser = InkEraserGesture(
             _model.ink,
             LiveCanvasModel.page,
-            11,
+            _eraserDiameter / 2,
             wholeStroke:
                 widget.repository.catalog.drawingPreferences.wholeStrokeEraser,
           );
@@ -685,6 +686,41 @@ class _LiveHostPageState extends State<LiveHostPage> {
     });
   }
 
+  Future<void> _editEraserDiameter() async {
+    var diameter = _eraserDiameter;
+    final result = await showDialog<double>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          title: const Text('Eraser diameter'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('${diameter.round()} pt'),
+              Slider(
+                value: diameter,
+                min: 4,
+                max: 80,
+                onChanged: (value) => update(() => diameter = value),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, diameter),
+              child: const Text('Apply'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (mounted && result != null) setState(() => _eraserDiameter = result);
+  }
+
   Widget _widthPicker() {
     final marker = _tool == _CanvasTool.marker;
     final width = marker ? _markerWidth : _penWidth;
@@ -786,6 +822,12 @@ class _LiveHostPageState extends State<LiveHostPage> {
                     ),
                   ),
                 ],
+                if (_tool == _CanvasTool.eraser)
+                  TextButton.icon(
+                    onPressed: _editingCanvas ? null : _editEraserDiameter,
+                    icon: const Icon(Icons.line_weight),
+                    label: Text('${_eraserDiameter.round()} pt'),
+                  ),
                 if (_tool == _CanvasTool.lasso &&
                     _model.ink.selected.isNotEmpty)
                   IconButton(
