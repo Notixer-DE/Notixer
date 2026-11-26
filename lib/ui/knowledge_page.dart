@@ -122,7 +122,6 @@ class KnowledgePageState extends State<KnowledgePage> {
   int _generation = 0, _completed = 0, _total = 0;
   String? _error, _backupStatus;
   KnowledgeScan? _scan;
-  bool _scannedQuickTodosOnly = false;
   List<Notebook> _notes = [];
   List<File> _backups = [];
   DateTime _date = DateUtils.dateOnly(DateTime.now());
@@ -272,10 +271,6 @@ class KnowledgePageState extends State<KnowledgePage> {
   Future<void> _search({bool keepResults = false}) async {
     if (_busy) return;
     final generation = ++_generation;
-    final onlyQuickTodos =
-        _taskSection &&
-        _taskView != _TaskView.all &&
-        _taskView != _TaskView.completed;
     setState(() {
       _busy = true;
       _error = null;
@@ -288,7 +283,6 @@ class KnowledgePageState extends State<KnowledgePage> {
     try {
       final result = await _store.scan(
         _view,
-        onlyQuickTodos: onlyQuickTodos,
         includeCompletedTasks:
             widget.embedded && _section == 'Search' && !_view.tasksOnly,
         cancelled: () =>
@@ -310,7 +304,6 @@ class KnowledgePageState extends State<KnowledgePage> {
       if (mounted && generation == _generation) {
         setState(() {
           _scan = result;
-          _scannedQuickTodosOnly = onlyQuickTodos;
           if (_cancelRequested) {
             _error = 'Search cancelled; partial results are shown.';
           }
@@ -581,6 +574,12 @@ class KnowledgePageState extends State<KnowledgePage> {
     if (mounted && _error == null) await _search();
   }
 
+  String? _taskProject(KnowledgeTask task) {
+    final catalog = widget.repository.catalog;
+    if (task.documentTodo?.project case final name?) return name;
+    return catalog.folderName(task.projectFolderId);
+  }
+
   List<KnowledgeHit> _taskHits(KnowledgeScan scan, String today) {
     if (!_taskSection ||
         _taskView == _TaskView.all ||
@@ -588,19 +587,18 @@ class KnowledgePageState extends State<KnowledgePage> {
       return scan.hits;
     }
     final catalog = widget.repository.catalog;
-    final selected = catalog.folderName(_projectFilter) == null
-        ? ''
-        : _projectFilter;
+    final selected = catalog.folderName(_projectFilter);
     final hits = scan.hits.where((hit) {
       final task = scan.tasksByLocation['${hit.note.id}:${hit.anchor}'];
-      if (task?.canPlan != true) return false;
-      final project = catalog.folderName(hit.note.folderId);
+      if (task == null || !task.canPlan) return false;
+      final project = _taskProject(task);
       return switch (_taskView) {
         _TaskView.unsorted => project == null,
         _TaskView.projects =>
           project != null &&
-              (selected.isEmpty || hit.note.folderId == selected),
-        _TaskView.today => switch (task!.due) {
+              (selected == null ||
+                  project.toLowerCase() == selected.toLowerCase()),
+        _TaskView.today => switch (task.due) {
           final String due => due.compareTo(today) <= 0,
           null => false,
         },
@@ -632,9 +630,7 @@ class KnowledgePageState extends State<KnowledgePage> {
                   if (view == _taskView) return;
                   final wasCompleted = _showCompletedTasks;
                   setState(() => _taskView = view);
-                  if (wasCompleted != _showCompletedTasks ||
-                      ((view == _TaskView.all || view == _TaskView.completed) &&
-                          _scannedQuickTodosOnly)) {
+                  if (wasCompleted != _showCompletedTasks) {
                     unawaited(_search());
                   }
                 },
@@ -655,8 +651,8 @@ class KnowledgePageState extends State<KnowledgePage> {
           ? source
           : '$source · ${completedTaskLabel(context, completed)}';
     }
-    final project = widget.repository.catalog.folderName(hit.note.folderId);
-    final due = task!.due;
+    final project = _taskProject(task!);
+    final due = task.due;
     final details = [
       if (hit.note.title != hit.snippet) hit.note.title,
       ?project,
@@ -971,7 +967,7 @@ class KnowledgePageState extends State<KnowledgePage> {
               child: Text(
                 scan == null
                     ? (_section == 'Tasks'
-                          ? 'Search to collect open checkboxes from every Markdown file.'
+                          ? 'Quick to-dos are standalone. Checklist tasks stay in their Markdown or to-do file. Plan either type from the task row.'
                           : 'Enter text, or leave it empty to list all matching files.')
                     : _taskSection && _view.query.isEmpty
                     ? switch (_taskView) {

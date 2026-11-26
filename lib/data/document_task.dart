@@ -157,6 +157,26 @@ String setDocumentTaskLinkId(String source, int offset, String linkId) {
   );
 }
 
+String planDocumentTask(
+  String source,
+  int offset, {
+  String? project,
+  String? due,
+}) {
+  final end = _lineEnd(source, offset);
+  final raw = source.substring(offset + 2, end);
+  final metadata = <String, Object?>{...?_readTaskMetadata(raw)}
+    ..remove('project')
+    ..remove('due');
+  if (project != null) metadata['project'] = project;
+  if (due != null) metadata['due'] = due;
+  return source.replaceRange(
+    offset + 2,
+    end,
+    '${visibleTaskText(raw)}${_encodeTaskComment(metadata)}',
+  );
+}
+
 String updateDocumentTask(
   String source,
   int offset, {
@@ -183,8 +203,8 @@ String updateDocumentTask(
   );
   final updated = original.update(
     instant,
-    project: null,
-    due: null,
+    project: original.project,
+    due: original.due,
     done: done,
     timer: timer,
     workTime: workTime,
@@ -193,6 +213,8 @@ String updateDocumentTask(
   final metadata = updated.toJson()
     ..removeWhere(
       (key, _) => !{
+        'project',
+        'due',
         'completedAt',
         'timerStartedAt',
         'timerPaused',

@@ -16,6 +16,7 @@ import '../data/todo_list.dart';
 import 'document_tab.dart';
 import 'noter_theme.dart';
 import 'organize_dialog.dart';
+import 'plan_todo_dialog.dart';
 import 'todo_timer.dart';
 import 'workspace_chrome.dart';
 
@@ -208,6 +209,79 @@ class _TodoListEditorState extends State<_TodoListEditor> {
       return;
     }
     _replace(item.rename(source, value));
+  }
+
+  Future<void> _plan(TodoListItem item) async {
+    final source = _source;
+    final repository = _page.repository;
+    final task = KnowledgeTask(
+      _session.note,
+      item.offset,
+      item.line,
+      item.text,
+      markdownRevision(source),
+      canPlan: true,
+      documentTodo: documentTask(
+        source,
+        item.offset,
+        item.text,
+        fallback: _session.note.modified,
+      ),
+    );
+    await repository.catalog.load();
+    if (!mounted || source != _source) return;
+    final plan = await showDialog<TodoPlan>(
+      context: context,
+      builder: (_) =>
+          PlanTodoDialog(task: task, folders: repository.catalog.folders),
+    );
+    if (!mounted || plan == null || source != _source) return;
+    try {
+      final project = plan.newProject == null
+          ? repository.catalog.folderName(plan.projectId)
+          : (await repository.catalog.ensureFolder(plan.newProject!)).name;
+      if (!mounted || source != _source) return;
+      _replace(
+        planDocumentTask(
+          source,
+          item.offset,
+          project: project,
+          due: plan.due == null ? null : journalDate(plan.due!),
+        ),
+      );
+      if (!await _session.save() && mounted) {
+        _message(_session.error ?? 'Could not save the task.');
+      }
+    } catch (error) {
+      if (mounted) _message('Could not plan the task: $error');
+    }
+  }
+
+  Future<void> _delete(TodoListItem item) async {
+    final source = _source;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete task?'),
+        content: Text(item.text),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true || source != _source) return;
+    _replace(deleteDocumentTaskLine(source, item.offset));
   }
 
   Future<void> _reveal(String anchor) async {
@@ -528,16 +602,33 @@ class _TodoListEditorState extends State<_TodoListEditor> {
                                                 );
                                               },
                                       ),
-                                      IconButton(
-                                        tooltip: 'Copy linked to-do',
-                                        visualDensity: VisualDensity.compact,
-                                        onPressed: _leaving
-                                            ? null
-                                            : () => _copyItem(item),
-                                        icon: const Icon(
-                                          Icons.content_copy_outlined,
-                                          size: 18,
-                                        ),
+                                      PopupMenuButton<String>(
+                                        tooltip: 'Task actions',
+                                        enabled: !_leaving,
+                                        onSelected: (action) {
+                                          switch (action) {
+                                            case 'copy':
+                                              _copyItem(item);
+                                            case 'plan':
+                                              _plan(item);
+                                            case 'delete':
+                                              _delete(item);
+                                          }
+                                        },
+                                        itemBuilder: (_) => const [
+                                          PopupMenuItem(
+                                            value: 'plan',
+                                            child: Text('Plan to-do'),
+                                          ),
+                                          PopupMenuItem(
+                                            value: 'copy',
+                                            child: Text('Copy linked to-do'),
+                                          ),
+                                          PopupMenuItem(
+                                            value: 'delete',
+                                            child: Text('Delete task'),
+                                          ),
+                                        ],
                                       ),
                                       IconButton(
                                         tooltip: 'Edit task',

@@ -167,6 +167,8 @@ class KnowledgeTask {
   final TodoTimerAction? timerAction;
   final Duration? workTime, countdown;
   QuickTodo? get todo => quickTodo ?? documentTodo;
+  String? get projectFolderId =>
+      quickTodo?.project ?? (_isQuickTodo(note) ? note.folderId : null);
   bool get done => todo?.done ?? false;
 
   KnowledgeTask withTimer({
@@ -238,7 +240,8 @@ class KnowledgeTask {
   }
 
   String get anchor => quickTodo == null ? 'line=$line' : 'task';
-  String? get due => quickTodo?.due ?? quickTodoDueDate(note);
+  String? get due =>
+      quickTodo?.due ?? documentTodo?.due ?? quickTodoDueDate(note);
 }
 
 String markdownRevision(String source) =>
@@ -669,6 +672,26 @@ class KnowledgeStore {
     );
     final document = await decodeMarkdownAsync(bytes);
     final offsets = markdownTaskOffsets(document.source);
+    if (!_isQuickTodo(current) || offsets.singleOrNull != task.offset) {
+      if (markdownRevision(document.source) != task.revision ||
+          !offsets.contains(task.offset)) {
+        throw const FormatException('The to-do changed. Reload the task list.');
+      }
+      final source = planDocumentTask(
+        document.source,
+        task.offset,
+        project: project?.name,
+        due: date,
+      );
+      if (source == document.source) return current;
+      final updated = current.copy(modified: DateTime.now());
+      final archive = await LocalNotebookRepository.encodeAsync(
+        updated,
+        document.copy(source: source).encode(),
+      );
+      await repository.applySync(current.id, snapshot.raw, archive);
+      return updated;
+    }
     if (!_isQuickTodo(current) ||
         markdownRevision(document.source) != task.revision ||
         offsets.singleOrNull != task.offset ||
