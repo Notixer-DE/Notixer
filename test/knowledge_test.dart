@@ -11,6 +11,7 @@ import 'package:noter/data/markdown_library.dart';
 import 'package:noter/data/notebook.dart';
 import 'package:noter/data/paper.dart';
 import 'package:noter/data/todo_list.dart';
+import 'package:noter/data/templates.dart';
 import 'package:noter/sync/notebook_sync.dart';
 import 'package:noter/sync/library_extras_sync.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -825,7 +826,8 @@ void main() {
       await store.save();
       await repository.templates.save(
         'PDF template',
-        await createPaper('blank'),
+        await createPaper('blank', pages: 2),
+        page: 1,
       );
       final bytes = await LibraryBackup(repository).snapshot();
       final targetDirectory = await Directory.systemTemp.createTemp(
@@ -850,10 +852,11 @@ void main() {
         await settings.load();
         expect(settings.templates.any((t) => t.name == 'Meeting'), isTrue);
         expect(settings.views.single.name, 'Inbox tasks');
-        expect(
-          (await target.templates.list()).any((t) => t.name == 'PDF template'),
-          isTrue,
+        final template = (await target.templates.list()).singleWhere(
+          (t) => t.name == 'PDF template',
         );
+        expect(template.kind, TemplateKind.page);
+        expect(template.pageCount, 1);
         await target.flush();
       } finally {
         await targetDirectory.delete(recursive: true);
@@ -885,6 +888,31 @@ void main() {
       expect((await repository.list()).length, before);
     },
   );
+
+  test(
+    'automatic backup includes quick to-dos in a library without notes',
+    () async {
+      final scheduler = AutomaticBackupScheduler(
+        repository,
+        prepare: () async => true,
+      );
+      addTearDown(scheduler.dispose);
+      final backup = LibraryBackup(repository);
+      await store.addQuickTodo('First');
+      await scheduler.check();
+      expect(await backup.list(), hasLength(1));
+      await store.addQuickTodo('Second');
+      await scheduler.check();
+      expect(await backup.list(), hasLength(2));
+      await scheduler.check();
+      expect(await backup.list(), hasLength(2));
+    },
+  );
+
+  test('an empty Markdown task hides its inline timer metadata', () {
+    const source = '- [ ] <!-- notixer-task eyJsaW5rSWQiOiJ0YXNrIn0= -->\r\n';
+    expect(markdownOpenTasks(source).single.text, isEmpty);
+  });
 
   test(
     'automatic backup skips unchanged libraries, honors disable, and records errors',

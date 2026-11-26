@@ -240,8 +240,8 @@ List<({int offset, int line, String text})> _openTasks(
       offset: offset,
       line: line,
       text: visibleTaskText(
-        source.substring(offset + 2, end < 0 ? source.length : end).trim(),
-      ),
+        source.substring(offset + 2, end < 0 ? source.length : end).trimRight(),
+      ).trim(),
     ));
   }
   return tasks;
