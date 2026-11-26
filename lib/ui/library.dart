@@ -542,9 +542,12 @@ class _LibraryPageState extends State<LibraryPage> {
   Future<void> _create() async {
     final choice = await showDialog<(String, String, NoteTemplate?, int)>(
       context: context,
+      animationStyle: MediaQuery.disableAnimationsOf(context)
+          ? AnimationStyle.noAnimation
+          : const AnimationStyle(duration: Duration(milliseconds: 120)),
       builder: (_) => _NewNoteDialog(templates: widget.repository.templates),
     );
-    if (choice == null) return;
+    if (choice == null || !mounted) return;
     if (choice.$2 == 'media') {
       await _addMedia();
       return;
@@ -2084,7 +2087,11 @@ class _NewNoteDialogState extends State<_NewNoteDialog> {
         children: [
           TextField(
             controller: _title,
-            autofocus: true,
+            // Keep the software keyboard from resizing the incoming dialog.
+            autofocus: switch (Theme.of(context).platform) {
+              TargetPlatform.android || TargetPlatform.iOS => false,
+              _ => true,
+            },
             maxLength: 120,
             decoration: const InputDecoration(labelText: 'Title'),
           ),
