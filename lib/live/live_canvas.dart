@@ -515,7 +515,11 @@ class _LiveCanvasSurfaceState extends State<LiveCanvasSurface> {
                 },
                 onPointerPanZoomStart: (_) => _trackpadScale = 1,
                 onPointerPanZoomUpdate: (event) {
-                  if (_navigationLocked) return;
+                  if (_navigationLocked ||
+                      !event.scale.isFinite ||
+                      event.scale <= 0) {
+                    return;
+                  }
                   final focus = event.localPosition + event.localPan;
                   _transform(
                     fit,

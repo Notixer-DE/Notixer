@@ -1,4 +1,4 @@
-use crate::api::{ApiError, authenticate};
+use crate::api::{ApiError, authenticate, lock_account};
 use axum::{
     Json,
     body::Bytes,
@@ -25,6 +25,7 @@ use tokio::{
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+const OFFLINE_AGE: Duration = Duration::from_secs(120);
 const SESSION_AGE: Duration = Duration::from_secs(2 * 60 * 60);
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_MESSAGE: usize = 2 * 1024 * 1024;
@@ -42,6 +43,27 @@ impl Default for LiveRooms {
             rooms: Default::default(),
             sockets: Arc::new(Semaphore::new(128)),
         }
+    }
+}
+
+impl LiveRooms {
+    async fn end_where(&self, matches: impl Fn(&Room) -> bool) {
+        self.rooms.lock().await.retain(|_, room| {
+            if matches(room) {
+                room.ended.send_replace(true);
+                false
+            } else {
+                true
+            }
+        });
+    }
+
+    pub(crate) async fn end_account(&self, account: &str) {
+        self.end_where(|room| room.account == account).await;
+    }
+
+    pub(crate) async fn end_device(&self, device: &str) {
+        self.end_where(|room| room.owner == device).await;
     }
 }
 
@@ -127,6 +149,7 @@ pub(crate) async fn create(
     headers: HeaderMap,
 ) -> Result<impl axum::response::IntoResponse, ApiError> {
     let who = authenticate(&ctx.db, &headers).await?;
+    let account_lock = lock_account(&ctx.db, &who).await?;
     let owner = who.device;
     let store = store(&ctx)?;
     let mut rooms = store.rooms.lock().await;
@@ -144,11 +167,33 @@ pub(crate) async fn create(
         frames: broadcast::channel(8).0,
     });
     rooms.insert(id.clone(), Arc::clone(&room));
+    if let Err(error) = account_lock.commit().await {
+        rooms.remove(&id);
+        return Err(error.into());
+    }
     let registry = Arc::clone(&store.rooms);
     let expired_id = id.clone();
     tokio::spawn(async move {
-        tokio::time::sleep(SESSION_AGE).await;
-        if let Some(room) = registry.lock().await.remove(&expired_id) {
+        let mut publisher = room.publisher.subscribe();
+        let mut ended = room.ended.subscribe();
+        let offline = async {
+            loop {
+                if publisher.borrow_and_update().is_none() {
+                    if timeout(OFFLINE_AGE, publisher.changed()).await.is_err() {
+                        break;
+                    }
+                } else if publisher.changed().await.is_err() {
+                    break;
+                }
+            }
+        };
+        tokio::select! {
+            _ = tokio::time::sleep(SESSION_AGE) => {},
+            _ = offline => {},
+            _ = ended.changed() => return,
+        }
+        let mut rooms = registry.lock().await;
+        if let Some(room) = rooms.remove(&expired_id) {
             room.ended.send_replace(true);
         }
     });
@@ -362,8 +407,15 @@ async fn viewer(socket: &mut WebSocket, room: &Room, mut events: broadcast::Rece
                 if !send(socket, Message::Ping(Bytes::new())).await { return; }
             }
             event = events.recv() => {
-                let Ok(frame) = event else { return; };
-                if !send(socket, Message::Binary(frame)).await { return; }
+                match event {
+                    Ok(frame) => if !send(socket, Message::Binary(frame)).await { return; },
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        events = room.frames.subscribe();
+                        if !send(socket, Message::Text("resync".into())).await { return; }
+                        room.viewers.send_modify(|_| {});
+                    }
+                    Err(broadcast::error::RecvError::Closed) => return,
+                }
             }
             input = socket.recv() => match input {
                 Some(Ok(Message::Pong(_) | Message::Ping(_))) => {}

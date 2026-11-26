@@ -126,13 +126,13 @@ struct AdminAccount {
     devices: Vec<AdminDevice>,
 }
 
-fn get_session_token(headers: &HeaderMap) -> Option<String> {
+fn get_session_hash(headers: &HeaderMap) -> Option<String> {
     let cookie_header = headers.get(header::COOKIE)?.to_str().ok()?;
     for cookie in cookie_header.split(';') {
         if let Some(("noter_admin_session", token)) = cookie.trim().split_once('=')
-            && !token.is_empty()
+            && crate::api::valid_id(token)
         {
-            return Some(token.to_string());
+            return Some(hex::encode(Sha256::digest(token.as_bytes())));
         }
     }
     None
@@ -142,11 +142,11 @@ pub(crate) async fn authenticate_admin(
     db: &DatabaseConnection,
     headers: &HeaderMap,
 ) -> Result<String, StatusCode> {
-    let token = get_session_token(headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let token = get_session_hash(headers).ok_or(StatusCode::UNAUTHORIZED)?;
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
-            "SELECT username FROM admin_sessions WHERE token=$1 AND expires_at > now()",
+            "SELECT username FROM admin_sessions WHERE token_hash=$1 AND expires_at > now()",
             vec![token.into()],
         ))
         .await
@@ -227,13 +227,14 @@ async fn login(
         .db
         .execute_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
-            "WITH account AS (
+            "WITH expired AS (DELETE FROM admin_sessions WHERE expires_at <= now()),
+            account AS (
                 SELECT username FROM admin_users WHERE username=$2 AND password_hash=$3 FOR UPDATE
             )
-            INSERT INTO admin_sessions(token, username, expires_at)
+            INSERT INTO admin_sessions(token_hash, username, expires_at)
             SELECT $1, username, now() + interval '7 days' FROM account",
             vec![
-                session_token.clone().into(),
+                hex::encode(Sha256::digest(session_token.as_bytes())).into(),
                 payload.username.clone().into(),
                 hash.into(),
             ],
@@ -272,11 +273,11 @@ async fn login(
     responses((status = 200, body = ApiStatus, headers(("Set-Cookie" = String, description = "Clears the admin session cookie"))))
 )]
 async fn logout(State(ctx): State<AppContext>, headers: HeaderMap) -> Result<Response, StatusCode> {
-    if let Some(token) = get_session_token(&headers) {
+    if let Some(token) = get_session_hash(&headers) {
         ctx.db
             .execute_raw(Statement::from_sql_and_values(
                 DbBackend::Postgres,
-                "DELETE FROM admin_sessions WHERE token=$1",
+                "DELETE FROM admin_sessions WHERE token_hash=$1",
                 vec![token.into()],
             ))
             .await
@@ -348,7 +349,7 @@ async fn change_password(
         hash_password(&payload.new_password).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
     })
     .await??;
-    let session = get_session_token(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let session = get_session_hash(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
     let tx = ctx
         .db
         .begin()
@@ -371,7 +372,7 @@ async fn change_password(
     }
     tx.execute_raw(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        "DELETE FROM admin_sessions WHERE username=$1 AND token <> $2",
+        "DELETE FROM admin_sessions WHERE username=$1 AND token_hash <> $2",
         vec![username.into(), session.into()],
     ))
     .await
@@ -500,7 +501,7 @@ async fn create_account(
     delete, path = "/admin/api/accounts/{id}", tag = "Administration",
     summary = "Permanently delete an account and its data",
     security(("admin_session" = [])), params(("id" = Uuid, Path, description = "Account or device UUID")),
-    responses((status = 200, body = ApiStatus), (status = 400, description = "Invalid account ID"), (status = 401, description = "Admin sign-in required"))
+    responses((status = 200, body = ApiStatus), (status = 400, description = "Invalid account ID"), (status = 401, description = "Admin sign-in required"), (status = 404, description = "Resource not found"))
 )]
 async fn delete_account(
     State(ctx): State<AppContext>,
@@ -525,7 +526,8 @@ async fn delete_account(
         vec![account_id.clone().into()],
     ))
     .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or(StatusCode::NOT_FOUND)?;
 
     tx.execute_raw(Statement::from_sql_and_values(
         DbBackend::Postgres,
@@ -570,6 +572,9 @@ async fn delete_account(
     tx.commit()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if let Some(rooms) = ctx.shared_store.get::<crate::live::LiveRooms>() {
+        rooms.end_account(&account_id).await;
+    }
 
     if let Some(store) = ctx.shared_store.get::<crate::api::BlobStore>() {
         store.remove_account(&account_id).await.map_err(|error| {
@@ -585,7 +590,7 @@ async fn delete_account(
     post, path = "/admin/api/accounts/{id}/devices", tag = "Administration",
     summary = "Create a device and return its access token once",
     security(("admin_session" = [])), params(("id" = Uuid, Path, description = "Account or device UUID")),
-    responses((status = 200, body = DeviceToken), (status = 400, description = "Invalid account ID"), (status = 401, description = "Admin sign-in required"))
+    responses((status = 200, body = DeviceToken), (status = 400, description = "Invalid account ID"), (status = 401, description = "Admin sign-in required"), (status = 404, description = "Resource not found"))
 )]
 async fn add_device(
     State(ctx): State<AppContext>,
@@ -599,10 +604,10 @@ async fn add_device(
     let device_id = Uuid::new_v4();
     let token_hash = hex::encode(Sha256::digest(token.as_bytes()));
 
-    ctx.db
+    let inserted = ctx.db
         .execute_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
-            "INSERT INTO devices(id, account_id, token_hash) VALUES($1::uuid, $2::uuid, $3)",
+            "INSERT INTO devices(id, account_id, token_hash) SELECT $1::uuid, id, $3 FROM accounts WHERE id=$2::uuid",
             vec![
                 device_id.to_string().into(),
                 account.to_string().into(),
@@ -612,6 +617,9 @@ async fn add_device(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    if inserted.rows_affected() == 0 {
+        return Err(StatusCode::NOT_FOUND);
+    }
     Ok(Json(DeviceToken {
         id: device_id,
         token,
@@ -622,7 +630,7 @@ async fn add_device(
     post, path = "/admin/api/devices/{id}/revoke", tag = "Administration",
     summary = "Revoke a device token",
     security(("admin_session" = [])), params(("id" = Uuid, Path, description = "Account or device UUID")),
-    responses((status = 200, body = ApiStatus), (status = 400, description = "Invalid device ID"), (status = 401, description = "Admin sign-in required"))
+    responses((status = 200, body = ApiStatus), (status = 400, description = "Invalid device ID"), (status = 401, description = "Admin sign-in required"), (status = 404, description = "Resource not found"))
 )]
 async fn revoke_device(
     State(ctx): State<AppContext>,
@@ -643,7 +651,8 @@ async fn revoke_device(
         vec![id.to_string().into()],
     ))
     .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or(StatusCode::NOT_FOUND)?;
 
     tx.execute_raw(Statement::from_sql_and_values(
         DbBackend::Postgres,
@@ -656,6 +665,9 @@ async fn revoke_device(
     tx.commit()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if let Some(rooms) = ctx.shared_store.get::<crate::live::LiveRooms>() {
+        rooms.end_device(&id.to_string()).await;
+    }
 
     Ok(Json(ApiStatus { ok: true }))
 }
@@ -664,7 +676,7 @@ async fn revoke_device(
     post, path = "/admin/api/devices/{id}/unrevoke", tag = "Administration",
     summary = "Restore a device token",
     security(("admin_session" = [])), params(("id" = Uuid, Path, description = "Account or device UUID")),
-    responses((status = 200, body = ApiStatus), (status = 400, description = "Invalid device ID"), (status = 401, description = "Admin sign-in required"))
+    responses((status = 200, body = ApiStatus), (status = 400, description = "Invalid device ID"), (status = 401, description = "Admin sign-in required"), (status = 404, description = "Resource not found"))
 )]
 async fn unrevoke_device(
     State(ctx): State<AppContext>,
@@ -685,7 +697,8 @@ async fn unrevoke_device(
         vec![id.to_string().into()],
     ))
     .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or(StatusCode::NOT_FOUND)?;
 
     tx.execute_raw(Statement::from_sql_and_values(
         DbBackend::Postgres,

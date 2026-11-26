@@ -72,7 +72,9 @@ export function setupDashboard() {
         showToast('Signed in successfully');
         loadAccounts();
       } else {
-        loginError.value = 'Invalid username or password.';
+        loginError.value = res.status === 401
+          ? 'Invalid username or password.'
+          : 'Could not sign in. Please try again.';
       }
     } catch (e) {
       loginError.value = 'Network error while signing in.';
@@ -216,7 +218,9 @@ export function setupDashboard() {
         showPasswordModal.value = false;
         pwdForm.value = { current: '', new: '', repeat: '' };
       } else {
-        pwdError.value = 'The current password is incorrect.';
+        pwdError.value = res.status === 401
+          ? 'The current password is incorrect.'
+          : 'Could not change the password. Please try again.';
       }
     } catch (e) {
       pwdError.value = 'Could not change the password.';

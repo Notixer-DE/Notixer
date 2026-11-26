@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -7,9 +9,10 @@ import '../sync/sync_crypto.dart';
 import 'live_channel.dart';
 
 class LiveSessions {
-  const LiveSessions(this.credentials);
+  const LiveSessions(this.credentials, {this.client});
 
   final LiveCredentials credentials;
+  final http.Client? client;
 
   Future<LiveChannel> start() async {
     final response = await _request('POST', '/api/v1/live');
@@ -77,16 +80,36 @@ class LiveSessions {
   }
 
   Future<http.Response> _request(String method, String path) async {
-    final client = http.Client();
+    final transport = client ?? http.Client();
+    final abort = Completer<void>();
     try {
-      final request = http.Request(method, credentials.server.resolve(path))
-        ..followRedirects = false
-        ..headers['Authorization'] = 'Bearer ${credentials.token}';
-      return await (() async => http.Response.fromStream(
-        await client.send(request),
-      ))().timeout(const Duration(seconds: 8));
+      final request =
+          http.AbortableRequest(
+              method,
+              credentials.server.resolve(path),
+              abortTrigger: abort.future,
+            )
+            ..followRedirects = false
+            ..headers['Authorization'] = 'Bearer ${credentials.token}';
+      return await (() async {
+        final response = await transport.send(request);
+        final output = BytesBuilder(copy: false);
+        await for (final chunk in response.stream) {
+          if (output.length + chunk.length > 64 * 1024) {
+            throw const FormatException('Live Canvas response exceeds 64 KB.');
+          }
+          output.add(chunk);
+        }
+        return http.Response.bytes(output.takeBytes(), response.statusCode);
+      })().timeout(
+        const Duration(seconds: 8),
+        onTimeout: () {
+          abort.complete();
+          throw TimeoutException('The Live Canvas request timed out.');
+        },
+      );
     } finally {
-      client.close();
+      if (client == null) transport.close();
     }
   }
 
