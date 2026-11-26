@@ -294,6 +294,7 @@ class LocalNotebookRepository
   static const historyLimit = 20;
   static const historyByteLimit = 512 * 1024 * 1024;
   Future<void> _queue = Future.value();
+  Future<void> _writes = Future.value();
   final List<String> readErrors = [];
   final _loadedInk = <String, (InkDocument, String, int)>{};
   (InkDocument, String, int)? cachedInk(String id) => _loadedInk.remove(id);
@@ -312,9 +313,10 @@ class LocalNotebookRepository
     return File(p.join(directory.path, '$id.noter'));
   }
 
-  Future<T> _serialize<T>(Future<T> Function() work) {
+  Future<T> _serialize<T>(Future<T> Function() work, {bool snapshot = false}) {
     final result = _queue.then((_) => work());
     _queue = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    if (!snapshot) _writes = _queue;
     return result;
   }
 
@@ -473,7 +475,7 @@ class LocalNotebookRepository
 
   @override
   Future<void> flush() async {
-    await _queue;
+    await _writes;
     await catalog.flush();
     await templates.flush();
   }
@@ -487,7 +489,7 @@ class LocalNotebookRepository
   /// Read the payload checksum with the manifest, without inflating the payload.
   Future<({List<NotebookSearchEntry> entries, List<String> errors})>
   listForSearch() async {
-    await _queue;
+    await _writes;
     final listing = await _listNotebooks(directory.path);
     readErrors
       ..clear()
@@ -506,7 +508,7 @@ class LocalNotebookRepository
         );
         _cacheInk(id, loaded.$2);
         return loaded;
-      });
+      }, snapshot: true);
 
   /// Interchange/preview PDF, not the editor's unchanged base document.
   Future<Uint8List> loadPdf(String id) async {
