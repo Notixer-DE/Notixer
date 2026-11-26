@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
@@ -43,6 +44,9 @@ class KnowledgePage extends StatefulWidget {
     this.request = 0,
     this.revision = 0,
     this.savedView,
+    this.savedViewRequest = 0,
+    this.onOpenTrash,
+    this.onOpenHistory,
     this.onUseSavedView,
     this.onNotebookTemplates,
     this.onRecoverMedia,
@@ -66,7 +70,8 @@ class KnowledgePage extends StatefulWidget {
   final bool embedded, active, addJournalEntry, showToday;
   final Future<void> Function(KnowledgeDestination)? onOpenDestination;
   final String? taskView;
-  final int request, revision;
+  final int request, revision, savedViewRequest;
+  final VoidCallback? onOpenTrash, onOpenHistory;
   final KnowledgeView? savedView;
   final ValueChanged<KnowledgeView>? onUseSavedView;
   final VoidCallback? onNotebookTemplates, onRecoverMedia;
@@ -155,7 +160,10 @@ class KnowledgePageState extends State<KnowledgePage> {
     final requested = oldWidget.request != widget.request;
     final revised = oldWidget.revision != widget.revision;
     final savedView = widget.savedView;
-    final applyView = savedView != null && savedView != oldWidget.savedView;
+    final applyView =
+        savedView != null &&
+        (savedView != oldWidget.savedView ||
+            widget.savedViewRequest != oldWidget.savedViewRequest);
     if (!widget.active ||
         (oldWidget.active && !requested && !revised && !applyView)) {
       return;
@@ -1380,6 +1388,30 @@ class KnowledgePageState extends State<KnowledgePage> {
     );
   }
 
+  Future<bool> _confirmDelete(String kind, String name) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Delete $kind?'),
+          content: Text('“$name” will be removed.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+                foregroundColor: Theme.of(context).colorScheme.onError,
+              ),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+
   Widget _templates() => ListView(
     padding: const EdgeInsets.all(16),
     children: [
@@ -1414,6 +1446,10 @@ class KnowledgePageState extends State<KnowledgePage> {
             onPressed: _busy
                 ? null
                 : () => _work(() async {
+                    if (!await _confirmDelete('template', template.name) ||
+                        !mounted) {
+                      return;
+                    }
                     await _store.updateSettings((settings) {
                       settings.templates.removeWhere(
                         (t) => t.id == template.id,
@@ -1507,7 +1543,17 @@ class KnowledgePageState extends State<KnowledgePage> {
             [
               view.query,
               view.tag,
-              view.kind,
+              if (view.kind != 'all')
+                switch (view.kind) {
+                  'markdown' => 'Markdown',
+                  'pdf' => 'PDF',
+                  'todo' => 'To-do lists',
+                  'media' => 'Media',
+                  _ => view.kind,
+                },
+              if (view.folder.isNotEmpty)
+                widget.repository.catalog.folderName(view.folder) ??
+                    'Unavailable folder',
               if (view.completedTasks)
                 'Completed tasks'
               else if (view.openTasks)
@@ -1530,6 +1576,10 @@ class KnowledgePageState extends State<KnowledgePage> {
             onPressed: _busy
                 ? null
                 : () => _work(() async {
+                    if (!await _confirmDelete('saved view', view.name) ||
+                        !mounted) {
+                      return;
+                    }
                     await _store.updateSettings((settings) {
                       settings.views.removeWhere(
                         (entry) => entry.name == view.name,
@@ -1540,9 +1590,49 @@ class KnowledgePageState extends State<KnowledgePage> {
         ),
     ],
   );
+  Future<void> _restoreBackup({
+    required Future<int> Function() length,
+    required Future<Uint8List> Function() read,
+  }) async {
+    if (await length() > LibraryBackup.maxBytes) {
+      throw const FormatException('Backup exceeds 512 MB.');
+    }
+    if (!mounted || !await FileGateway.prepareClose()) {
+      throw const FormatException('Could not save open files.');
+    }
+    final notes = await _backup.restore(await read());
+    await FileGateway.refreshOpenDocuments?.call();
+    await widget.onQuickTodosChanged?.call();
+    await _store.reload();
+    _notes = await widget.repository.list();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            notes.isEmpty
+                ? 'Restored library data.'
+                : 'Restored library data and ${notes.length} file copies.',
+          ),
+        ),
+      );
+    }
+  }
+
   Widget _backupPage() => ListView(
     padding: const EdgeInsets.all(16),
     children: [
+      if (widget.onOpenTrash case final open?)
+        ListTile(
+          leading: const Icon(Icons.delete_outline),
+          title: const Text('Trash'),
+          onTap: open,
+        ),
+      if (widget.onOpenHistory case final open?)
+        ListTile(
+          leading: const Icon(Icons.history),
+          title: const Text('Version history'),
+          onTap: open,
+        ),
       if (widget.onRecoverMedia case final recover?)
         ListTile(
           leading: const Icon(Icons.perm_media_outlined),
@@ -1613,30 +1703,10 @@ class KnowledgePageState extends State<KnowledgePage> {
                 : () => _work(() async {
                     final file = await FileGateway().pick();
                     if (file == null) return;
-                    if (await file.length() > LibraryBackup.maxBytes) {
-                      throw const FormatException('Backup exceeds 512 MB.');
-                    }
-                    if (!mounted || !await FileGateway.prepareClose()) {
-                      throw const FormatException('Could not save open files.');
-                    }
-                    final notes = await _backup.restore(
-                      await file.readAsBytes(),
+                    await _restoreBackup(
+                      length: file.length,
+                      read: file.readAsBytes,
                     );
-                    await FileGateway.refreshOpenDocuments?.call();
-                    await widget.onQuickTodosChanged?.call();
-                    await _store.reload();
-                    _notes = await widget.repository.list();
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            notes.isEmpty
-                                ? 'Restored library data.'
-                                : 'Restored library data and ${notes.length} file copies.',
-                          ),
-                        ),
-                      );
-                    }
                   }),
             child: const Text('Restore backup as copies'),
           ),
@@ -1645,18 +1715,35 @@ class KnowledgePageState extends State<KnowledgePage> {
       for (final file in _backups)
         ListTile(
           title: Text(file.uri.pathSegments.last),
-          trailing: IconButton(
-            tooltip: 'Export backup',
-            icon: const Icon(Icons.save_alt),
-            onPressed: _busy
-                ? null
-                : () => _work(() async {
-                    await FileGateway().save(
-                      file.uri.pathSegments.last,
-                      await file.readAsBytes(),
-                      'application/zip',
-                    );
-                  }),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: 'Restore backup as copies',
+                icon: const Icon(Icons.restore),
+                onPressed: _busy
+                    ? null
+                    : () => _work(() async {
+                        await _restoreBackup(
+                          length: file.length,
+                          read: file.readAsBytes,
+                        );
+                      }),
+              ),
+              IconButton(
+                tooltip: 'Export backup',
+                icon: const Icon(Icons.save_alt),
+                onPressed: _busy
+                    ? null
+                    : () => _work(() async {
+                        await FileGateway().save(
+                          file.uri.pathSegments.last,
+                          await file.readAsBytes(),
+                          'application/zip',
+                        );
+                      }),
+              ),
+            ],
           ),
         ),
     ],

@@ -6,6 +6,7 @@ import '../data/knowledge.dart';
 import '../data/notebook.dart';
 import '../data/quick_todos.dart';
 import 'study_page.dart';
+import 'plan_todo_dialog.dart';
 import 'todo_timer.dart';
 
 class WorkspaceToday extends StatefulWidget {
@@ -109,6 +110,37 @@ class _WorkspaceTodayState extends State<WorkspaceToday> {
     }
   }
 
+  Future<void> _plan(QuickTodo todo) async {
+    if (!_pending.add(todo.id)) return;
+    try {
+      final task = KnowledgeTask.fromQuickTodo(todo);
+      final plan = await showDialog<TodoPlan>(
+        context: context,
+        builder: (_) => PlanTodoDialog(
+          task: task,
+          folders: widget.repository.catalog.folders,
+        ),
+      );
+      if (!mounted || plan == null) return;
+      await _store.planQuickTodo(
+        task,
+        projectId: plan.projectId,
+        newProject: plan.newProject,
+        due: plan.due,
+        text: plan.text,
+      );
+      _taskChanged();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not update the task: $error')),
+        );
+      }
+    } finally {
+      _pending.remove(todo.id);
+    }
+  }
+
   Widget _section(String title, IconData icon, List<Widget> children) => Card(
     margin: const EdgeInsets.only(bottom: 12),
     child: Column(
@@ -202,6 +234,7 @@ class _WorkspaceTodayState extends State<WorkspaceToday> {
                                       onChanged: (done) => _change(todo, done),
                                     ),
                                     title: Text(todo.text),
+                                    onTap: () => _plan(todo),
                                     subtitle: Text(
                                       [
                                         if (todo.due!.compareTo(
@@ -244,33 +277,40 @@ class _WorkspaceTodayState extends State<WorkspaceToday> {
                                   future: _study,
                                   builder: (context, snapshot) {
                                     final queue = snapshot.data;
-                                    return ListTile(
-                                      title: Text(
-                                        queue == null
-                                            ? 'Checking reviews…'
-                                            : '${queue.$1.length} due reviews',
-                                      ),
-                                      subtitle:
-                                          queue != null && queue.$2.isNotEmpty
-                                          ? const Text(
-                                              'Some notes could not be checked.',
-                                            )
-                                          : null,
+                                    return Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        ListTile(
+                                          title: Text(
+                                            queue == null
+                                                ? 'Checking reviews…'
+                                                : '${queue.$1.length} due reviews',
+                                          ),
+                                          subtitle:
+                                              queue != null &&
+                                                  queue.$2.isNotEmpty
+                                              ? const Text(
+                                                  'Some notes could not be checked.',
+                                                )
+                                              : null,
+                                        ),
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                          ),
+                                          child: TextButton.icon(
+                                            onPressed:
+                                                queue?.$1.isNotEmpty == true
+                                                ? widget.onStudy
+                                                : null,
+                                            icon: const Icon(Icons.play_arrow),
+                                            label: const Text('Start studying'),
+                                          ),
+                                        ),
+                                      ],
                                     );
                                   },
-                                ),
-                                Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                    ),
-                                    child: TextButton.icon(
-                                      onPressed: widget.onStudy,
-                                      icon: const Icon(Icons.play_arrow),
-                                      label: const Text('Start studying'),
-                                    ),
-                                  ),
                                 ),
                               ]),
                             ],

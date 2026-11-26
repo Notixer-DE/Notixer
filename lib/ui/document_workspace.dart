@@ -363,6 +363,13 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                     ),
                   ),
                 entry(
+                  'Search PDFs',
+                  Icons.picture_as_pdf_outlined,
+                  () => _action(
+                    _library.actions[LibraryWorkspaceAction.searchPdfs],
+                  ),
+                ),
+                entry(
                   'Templates',
                   Icons.dashboard_customize_outlined,
                   () => _openArea(WorkspaceArea.templates),
@@ -383,7 +390,22 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                 entry(
                   'Keyboard shortcuts',
                   Icons.keyboard_outlined,
-                  _openSettings,
+                  _openKeyboardSettings,
+                ),
+                entry(
+                  'Backup settings',
+                  Icons.backup_outlined,
+                  () => _openArea(WorkspaceArea.backups),
+                ),
+                entry(
+                  'Journal settings',
+                  Icons.calendar_today_outlined,
+                  () => _openArea(WorkspaceArea.journal),
+                ),
+                entry(
+                  'Templates',
+                  Icons.dashboard_customize_outlined,
+                  () => _openArea(WorkspaceArea.templates),
                 ),
                 const Divider(),
                 SwitchListTile(
@@ -460,15 +482,21 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
         _action(_library.actions[LibraryWorkspaceAction.recoverMedia]),
     onUseSavedView: (view) => _openSavedView(view),
     savedView: area == WorkspaceArea.search ? _savedView : null,
+    savedViewRequest: _savedViewRequest,
+    onOpenTrash: () => _action(_library.actions[LibraryWorkspaceAction.trash]),
+    onOpenHistory: () =>
+        _action(_library.actions[LibraryWorkspaceAction.history]),
   );
 
   final _search = GlobalKey<KnowledgePageState>();
   void _submitSearch() => _search.currentState?.submitSearch();
 
   KnowledgeView? _savedView;
+  int _savedViewRequest = 0;
 
   void _openSavedView(KnowledgeView view) {
     _savedView = view;
+    _savedViewRequest++;
     unawaited(_openArea(WorkspaceArea.search));
   }
 
@@ -499,10 +527,13 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
         onSelected: _action,
         itemBuilder: (_) => [
           PopupMenuItem(value: _openSync, child: const Text('Sync settings')),
-          if (_sync.error != null && _tabs.isEmpty)
+          if (_sync.enabled)
             PopupMenuItem(
+              enabled: _tabs.isEmpty && !_sync.busy,
               value: _library.commands[AppShortcut.syncNow],
-              child: const Text('Try sync again'),
+              child: Text(
+                _tabs.isEmpty ? 'Sync now' : 'Sync now · Close open tabs first',
+              ),
             ),
           if (conflicts > 0)
             PopupMenuItem(
@@ -699,7 +730,9 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
   Future<AppExitResponse> didRequestAppExit() async =>
       await saveAll() ? AppExitResponse.exit : AppExitResponse.cancel;
 
-  Future<void> _openSettings() async {
+  Future<void> _openSettings() => _openArea(WorkspaceArea.settings);
+
+  Future<void> _openKeyboardSettings() async {
     await _shortcuts.load();
     if (!mounted || !_routeCurrent) return;
     await Navigator.of(context).push<void>(
@@ -832,6 +865,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                         onPressed: () => setState(() => _showTabs = false),
                         icon: const Icon(Icons.tab_unselected),
                       ),
+                      _syncStatus(),
                       Expanded(
                         child: ListView(
                           scrollDirection: Axis.horizontal,

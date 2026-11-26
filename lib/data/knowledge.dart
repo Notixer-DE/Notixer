@@ -135,6 +135,30 @@ class KnowledgeTask {
     this.countdown,
     this.deleting = false,
   });
+  factory KnowledgeTask.fromQuickTodo(QuickTodo todo) {
+    final note = Notebook(
+      id: 'quick:${todo.id}',
+      title: todo.text,
+      paper: 'markdown',
+      created: todo.created,
+      modified: todo.modified,
+      folderId: todo.project,
+      tags: [
+        todo.project == null ? unsortedTodos : _quickTodoTag,
+        if (todo.due != null) 'Due: ${todo.due}',
+      ],
+    );
+    return KnowledgeTask(
+      note,
+      0,
+      0,
+      todo.text,
+      todo.revision,
+      canPlan: true,
+      quickTodo: todo,
+    );
+  }
+
   final Notebook note;
   final int offset, line;
   final String text, revision;
@@ -822,30 +846,9 @@ class KnowledgeStore {
               !todo.text.toLowerCase().contains(query)) {
             continue;
           }
-          // Keep document and inbox results in the same list without creating
-          // a repository document or an editor destination for inbox entries.
-          final note = Notebook(
-            id: 'quick:${todo.id}',
-            title: todo.text,
-            paper: 'markdown',
-            created: todo.created,
-            modified: todo.modified,
-            folderId: todo.project,
-            tags: [
-              todo.project == null ? unsortedTodos : _quickTodoTag,
-              if (todo.due != null) 'Due: ${todo.due}',
-            ],
-          );
+          final task = KnowledgeTask.fromQuickTodo(todo);
+          final note = task.note;
           if (!matchesFilters(note)) continue;
-          final task = KnowledgeTask(
-            note,
-            0,
-            0,
-            todo.text,
-            todo.revision,
-            canPlan: true,
-            quickTodo: todo,
-          );
           tasks.add(task);
           hits.add(KnowledgeHit(note, todo.text, task.anchor));
         }
