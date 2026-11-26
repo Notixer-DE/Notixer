@@ -287,6 +287,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
           repository: widget.repository,
           shortcuts: _shortcuts,
           startImmediately: true,
+          workspaceSessions: _pdfSessions,
         ),
       ),
     );
@@ -936,6 +937,8 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                                 onOpenDestination: openNotebook,
                                 onChangeTask: _changeKnowledgeTask,
                                 onRefreshDocuments: _refreshOpenDocuments,
+                                beforeStudy: saveAll,
+                                workspaceSessions: _pdfSessions,
                               ),
                             ),
                           ),

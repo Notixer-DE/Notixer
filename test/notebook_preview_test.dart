@@ -11,13 +11,13 @@ class _Repository extends LocalNotebookRepository {
   int loads = 0, concurrent = 0, maximum = 0;
   bool fail = false;
   @override
-  Future<Uint8List> load(String id) async {
+  Future<Uint8List> loadPdf(String id) async {
     loads++;
     concurrent++;
     if (concurrent > maximum) maximum = concurrent;
     try {
       if (fail) throw const FormatException('unreadable preview');
-      return await super.load(id);
+      return await super.loadPdf(id);
     } finally {
       concurrent--;
     }

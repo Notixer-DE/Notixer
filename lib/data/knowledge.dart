@@ -298,7 +298,9 @@ class KnowledgeStore {
   String? journalTemplate = 'daily';
   bool automaticBackups = true;
   static final _journalQueues = <String, Future<void>>{};
-  Future<void> _queue = Future.value();
+  static final _settingsQueues = <String, Future<void>>{};
+  String get _settingsKey => file.absolute.path;
+  Future<void>? get _queue => _settingsQueues[_settingsKey];
   Future<void>? _loading;
   Future<void> load() => _loading ??= _load();
   Future<void> reload() async {
@@ -308,7 +310,13 @@ class KnowledgeStore {
   }
 
   Future<void> _load() async {
-    if (!await file.exists()) return;
+    if (!await file.exists()) {
+      templates = [defaultJournalTemplate];
+      views = [];
+      journalTemplate = 'daily';
+      automaticBackups = true;
+      return;
+    }
     if (await file.length() > 8 * 1024 * 1024) {
       throw const FormatException('Knowledge settings exceed 8 MB.');
     }
@@ -330,7 +338,33 @@ class KnowledgeStore {
     automaticBackups = value['automaticBackups'] as bool? ?? true;
   }
 
+  Future<void> updateSettings(void Function(KnowledgeStore) update) =>
+      _writeSettings(() async {
+        await _load();
+        update(this);
+        await _persist(_settingsSnapshot());
+      });
+
   Future<void> save() {
+    final snapshot = _settingsSnapshot();
+    return _writeSettings(() => _persist(snapshot));
+  }
+
+  Future<void> _writeSettings(Future<void> Function() write) {
+    final result = (_queue ?? Future<void>.value()).then((_) => write());
+    late final Future<void> pending;
+    pending = result
+        .then<void>((_) {}, onError: (Object _, StackTrace _) {})
+        .whenComplete(() {
+          if (identical(_settingsQueues[_settingsKey], pending)) {
+            _settingsQueues.remove(_settingsKey);
+          }
+        });
+    _settingsQueues[_settingsKey] = pending;
+    return result;
+  }
+
+  String _settingsSnapshot() {
     final value = <String, dynamic>{
       'version': 1,
       'templates': templates.map((t) => t.toJson()).toList(),
@@ -343,15 +377,15 @@ class KnowledgeStore {
     if (utf8.encode(snapshot).length > 8 * 1024 * 1024) {
       throw const FormatException('Knowledge settings exceed 8 MB.');
     }
-    final result = _queue.then((_) async {
-      await file.parent.create(recursive: true);
-      if (await file.exists() && await file.readAsString() == snapshot) return;
-      final temporary = File('${file.path}.tmp');
-      await temporary.writeAsString(snapshot, flush: true);
-      await temporary.rename(file.path);
-    });
-    _queue = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
-    return result;
+    return snapshot;
+  }
+
+  Future<void> _persist(String snapshot) async {
+    await file.parent.create(recursive: true);
+    if (await file.exists() && await file.readAsString() == snapshot) return;
+    final temporary = File('${file.path}.tmp');
+    await temporary.writeAsString(snapshot, flush: true);
+    await temporary.rename(file.path);
   }
 
   Future<T> _writeJournal<T>(Future<T> Function() write) {

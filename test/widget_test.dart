@@ -44,14 +44,13 @@ Future<void> openWorkspaceFiles(WidgetTester tester) async {
 void main() {
   late Directory directory;
   late LocalNotebookRepository repository;
+  late List<int> originalPdf;
   setUp(() async {
     directory = await Directory.systemTemp.createTemp('noter-ui-');
     repository = LocalNotebookRepository(directory);
-    await repository.create(
-      'Lecture',
-      await createPaper('lined'),
-      paper: 'lined',
-    );
+    final pdf = await createPaper('lined');
+    originalPdf = pdf;
+    await repository.create('Lecture', pdf, paper: 'lined');
   });
   tearDown(() => directory.delete(recursive: true));
   testWidgets('a library PDF can be saved directly to a device file', (
@@ -79,12 +78,7 @@ void main() {
       tester,
       () => find.text('File saved.').evaluate().isNotEmpty,
     );
-    expect(
-      await tester.runAsync(() => destination.readAsBytes()),
-      await tester.runAsync(
-        () async => repository.load((await repository.list()).single.id),
-      ),
-    );
+    expect(await tester.runAsync(() => destination.readAsBytes()), originalPdf);
   });
   testWidgets(
     'library creates, finds and renames a local note on a small display',

@@ -15,6 +15,16 @@ import 'widget_test.dart' show settleFileIo;
 
 Finder _destination(String name) => find.byKey(ValueKey('workspace-$name'));
 
+Future<void> _disposeWorkspace(
+  WidgetTester tester,
+  LocalNotebookRepository repository,
+) async {
+  await tester.pumpWidget(const SizedBox.shrink());
+  var flushed = false;
+  repository.flush().then((_) => flushed = true);
+  await settleFileIo(tester, () => flushed);
+}
+
 void main() {
   late Directory root;
   late LocalNotebookRepository repository;
@@ -23,10 +33,7 @@ void main() {
     root = await Directory.systemTemp.createTemp('notixer-workspace-');
     repository = LocalNotebookRepository(root);
   });
-  tearDown(() async {
-    await repository.flush();
-    await root.delete(recursive: true);
-  });
+  tearDown(() => root.delete(recursive: true));
 
   Future<void> launch(WidgetTester tester, Size size) async {
     tester.view.devicePixelRatio = 1;
@@ -82,7 +89,7 @@ void main() {
     expect(find.byTooltip('Open focus timer'), findsOneWidget);
     final reopened = (await tester.runAsync(store.quickTodos.read))![due.id]!;
     expect(reopened.timerStartedAt, started.timerStartedAt);
-    await tester.pumpWidget(const SizedBox.shrink());
+    await _disposeWorkspace(tester, repository);
   });
 
   testWidgets('search keeps its query and journal keeps its selected date', (
@@ -137,7 +144,7 @@ void main() {
     expect(tester.widget<JournalCalendar>(calendar).selected, selected);
     expect(tester.widget<JournalCalendar>(calendar).month, month);
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
+    await _disposeWorkspace(tester, repository);
   });
 
   testWidgets('workspace navigation adapts to every issue viewport', (
@@ -169,6 +176,6 @@ void main() {
     await tester.pump();
     expect(_destination('journal'), findsOneWidget);
     expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
+    await _disposeWorkspace(tester, repository);
   });
 }

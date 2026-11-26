@@ -173,33 +173,40 @@ class LibraryExtrasSync {
       p.join(repository.directory.path, '.sync-extras'),
     );
     await directory.create(recursive: true);
-    final states = <String, Uint8List>{};
-    await for (final file in directory.list()) {
-      if (file is File &&
-          p.basename(file.path).startsWith('.sync-state-') &&
-          file.path.endsWith('.json')) {
-        states[file.path] = await file.readAsBytes();
-      }
-    }
+    bool isBaseline(String name) =>
+        name.endsWith('.noter') ||
+        (name.startsWith('.sync-state-') && name.endsWith('.json'));
+    final backup = await Directory.systemTemp.createTemp('notixer-extras-');
+    final saved = <String>{};
     try {
-      return await _run(onlyIfChanged: onlyIfChanged);
-    } catch (_) {
-      // Committing staging heads before source files is not a completed sync.
-      // Rewind the local baseline so a retry still detects concurrent edits.
-      await for (final file in directory.list()) {
-        if (file is File &&
-            p.basename(file.path).startsWith('.sync-state-') &&
-            file.path.endsWith('.json') &&
-            !states.containsKey(file.path)) {
-          await file.delete();
+      await for (final file in directory.list(followLinks: false)) {
+        final name = p.basename(file.path);
+        if (file is File && isBaseline(name)) {
+          await file.copy(p.join(backup.path, name));
+          saved.add(name);
         }
       }
-      for (final entry in states.entries) {
-        final temporary = File('${entry.key}.tmp');
-        await temporary.writeAsBytes(entry.value, flush: true);
-        await temporary.rename(entry.key);
+      try {
+        return await _run(onlyIfChanged: onlyIfChanged);
+      } catch (_) {
+        // Archives and revision state describe the same baseline.
+        await for (final file in directory.list(followLinks: false)) {
+          final name = p.basename(file.path);
+          if (file is File && isBaseline(name) && !saved.contains(name)) {
+            await file.delete();
+          }
+        }
+        for (final name in saved) {
+          final path = p.join(directory.path, name);
+          final restored = await File(
+            p.join(backup.path, name),
+          ).copy('$path.tmp');
+          await restored.rename(path);
+        }
+        rethrow;
       }
-      rethrow;
+    } finally {
+      await backup.delete(recursive: true);
     }
   }
 
@@ -287,20 +294,40 @@ class LibraryExtrasSync {
       String paper = 'markdown',
       bool preferRemote = false,
     }) async {
-      final id = _id(kind, key);
+      Notebook? conflict;
+      if (kind == 'view') {
+        conflict = old.values
+            .where(
+              (note) =>
+                  note.id.startsWith('extra_conflict_') &&
+                  note.title == key &&
+                  (jsonDecode(note.tags.single) as Map)['kind'] == kind,
+            )
+            .firstOrNull;
+      } else if (kind == 'markdown' || kind.startsWith('pdf.')) {
+        final previous = old[key];
+        if (previous != null &&
+            key.startsWith('extra_conflict_') &&
+            (jsonDecode(previous.tags.single) as Map)['kind'] == kind) {
+          conflict = previous;
+        }
+      }
+      final id = conflict?.id ?? _id(kind, key);
       expected.add(id);
       if (preferRemote && !old.containsKey(id) && remoteIds.contains(id)) {
         return;
       }
       final note = Notebook(
         id: id,
-        title: title,
+        title: kind == 'view' ? conflict?.title ?? title : title,
         created: _epoch,
         modified: _epoch,
         paper: paper,
-        tags: [
-          jsonEncode({'kind': kind, 'key': key}),
-        ],
+        tags:
+            conflict?.tags ??
+            [
+              jsonEncode({'kind': kind, 'key': key}),
+            ],
       );
       final archive = await LocalNotebookRepository.encodeAsync(
         note,
@@ -671,10 +698,15 @@ class LibraryExtrasSync {
       } else if (record.kind != 'folder') {
         // Keep concurrent setting values visible and portable for manual review.
         final conflictId = 'settings_${record.note.id}';
+        final marker = File(p.join(staging.directory.path, '.$conflictId'));
+        if (await marker.exists()) continue;
         final current = (await repository.list()).any(
           (note) => note.id == conflictId,
         );
-        if (!current) {
+        final trashed = await File(
+          p.join(repository.directory.path, '.trash', '$conflictId.noter'),
+        ).exists();
+        if (!current && !trashed) {
           await repository.save(
             Notebook(
               id: conflictId,
@@ -689,6 +721,7 @@ class LibraryExtrasSync {
             ).encode(),
           );
         }
+        await marker.writeAsString('', flush: true);
       }
     }
     for (final id in pdfBefore.keys.where((id) => !livePdf.contains(id))) {

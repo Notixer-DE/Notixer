@@ -487,8 +487,11 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         },
         onCopyTo: (note, pages) async {
           final source = await pane.session.editing.editablePages(pages);
-          final open = _sessions[note.id];
+          final open =
+              _sessions[note.id] ?? widget.workspaceSessions?.lookup(note.id);
           if (open != null) {
+            await open.ready;
+            if (!open.inkReady) throw StateError(open.error!);
             open.editing.insertEditablePages(source);
             if (!await open.save()) throw StateError(open.error!);
           } else {

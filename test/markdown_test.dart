@@ -346,6 +346,31 @@ void main() {
       session.dispose();
     },
   );
+  test('a save persists revisions made during the repository flush', () async {
+    final note = await library.create('Save');
+    final delayed = _DelayedRepository(repo)..first = false;
+    final flushStarted = Completer<void>();
+    final releaseFlush = Completer<void>();
+    delayed.beforeFlush = () async {
+      if (flushStarted.isCompleted) return;
+      flushStarted.complete();
+      await releaseFlush.future;
+    };
+    final session = MarkdownSession(note, MarkdownDocument(''), delayed);
+    addTearDown(session.dispose);
+    final saving = session.save();
+    await flushStarted.future;
+    session.update(MarkdownDocument('Edited during flush'));
+    final closing = session.save();
+    releaseFlush.complete();
+    expect(await saving, isTrue);
+    expect(await closing, isTrue);
+    expect(session.dirty, isFalse);
+    expect(
+      MarkdownDocument.decode(await repo.load(note.id)).source,
+      'Edited during flush',
+    );
+  });
 }
 
 class _DelayedRepository implements NotebookRepository {
@@ -364,8 +389,13 @@ class _DelayedRepository implements NotebookRepository {
     return delegate.save(note, bytes);
   }
 
+  Future<void> Function()? beforeFlush;
   @override
-  Future<void> flush() => delegate.flush();
+  Future<void> flush() async {
+    await beforeFlush?.call();
+    await delegate.flush();
+  }
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

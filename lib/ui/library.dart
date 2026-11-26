@@ -58,8 +58,12 @@ class LibraryPage extends StatefulWidget {
     this.onChangeTask,
     this.onRefreshDocuments,
     this.onWorkspaceSection,
+    this.beforeStudy,
+    this.workspaceSessions,
   });
   final void Function(String)? onWorkspaceSection;
+  final Future<bool> Function()? beforeStudy;
+  final WorkspacePdfSessions? workspaceSessions;
   final OpenNotebookTab? onOpenDestination;
   final Future<KnowledgeTask?> Function(KnowledgeTask)? onChangeTask;
   final Future<void> Function()? onRefreshDocuments;
@@ -498,14 +502,18 @@ class _LibraryPageState extends State<LibraryPage> {
   });
 
   Future<void> _study() => _perform(() async {
+    if (!(await widget.beforeStudy?.call() ?? true) || !mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => StudyPage(
           repository: widget.repository,
           shortcuts: widget.shortcuts,
+          workspaceSessions: widget.workspaceSessions,
         ),
       ),
     );
+    if (!mounted) return;
+    await widget.onRefreshDocuments?.call();
     await _refresh();
   });
 

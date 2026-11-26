@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:isolate';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -255,7 +256,20 @@ class NotebookSync {
       final previousHeads = (baseline?['heads'] as List? ?? const [])
           .cast<String>();
       final knownParents = previousHeads.where(revisions.containsKey).toList();
-      if ((snapshot != null &&
+      final settingsConflict = _settingsConflictId.hasMatch(id);
+      final local = repository;
+      // A notice can be dismissed before its first ordinary notebook sync.
+      final dismissed =
+          settingsConflict &&
+          snapshot == null &&
+          baseline == null &&
+          local is LocalNotebookRepository &&
+          revisions.values.any((revision) => revision.noteId == id) &&
+          await File(
+            p.join(local.directory.path, '.trash', '$id.noter'),
+          ).exists();
+      if (dismissed ||
+          (snapshot != null &&
               (baseline == null || baseline['digest'] != hash)) ||
           (snapshot == null &&
               baseline != null &&
@@ -281,8 +295,11 @@ class NotebookSync {
         throw const SyncFailure('Invalid version history.');
       }
       final live = heads.where((r) => !r.deleted).toList();
-      var winner = live.isEmpty ? heads.first : live.first;
-      if (live.length > 1 && _settingsConflictId.hasMatch(id)) {
+      final dismissal = settingsConflict
+          ? heads.where((revision) => revision.deleted).firstOrNull
+          : null;
+      var winner = dismissal ?? (live.isEmpty ? heads.first : live.first);
+      if (dismissal == null && live.length > 1 && settingsConflict) {
         // Another device can still have an unpublished copy of this notice.
         for (final candidate in live) {
           final (note, _) = await _decodeValidated(await read(candidate));
@@ -335,12 +352,15 @@ class NotebookSync {
       }
       // Stable conflict IDs make retries and simultaneous resolutions idempotent.
       final handled = <String>{winner.digest};
-      for (final losing in live.where((r) => r.revision != winner.revision)) {
+      for (final losing in live.where(
+        (revision) => dismissal == null && revision.revision != winner.revision,
+      )) {
         if (!handled.add(losing.digest)) continue;
         final bytes = await read(losing);
         if (await _documentDigest(bytes) == winnerContent) continue;
+        final conflictIdentity = extras ? losing.revision : losing.digest;
         final conflictId =
-            '${extras ? 'extra_conflict_' : 'conflict_'}${sha256.convert(utf8.encode('$id:${losing.digest}')).toString().substring(0, 40)}';
+            '${extras ? 'extra_conflict_' : 'conflict_'}${sha256.convert(utf8.encode('$id:$conflictIdentity')).toString().substring(0, 40)}';
         if (revisions.values.any((r) => r.noteId == conflictId) ||
             localIds.contains(conflictId)) {
           continue;

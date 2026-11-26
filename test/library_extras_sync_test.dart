@@ -50,6 +50,24 @@ void main() {
     return LibraryExtrasSync(repo, session).run();
   }
 
+  test('stale settings editors preserve each other’s changes', () async {
+    final views = KnowledgeStore(a), templates = KnowledgeStore(a);
+    await views.load();
+    await templates.load();
+    await Future.wait([
+      templates.updateSettings((settings) {
+        settings.templates.add(const MarkdownTemplate('test', 'Plan', 'Plan'));
+      }),
+      views.updateSettings((settings) {
+        settings.views.add(const KnowledgeView('Open', openTasks: true));
+      }),
+    ]);
+    final result = KnowledgeStore(a);
+    await result.load();
+    expect(result.templates.map((entry) => entry.id), contains('test'));
+    expect(result.views.single.name, 'Open');
+  });
+
   test(
     'full sync includes templates, empty folders, views, tool state, reading and display choices',
     () async {
@@ -206,6 +224,17 @@ void main() {
       final result = await sync(b);
       expect(result.uploaded, 0);
       expect(result.conflicts, 0);
+      final conflicts = (await a.list()).where(
+        (note) => note.isSettingsConflict,
+      );
+      for (final conflict in conflicts) {
+        await a.delete(conflict.id);
+      }
+      await sync(a);
+      expect(
+        (await a.list()).where((note) => note.isSettingsConflict),
+        isEmpty,
+      );
     },
   );
   for (final accept in [true, false]) {

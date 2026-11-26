@@ -110,6 +110,7 @@ class WorkspacePdfSessions {
   WorkspacePdfSessions(this.repository);
   final NotebookRepository repository;
   final _sessions = <String, (DocumentSession, int)>{};
+  DocumentSession? lookup(String id) => _sessions[id]?.$1;
   bool contains(String id) => _sessions.containsKey(id);
   DocumentSession acquire(Notebook note, Uint8List bytes) {
     final existing = _sessions[note.id];
