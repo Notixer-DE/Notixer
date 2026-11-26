@@ -92,7 +92,15 @@ class DocumentTabController extends ChangeNotifier {
   }
 }
 
-enum LibraryWorkspaceAction { capture, liveCanvas, recoverMedia, conflicts }
+enum LibraryWorkspaceAction {
+  capture,
+  liveCanvas,
+  recoverMedia,
+  conflicts,
+  searchPdfs,
+  trash,
+  history,
+}
 
 class LibraryWorkspaceController {
   final conflicts = ValueNotifier(0);

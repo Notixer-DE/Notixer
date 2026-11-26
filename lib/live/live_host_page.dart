@@ -9,6 +9,8 @@ import 'package:pdf_document/pdf_document.dart' show PdfDocument;
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../data/ink.dart';
+import '../data/catalog.dart';
+import '../ui/editor_toolbar.dart' show drawingPalette;
 import '../data/notebook.dart';
 import '../data/paper.dart';
 import '../editor/ink_gestures.dart';
@@ -56,31 +58,22 @@ class _LiveHostPageState extends State<LiveHostPage> {
 
   Color _penColor = const Color(0xff17232c);
   Color _markerColor = const Color(0xfff4ca22);
-  double _penWidthPx = 4, _markerWidthPx = 20;
-
-  // The page and the live protocol use PDF points. One CSS pixel is 1/96 in.
-  static const _pointsPerPixel = 72 / 96;
-
-  static const _colors = [
-    ('Black', Color(0xff17232c)),
-    ('Red', Color(0xffd94242)),
-    ('Orange', Color(0xffed8331)),
-    ('Yellow', Color(0xfff4ca22)),
-    ('Green', Color(0xff3bae67)),
-    ('Turquoise', Color(0xff28a9b0)),
-    ('Blue', Color(0xff3572db)),
-    ('Purple', Color(0xff8b5aca)),
-    ('Pink', Color(0xffe260a2)),
-  ];
+  double _penWidth = 3, _markerWidth = 15;
+  double _penOpacity = 1, _markerOpacity = 0x75 / 255;
+  double _eraserDiameter = 22;
+  final _presetPressure = <_CanvasTool, bool>{};
+  InkEraserGesture? _eraser;
 
   @override
   void initState() {
     super.initState();
     _model.onEvent = _enqueue;
+    unawaited(widget.repository.catalog.load().catchError((Object _) {}));
   }
 
   @override
   void dispose() {
+    _eraser?.finish(cancel: true);
     _model.dispose();
     _flush?.cancel();
     _retry?.cancel();
@@ -104,7 +97,10 @@ class _LiveHostPageState extends State<LiveHostPage> {
     if (event is PointerUpEvent || event is PointerCancelEvent) {
       _pointer = null;
       final cancel = event is PointerCancelEvent;
-      if (_contactTool == _CanvasTool.lasso) {
+      if (_eraser case final gesture?) {
+        _model.finishErase(gesture, cancel: cancel);
+        _eraser = null;
+      } else if (_contactTool == _CanvasTool.lasso) {
         _finishLasso(cancel: cancel);
       } else if (cancel) {
         _model.cancel();
@@ -120,19 +116,37 @@ class _LiveHostPageState extends State<LiveHostPage> {
     final tool = usesStylusEraser(event) ? _CanvasTool.eraser : _tool;
     if (_contactTool != tool) {
       if (_contactTool == _CanvasTool.lasso) _finishLasso(cancel: true);
+      if (_eraser case final gesture?) {
+        _model.finishErase(gesture, cancel: false);
+        _eraser = null;
+      }
       _model.finish();
       _contactTool = tool;
-      _pressureSensitive = widget.repository.catalog.drawingPreferences
-          .pressureSensitive(tool == _CanvasTool.marker ? 'highlight' : 'ink');
+      _pressureSensitive =
+          _presetPressure[tool] ??
+          widget.repository.catalog.drawingPreferences.pressureSensitive(
+            tool == _CanvasTool.marker ? 'highlight' : 'ink',
+          );
       switch (tool) {
         case _CanvasTool.pen:
-          _model.begin(_penColor.toARGB32(), _penWidthPx * _pointsPerPixel);
+          _model.begin(
+            _penColor.withValues(alpha: _penOpacity).toARGB32(),
+            _penWidth,
+          );
         case _CanvasTool.marker:
           _model.begin(
-            _markerColor.withAlpha(0x75).toARGB32(),
-            _markerWidthPx * _pointsPerPixel,
+            _markerColor.withValues(alpha: _markerOpacity).toARGB32(),
+            _markerWidth,
           );
-        case _CanvasTool.eraser || _CanvasTool.lasso:
+        case _CanvasTool.eraser:
+          _eraser = InkEraserGesture(
+            _model.ink,
+            LiveCanvasModel.page,
+            _eraserDiameter / 2,
+            wholeStroke:
+                widget.repository.catalog.drawingPreferences.wholeStrokeEraser,
+          );
+        case _CanvasTool.lasso:
           break;
       }
       setState(() {});
@@ -140,7 +154,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
     if (tool == _CanvasTool.lasso) {
       _updateLasso(point);
     } else if (tool == _CanvasTool.eraser) {
-      _model.erase(point, 11);
+      _eraser?.add(point);
     } else {
       _model.point(
         point.dx,
@@ -478,118 +492,247 @@ class _LiveHostPageState extends State<LiveHostPage> {
     if (mounted) Navigator.pop(context);
   }
 
+  void _setColor(bool marker, Color color) => setState(() {
+    if (marker) {
+      _markerColor = color;
+    } else {
+      _penColor = color;
+    }
+  });
+
+  Future<void> _hexColor(bool marker, Color color) async {
+    var hex = (color.toARGB32() & 0xffffff).toRadixString(16).padLeft(6, '0');
+    final result = await showDialog<Color>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, update) {
+          final parsed = RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(hex)
+              ? Color(0xff000000 | int.parse(hex, radix: 16))
+              : null;
+          return AlertDialog(
+            title: const Text('Custom color'),
+            content: TextFormField(
+              initialValue: hex,
+              maxLength: 6,
+              decoration: const InputDecoration(
+                labelText: 'Color (hex)',
+                prefixText: '#',
+              ),
+              onChanged: (value) => update(() => hex = value),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: parsed == null
+                    ? null
+                    : () => Navigator.pop(context, parsed),
+                child: const Text('Apply'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (mounted && result != null) _setColor(marker, result);
+  }
+
   Widget _colorPicker() {
     final marker = _tool == _CanvasTool.marker;
     final current = marker ? _markerColor : _penColor;
-    return PopupMenuButton<Color>(
+    return PopupMenuButton<int>(
       tooltip: marker ? 'Highlighter color' : 'Pen color',
       enabled: !_editingCanvas,
-      initialValue: current,
-      onSelected: (color) => setState(() {
-        if (marker) {
-          _markerColor = color;
+      onSelected: (color) {
+        if (color == -1) {
+          unawaited(_hexColor(marker, current));
         } else {
-          _penColor = color;
+          _setColor(marker, Color(color));
         }
-      }),
+      },
       icon: Icon(Icons.color_lens_outlined, color: current),
       itemBuilder: (_) => [
-        for (final (label, color) in _colors)
+        for (final (label, color) in drawingPalette)
           PopupMenuItem(
             value: color,
             child: Row(
               children: [
-                Icon(Icons.circle, color: color, size: 18),
+                Icon(Icons.circle, color: Color(color), size: 18),
                 const SizedBox(width: 12),
                 Text(label),
-                if (current == color) ...[
-                  const Spacer(),
-                  const Icon(Icons.check, size: 18),
-                ],
               ],
             ),
           ),
+        const PopupMenuItem(value: -1, child: Text('Custom color…')),
       ],
     );
   }
 
+  void _applyPreset(PenPreset preset) {
+    final marker = preset.tool == 'highlight';
+    final tool = marker ? _CanvasTool.marker : _CanvasTool.pen;
+    _selectTool(tool);
+    setState(() {
+      _presetPressure[tool] = preset.pressureSensitive;
+      if (marker) {
+        _markerColor = Color(preset.color);
+        _markerWidth = preset.width;
+        _markerOpacity = preset.opacity;
+      } else {
+        _penColor = Color(preset.color);
+        _penWidth = preset.width;
+        _penOpacity = preset.opacity;
+      }
+    });
+  }
+
   Future<void> _editWidth({
     required bool marker,
-    required String current,
+    required double current,
   }) async {
     final form = GlobalKey<FormState>();
-    double? width;
+    final controller = TextEditingController(text: current.toString());
+    var width = current;
+    var opacity = marker ? _markerOpacity : _penOpacity;
+    final route = DialogRoute<(double, double)>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, update) {
+          void apply() {
+            if (form.currentState!.validate()) {
+              Navigator.pop(context, (width, opacity));
+            }
+          }
+
+          return AlertDialog(
+            scrollable: true,
+            title: Text(marker ? 'Highlighter width' : 'Pen width'),
+            content: Form(
+              key: form,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: controller,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Stroke width',
+                      suffixText: 'pt',
+                    ),
+                    onFieldSubmitted: (_) => apply(),
+                    onChanged: (text) => update(
+                      () => width =
+                          double.tryParse(text.replaceAll(',', '.')) ?? width,
+                    ),
+                    validator: (text) {
+                      final value = double.tryParse(
+                        text?.trim().replaceAll(',', '.') ?? '',
+                      );
+                      if (value == null ||
+                          !value.isFinite ||
+                          value < .5 ||
+                          value > 30) {
+                        return 'Enter a width from 0.5 to 30 pt.';
+                      }
+                      width = value;
+                      return null;
+                    },
+                  ),
+                  Slider(
+                    value: width.isFinite ? width.clamp(.5, 30) : .5,
+                    min: .5,
+                    max: 30,
+                    onChanged: (value) => update(() {
+                      width = value;
+                      controller.text = value.toStringAsFixed(1);
+                    }),
+                  ),
+                  Text('Opacity: ${(opacity * 100).round()} %'),
+                  Slider(
+                    value: opacity.clamp(.05, 1),
+                    min: .05,
+                    max: 1,
+                    onChanged: (value) => update(() => opacity = value),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(onPressed: apply, child: const Text('Apply')),
+            ],
+          );
+        },
+      ),
+    );
+    final result = await Navigator.of(context).push(route);
+    unawaited(route.completed.then((_) => controller.dispose()));
+    if (result == null || !mounted) return;
+    setState(() {
+      if (marker) {
+        _markerWidth = result.$1;
+        _markerOpacity = result.$2;
+      } else {
+        _penWidth = result.$1;
+        _penOpacity = result.$2;
+      }
+    });
+  }
+
+  Future<void> _editEraserDiameter() async {
+    var diameter = _eraserDiameter;
     final result = await showDialog<double>(
       context: context,
-      builder: (context) {
-        void apply() {
-          if (form.currentState!.validate()) Navigator.pop(context, width);
-        }
-
-        return AlertDialog(
-          scrollable: true,
-          title: Text(marker ? 'Highlighter width' : 'Pen width'),
-          content: Form(
-            key: form,
-            child: TextFormField(
-              initialValue: current,
-              autofocus: true,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
+      builder: (_) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          title: const Text('Eraser diameter'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('${diameter.round()} pt'),
+              Slider(
+                value: diameter,
+                min: 4,
+                max: 80,
+                onChanged: (value) => update(() => diameter = value),
               ),
-              textInputAction: TextInputAction.done,
-              decoration: const InputDecoration(
-                labelText: 'Stroke width',
-                suffixText: 'px',
-              ),
-              onFieldSubmitted: (_) => apply(),
-              validator: (text) {
-                final value = double.tryParse(
-                  text?.trim().replaceAll(',', '.') ?? '',
-                );
-                if (value == null ||
-                    !value.isFinite ||
-                    value < .1 ||
-                    value > 1000) {
-                  return 'Enter a width from 0.1 to 1000 px.';
-                }
-                width = value;
-                return null;
-              },
-            ),
+            ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('Cancel'),
             ),
-            FilledButton(onPressed: apply, child: const Text('Apply')),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, diameter),
+              child: const Text('Apply'),
+            ),
           ],
-        );
-      },
+        ),
+      ),
     );
-    if (result == null || !mounted) return;
-    setState(() {
-      if (marker) {
-        _markerWidthPx = result;
-      } else {
-        _penWidthPx = result;
-      }
-    });
+    if (mounted && result != null) setState(() => _eraserDiameter = result);
   }
 
   Widget _widthPicker() {
     final marker = _tool == _CanvasTool.marker;
-    final width = marker ? _markerWidthPx : _penWidthPx;
+    final width = marker ? _markerWidth : _penWidth;
     final value = width % 1 == 0 ? width.toStringAsFixed(0) : width.toString();
     return Tooltip(
       message: marker ? 'Highlighter width' : 'Pen width',
       child: TextButton.icon(
         onPressed: !_editingCanvas
-            ? () => _editWidth(marker: marker, current: value)
+            ? () => _editWidth(marker: marker, current: width)
             : null,
         icon: const Icon(Icons.line_weight),
-        label: Text('$value px'),
+        label: Text('$value pt'),
       ),
     );
   }
@@ -660,7 +803,31 @@ class _LiveHostPageState extends State<LiveHostPage> {
                     _tool == _CanvasTool.marker) ...[
                   _colorPicker(),
                   _widthPicker(),
+                  ListenableBuilder(
+                    listenable: widget.repository.catalog,
+                    builder: (_, _) => PopupMenuButton<PenPreset>(
+                      tooltip: 'Drawing presets',
+                      enabled: !_editingCanvas,
+                      onSelected: _applyPreset,
+                      itemBuilder: (_) => [
+                        for (final preset in widget.repository.catalog.presets)
+                          if (preset.tool == 'ink' ||
+                              preset.tool == 'highlight')
+                            PopupMenuItem(
+                              value: preset,
+                              child: Text(preset.name),
+                            ),
+                      ],
+                      icon: const Icon(Icons.bookmark_outline),
+                    ),
+                  ),
                 ],
+                if (_tool == _CanvasTool.eraser)
+                  TextButton.icon(
+                    onPressed: _editingCanvas ? null : _editEraserDiameter,
+                    icon: const Icon(Icons.line_weight),
+                    label: Text('${_eraserDiameter.round()} pt'),
+                  ),
                 if (_tool == _CanvasTool.lasso &&
                     _model.ink.selected.isNotEmpty)
                   IconButton(

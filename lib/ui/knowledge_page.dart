@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
@@ -43,6 +44,9 @@ class KnowledgePage extends StatefulWidget {
     this.request = 0,
     this.revision = 0,
     this.savedView,
+    this.savedViewRequest = 0,
+    this.onOpenTrash,
+    this.onOpenHistory,
     this.onUseSavedView,
     this.onNotebookTemplates,
     this.onRecoverMedia,
@@ -66,7 +70,8 @@ class KnowledgePage extends StatefulWidget {
   final bool embedded, active, addJournalEntry, showToday;
   final Future<void> Function(KnowledgeDestination)? onOpenDestination;
   final String? taskView;
-  final int request, revision;
+  final int request, revision, savedViewRequest;
+  final VoidCallback? onOpenTrash, onOpenHistory;
   final KnowledgeView? savedView;
   final ValueChanged<KnowledgeView>? onUseSavedView;
   final VoidCallback? onNotebookTemplates, onRecoverMedia;
@@ -117,7 +122,6 @@ class KnowledgePageState extends State<KnowledgePage> {
   int _generation = 0, _completed = 0, _total = 0;
   String? _error, _backupStatus;
   KnowledgeScan? _scan;
-  bool _scannedQuickTodosOnly = false;
   List<Notebook> _notes = [];
   List<File> _backups = [];
   DateTime _date = DateUtils.dateOnly(DateTime.now());
@@ -155,7 +159,10 @@ class KnowledgePageState extends State<KnowledgePage> {
     final requested = oldWidget.request != widget.request;
     final revised = oldWidget.revision != widget.revision;
     final savedView = widget.savedView;
-    final applyView = savedView != null && savedView != oldWidget.savedView;
+    final applyView =
+        savedView != null &&
+        (savedView != oldWidget.savedView ||
+            widget.savedViewRequest != oldWidget.savedViewRequest);
     if (!widget.active ||
         (oldWidget.active && !requested && !revised && !applyView)) {
       return;
@@ -264,10 +271,6 @@ class KnowledgePageState extends State<KnowledgePage> {
   Future<void> _search({bool keepResults = false}) async {
     if (_busy) return;
     final generation = ++_generation;
-    final onlyQuickTodos =
-        _taskSection &&
-        _taskView != _TaskView.all &&
-        _taskView != _TaskView.completed;
     setState(() {
       _busy = true;
       _error = null;
@@ -280,7 +283,6 @@ class KnowledgePageState extends State<KnowledgePage> {
     try {
       final result = await _store.scan(
         _view,
-        onlyQuickTodos: onlyQuickTodos,
         includeCompletedTasks:
             widget.embedded && _section == 'Search' && !_view.tasksOnly,
         cancelled: () =>
@@ -302,7 +304,6 @@ class KnowledgePageState extends State<KnowledgePage> {
       if (mounted && generation == _generation) {
         setState(() {
           _scan = result;
-          _scannedQuickTodosOnly = onlyQuickTodos;
           if (_cancelRequested) {
             _error = 'Search cancelled; partial results are shown.';
           }
@@ -573,6 +574,12 @@ class KnowledgePageState extends State<KnowledgePage> {
     if (mounted && _error == null) await _search();
   }
 
+  String? _taskProject(KnowledgeTask task) {
+    final catalog = widget.repository.catalog;
+    if (task.documentTodo?.project case final name?) return name;
+    return catalog.folderName(task.projectFolderId);
+  }
+
   List<KnowledgeHit> _taskHits(KnowledgeScan scan, String today) {
     if (!_taskSection ||
         _taskView == _TaskView.all ||
@@ -580,19 +587,18 @@ class KnowledgePageState extends State<KnowledgePage> {
       return scan.hits;
     }
     final catalog = widget.repository.catalog;
-    final selected = catalog.folderName(_projectFilter) == null
-        ? ''
-        : _projectFilter;
+    final selected = catalog.folderName(_projectFilter);
     final hits = scan.hits.where((hit) {
       final task = scan.tasksByLocation['${hit.note.id}:${hit.anchor}'];
-      if (task?.canPlan != true) return false;
-      final project = catalog.folderName(hit.note.folderId);
+      if (task == null || !task.canPlan) return false;
+      final project = _taskProject(task);
       return switch (_taskView) {
-        _TaskView.unsorted => project == null,
+        _TaskView.unsorted => task.isQuickTodo && project == null,
         _TaskView.projects =>
           project != null &&
-              (selected.isEmpty || hit.note.folderId == selected),
-        _TaskView.today => switch (task!.due) {
+              (selected == null ||
+                  project.toLowerCase() == selected.toLowerCase()),
+        _TaskView.today => switch (task.due) {
           final String due => due.compareTo(today) <= 0,
           null => false,
         },
@@ -624,9 +630,7 @@ class KnowledgePageState extends State<KnowledgePage> {
                   if (view == _taskView) return;
                   final wasCompleted = _showCompletedTasks;
                   setState(() => _taskView = view);
-                  if (wasCompleted != _showCompletedTasks ||
-                      ((view == _TaskView.all || view == _TaskView.completed) &&
-                          _scannedQuickTodosOnly)) {
+                  if (wasCompleted != _showCompletedTasks) {
                     unawaited(_search());
                   }
                 },
@@ -647,8 +651,8 @@ class KnowledgePageState extends State<KnowledgePage> {
           ? source
           : '$source · ${completedTaskLabel(context, completed)}';
     }
-    final project = widget.repository.catalog.folderName(hit.note.folderId);
-    final due = task!.due;
+    final project = _taskProject(task!);
+    final due = task.due;
     final details = [
       if (hit.note.title != hit.snippet) hit.note.title,
       ?project,
@@ -963,7 +967,7 @@ class KnowledgePageState extends State<KnowledgePage> {
               child: Text(
                 scan == null
                     ? (_section == 'Tasks'
-                          ? 'Search to collect open checkboxes from every Markdown file.'
+                          ? 'Quick to-dos are standalone. Checklist tasks stay in their Markdown or to-do file. Plan either type from the task row.'
                           : 'Enter text, or leave it empty to list all matching files.')
                     : _taskSection && _view.query.isEmpty
                     ? switch (_taskView) {
@@ -1380,6 +1384,30 @@ class KnowledgePageState extends State<KnowledgePage> {
     );
   }
 
+  Future<bool> _confirmDelete(String kind, String name) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Delete $kind?'),
+          content: Text('“$name” will be removed.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+                foregroundColor: Theme.of(context).colorScheme.onError,
+              ),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+
   Widget _templates() => ListView(
     padding: const EdgeInsets.all(16),
     children: [
@@ -1414,6 +1442,10 @@ class KnowledgePageState extends State<KnowledgePage> {
             onPressed: _busy
                 ? null
                 : () => _work(() async {
+                    if (!await _confirmDelete('template', template.name) ||
+                        !mounted) {
+                      return;
+                    }
                     await _store.updateSettings((settings) {
                       settings.templates.removeWhere(
                         (t) => t.id == template.id,
@@ -1507,7 +1539,17 @@ class KnowledgePageState extends State<KnowledgePage> {
             [
               view.query,
               view.tag,
-              view.kind,
+              if (view.kind != 'all')
+                switch (view.kind) {
+                  'markdown' => 'Markdown',
+                  'pdf' => 'PDF',
+                  'todo' => 'To-do lists',
+                  'media' => 'Media',
+                  _ => view.kind,
+                },
+              if (view.folder.isNotEmpty)
+                widget.repository.catalog.folderName(view.folder) ??
+                    'Unavailable folder',
               if (view.completedTasks)
                 'Completed tasks'
               else if (view.openTasks)
@@ -1530,6 +1572,10 @@ class KnowledgePageState extends State<KnowledgePage> {
             onPressed: _busy
                 ? null
                 : () => _work(() async {
+                    if (!await _confirmDelete('saved view', view.name) ||
+                        !mounted) {
+                      return;
+                    }
                     await _store.updateSettings((settings) {
                       settings.views.removeWhere(
                         (entry) => entry.name == view.name,
@@ -1540,9 +1586,49 @@ class KnowledgePageState extends State<KnowledgePage> {
         ),
     ],
   );
+  Future<void> _restoreBackup({
+    required Future<int> Function() length,
+    required Future<Uint8List> Function() read,
+  }) async {
+    if (await length() > LibraryBackup.maxBytes) {
+      throw const FormatException('Backup exceeds 512 MB.');
+    }
+    if (!mounted || !await FileGateway.prepareClose()) {
+      throw const FormatException('Could not save open files.');
+    }
+    final notes = await _backup.restore(await read());
+    await FileGateway.refreshOpenDocuments?.call();
+    await widget.onQuickTodosChanged?.call();
+    await _store.reload();
+    _notes = await widget.repository.list();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            notes.isEmpty
+                ? 'Restored library data.'
+                : 'Restored library data and ${notes.length} file copies.',
+          ),
+        ),
+      );
+    }
+  }
+
   Widget _backupPage() => ListView(
     padding: const EdgeInsets.all(16),
     children: [
+      if (widget.onOpenTrash case final open?)
+        ListTile(
+          leading: const Icon(Icons.delete_outline),
+          title: const Text('Trash'),
+          onTap: open,
+        ),
+      if (widget.onOpenHistory case final open?)
+        ListTile(
+          leading: const Icon(Icons.history),
+          title: const Text('Version history'),
+          onTap: open,
+        ),
       if (widget.onRecoverMedia case final recover?)
         ListTile(
           leading: const Icon(Icons.perm_media_outlined),
@@ -1613,30 +1699,10 @@ class KnowledgePageState extends State<KnowledgePage> {
                 : () => _work(() async {
                     final file = await FileGateway().pick();
                     if (file == null) return;
-                    if (await file.length() > LibraryBackup.maxBytes) {
-                      throw const FormatException('Backup exceeds 512 MB.');
-                    }
-                    if (!mounted || !await FileGateway.prepareClose()) {
-                      throw const FormatException('Could not save open files.');
-                    }
-                    final notes = await _backup.restore(
-                      await file.readAsBytes(),
+                    await _restoreBackup(
+                      length: file.length,
+                      read: file.readAsBytes,
                     );
-                    await FileGateway.refreshOpenDocuments?.call();
-                    await widget.onQuickTodosChanged?.call();
-                    await _store.reload();
-                    _notes = await widget.repository.list();
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            notes.isEmpty
-                                ? 'Restored library data.'
-                                : 'Restored library data and ${notes.length} file copies.',
-                          ),
-                        ),
-                      );
-                    }
                   }),
             child: const Text('Restore backup as copies'),
           ),
@@ -1645,18 +1711,35 @@ class KnowledgePageState extends State<KnowledgePage> {
       for (final file in _backups)
         ListTile(
           title: Text(file.uri.pathSegments.last),
-          trailing: IconButton(
-            tooltip: 'Export backup',
-            icon: const Icon(Icons.save_alt),
-            onPressed: _busy
-                ? null
-                : () => _work(() async {
-                    await FileGateway().save(
-                      file.uri.pathSegments.last,
-                      await file.readAsBytes(),
-                      'application/zip',
-                    );
-                  }),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: 'Restore backup as copies',
+                icon: const Icon(Icons.restore),
+                onPressed: _busy
+                    ? null
+                    : () => _work(() async {
+                        await _restoreBackup(
+                          length: file.length,
+                          read: file.readAsBytes,
+                        );
+                      }),
+              ),
+              IconButton(
+                tooltip: 'Export backup',
+                icon: const Icon(Icons.save_alt),
+                onPressed: _busy
+                    ? null
+                    : () => _work(() async {
+                        await FileGateway().save(
+                          file.uri.pathSegments.last,
+                          await file.readAsBytes(),
+                          'application/zip',
+                        );
+                      }),
+              ),
+            ],
           ),
         ),
     ],
@@ -1842,55 +1925,59 @@ class KnowledgePageState extends State<KnowledgePage> {
   Widget _buildPage() {
     final desktop = NoterTheme.desktopControls(context);
     return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: !widget.embedded,
-        title: Text(
-          widget.embedded
-              ? _section
-              : _taskSection && _taskView == _TaskView.unsorted
-              ? unsortedTodos
-              : 'Knowledge hub',
-        ),
-        toolbarHeight: NoterTheme.headerHeight(context),
-        actions: [
-          if (!widget.embedded)
-            IconButton(
-              tooltip:
-                  widget.shortcuts?.tooltip(
-                    'Add to-do',
-                    AppShortcut.quickTodo,
-                  ) ??
-                  'Add to-do',
-              onPressed: _busy ? null : _quickTodo,
-              icon: const Icon(Icons.playlist_add),
+      appBar: widget.embedded && _section != 'Search' && _section != 'Journal'
+          ? null
+          : AppBar(
+              automaticallyImplyLeading: !widget.embedded,
+              title: widget.embedded
+                  ? null
+                  : Text(
+                      _taskSection && _taskView == _TaskView.unsorted
+                          ? unsortedTodos
+                          : 'Knowledge hub',
+                    ),
+              toolbarHeight: widget.embedded
+                  ? 42
+                  : NoterTheme.headerHeight(context),
+              actions: [
+                if (!widget.embedded)
+                  IconButton(
+                    tooltip:
+                        widget.shortcuts?.tooltip(
+                          'Add to-do',
+                          AppShortcut.quickTodo,
+                        ) ??
+                        'Add to-do',
+                    onPressed: _busy ? null : _quickTodo,
+                    icon: const Icon(Icons.playlist_add),
+                  ),
+                if (_section == 'Search') ...[
+                  if (widget.onOpenViews case final views?)
+                    IconButton(
+                      tooltip: 'Saved views',
+                      onPressed: views,
+                      icon: const Icon(Icons.bookmarks_outlined),
+                    ),
+                  if (widget.onOpenGraph case final graph?)
+                    IconButton(
+                      tooltip: 'Graph view',
+                      onPressed: graph,
+                      icon: const Icon(Icons.hub_outlined),
+                    ),
+                ],
+                if (_section == 'Inbox' && !widget.embedded)
+                  IconButton(
+                    tooltip: 'Quick capture',
+                    onPressed: _busy ? null : _capture,
+                    icon: const Icon(Icons.note_add_outlined),
+                  ),
+                IconButton(
+                  tooltip: 'Reload',
+                  onPressed: _busy ? null : _reload,
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
             ),
-          if (_section == 'Search') ...[
-            if (widget.onOpenViews case final views?)
-              IconButton(
-                tooltip: 'Saved views',
-                onPressed: views,
-                icon: const Icon(Icons.bookmarks_outlined),
-              ),
-            if (widget.onOpenGraph case final graph?)
-              IconButton(
-                tooltip: 'Graph view',
-                onPressed: graph,
-                icon: const Icon(Icons.hub_outlined),
-              ),
-          ],
-          if (_section == 'Inbox' && !widget.embedded)
-            IconButton(
-              tooltip: 'Quick capture',
-              onPressed: _busy ? null : _capture,
-              icon: const Icon(Icons.note_add_outlined),
-            ),
-          IconButton(
-            tooltip: 'Reload',
-            onPressed: _busy ? null : _reload,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
-      ),
       bottomNavigationBar: widget.embedded || desktop
           ? null
           : _bottomNavigation(),

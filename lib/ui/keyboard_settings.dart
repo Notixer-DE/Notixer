@@ -109,7 +109,7 @@ class _KeyboardSettingsPageState extends State<KeyboardSettingsPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Settings')),
+    appBar: AppBar(title: const Text('Keyboard shortcuts')),
     body: SafeArea(
       child: Align(
         alignment: Alignment.topCenter,

@@ -63,14 +63,20 @@ Future<String> _waitForPersistedSource(
 void main() {
   group('document_task linked helpers', () {
     test(
-      'preserves linkId across check, uncheck, and timer updates without leaking timer metadata into copies',
+      'preserves link ID, timer and planning on the source task during a linked copy',
       () {
         final now = DateTime.utc(2026, 11, 24, 10);
         const raw = '- [ ] Buy milk\r\n- [x] Send report\r\n';
         final offsets = markdownTaskOffsets(raw);
 
-        var source = updateDocumentTask(
+        final planned = planDocumentTask(
           raw,
+          offsets.first,
+          project: 'Errands',
+          due: '2026-11-25',
+        );
+        final source = updateDocumentTask(
+          planned,
           offsets.first,
           timer: TodoTimerAction.start,
           now: now,
@@ -93,15 +99,15 @@ void main() {
           copied.clipboard,
           startsWith('- [ ] Buy milk <!-- notixer-task '),
         );
-        expect(
-          documentTask(
-            copied.clipboard,
-            markdownTaskOffsets(copied.clipboard).single,
-            'Buy milk',
-            fallback: now,
-          ).timerStartedAt,
-          isNull,
+        final clipboardTask = documentTask(
+          copied.clipboard,
+          markdownTaskOffsets(copied.clipboard).single,
+          'Buy milk',
+          fallback: now,
         );
+        expect(clipboardTask.timerStartedAt, isNull);
+        expect(clipboardTask.due, isNull);
+        expect(clipboardTask.project, isNull);
         expect(
           documentTaskLinkId(
             copied.clipboard,
@@ -131,6 +137,14 @@ void main() {
           documentTaskLinkId(unchecked, markdownTaskOffsets(unchecked).first),
           'link-1',
         );
+        final reopened = documentTask(
+          unchecked,
+          markdownTaskOffsets(unchecked).first,
+          'Buy milk',
+          fallback: now,
+        );
+        expect(reopened.due, '2026-11-25');
+        expect(reopened.project, 'Errands');
         expect(unchecked.split('\r\n').length, 3);
       },
     );

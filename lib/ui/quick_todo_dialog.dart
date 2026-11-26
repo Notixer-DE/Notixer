@@ -25,13 +25,18 @@ class _QuickTodoDialog extends StatefulWidget {
 
 class _QuickTodoDialogState extends State<_QuickTodoDialog> {
   String _text = '';
+  static const _newProject = '::new-project::';
   String? _project;
+  String _projectName = '';
   DateTime? _due;
   late final _catalog = widget.store.repository.catalog;
   Future<void>? _folders;
   String? _error;
   bool _saving = false;
-  bool get _canAdd => !_saving && _text.trim().isNotEmpty;
+  bool get _canAdd =>
+      !_saving &&
+      _text.trim().isNotEmpty &&
+      (_project != _newProject || _projectName.trim().isNotEmpty);
 
   Future<void> _add() async {
     if (!_canAdd) return;
@@ -40,7 +45,10 @@ class _QuickTodoDialogState extends State<_QuickTodoDialog> {
       _error = null;
     });
     try {
-      await widget.store.addQuickTodo(_text, projectId: _project, due: _due);
+      final project = _project == _newProject
+          ? (await _catalog.ensureFolder(_projectName)).id
+          : _project;
+      await widget.store.addQuickTodo(_text, projectId: project, due: _due);
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
       if (!mounted) return;
@@ -81,11 +89,18 @@ class _QuickTodoDialogState extends State<_QuickTodoDialog> {
           return DropdownButtonFormField<String>(
             isExpanded: true,
             initialValue: _project ?? '',
-            decoration: const InputDecoration(labelText: 'Project'),
+            decoration: const InputDecoration(
+              labelText: 'Project',
+              helperText: 'Projects are library folders.',
+            ),
             items: [
               const DropdownMenuItem(value: '', child: Text('Unsorted')),
               for (final folder in _catalog.folders)
                 DropdownMenuItem(value: folder.id, child: Text(folder.name)),
+              const DropdownMenuItem(
+                value: _newProject,
+                child: Text('New project…'),
+              ),
             ],
             onChanged: _saving
                 ? null
@@ -95,10 +110,18 @@ class _QuickTodoDialogState extends State<_QuickTodoDialog> {
           );
         },
       ),
+      if (_project == _newProject)
+        TextFormField(
+          initialValue: _projectName,
+          decoration: const InputDecoration(labelText: 'New folder name'),
+          onChanged: _saving
+              ? null
+              : (value) => setState(() => _projectName = value),
+        ),
       Wrap(
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          TextButton.icon(
+          OutlinedButton.icon(
             onPressed: _saving ? null : _chooseDue,
             icon: const Icon(Icons.calendar_today_outlined),
             label: Text(

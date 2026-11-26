@@ -190,7 +190,7 @@ class _SyncPageState extends State<SyncPage> {
             for (final note in notes)
               SimpleDialogOption(
                 onPressed: () => Navigator.pop(context, note.id),
-                child: Text('${note.title}\n${note.documentPath}'),
+                child: Text(note.title),
               ),
             SimpleDialogOption(
               onPressed: () => Navigator.pop(context),

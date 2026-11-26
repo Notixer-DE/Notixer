@@ -138,7 +138,7 @@ void _searchIndexedMarkdown(
       task.line,
       text,
       document.revision,
-      canPlan: document.offsets.length == 1 && _isQuickTodo(note),
+      canPlan: true,
       documentTodo: documentTask(
         source,
         task.offset,

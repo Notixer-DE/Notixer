@@ -115,6 +115,9 @@ class _LibraryPageState extends State<LibraryPage> {
         if (Platform.isAndroid) LibraryWorkspaceAction.liveCanvas: _liveCanvas,
         LibraryWorkspaceAction.conflicts: _showConflicts,
         LibraryWorkspaceAction.recoverMedia: _recoverCapture,
+        LibraryWorkspaceAction.searchPdfs: _searchPdfs,
+        LibraryWorkspaceAction.trash: _recovery,
+        LibraryWorkspaceAction.history: _findHistory,
       };
       workspace.commands = {
         AppShortcut.knowledgeSearch: () => _knowledge(autofocusSearch: true),
@@ -216,14 +219,16 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Future<void> _syncSettings() async {
-    if (_hasOpenDocuments) return;
     await _perform(() async {
       await _sync.load();
       if (!mounted) return;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) =>
-              SyncPage(controller: _sync, shortcuts: widget.shortcuts),
+          builder: (_) => SyncPage(
+            controller: _sync,
+            shortcuts: widget.shortcuts,
+            hasOpenDocuments: _hasOpenDocuments,
+          ),
         ),
       );
       await _refresh();
@@ -495,10 +500,12 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Future<void> _searchPdfs() => _perform(() async {
+    if (!await FileGateway.prepareClose() || !mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => PdfSearchPage(
           notes: _notes.where((n) => n.isPdf).toList(),
+          workspaceSessions: widget.workspaceSessions,
           repository: widget.repository,
           shortcuts: widget.shortcuts,
         ),
@@ -990,6 +997,10 @@ class _LibraryPageState extends State<LibraryPage> {
                 child: const Text('Cancel'),
               ),
               FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.error,
+                  foregroundColor: Theme.of(context).colorScheme.onError,
+                ),
                 onPressed: () => Navigator.pop(context, true),
                 child: const Text('Delete'),
               ),
@@ -1103,6 +1114,30 @@ class _LibraryPageState extends State<LibraryPage> {
     );
   });
 
+  Future<void> _findHistory() async {
+    final notes = await widget.repository.list();
+    if (!mounted) return;
+    final note = await showDialog<Notebook>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Version history'),
+        children: [
+          if (notes.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(20),
+              child: Text('No notes available.'),
+            ),
+          for (final note in notes)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, note),
+              child: Text(note.title),
+            ),
+        ],
+      ),
+    );
+    if (mounted && note != null) await _recovery(note: note);
+  }
+
   Future<void> _recovery({Notebook? note}) => _perform(() async {
     final restored = await Navigator.of(context).push<Notebook>(
       MaterialPageRoute(
@@ -1189,31 +1224,18 @@ class _LibraryPageState extends State<LibraryPage> {
                       },
                     ),
             ),
-            toolbarHeight: NoterTheme.headerHeight(context),
+            toolbarHeight: widget.onWorkspaceSection == null
+                ? NoterTheme.headerHeight(context)
+                : 42,
             titleSpacing: _selecting ? 4 : null,
             title: _selecting
                 ? Text(
                     '${_selectedNotes.length} selected',
                     overflow: TextOverflow.ellipsis,
                   )
-                : Row(
-                    children: [
-                      const Icon(
-                        Icons.draw_outlined,
-                        color: NoterTheme.accent,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          widget.onWorkspaceSection == null
-                              ? 'Notixer'
-                              : 'Files',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
+                : widget.onWorkspaceSection == null
+                ? const Text('Notixer')
+                : null,
             actions: _selecting
                 ? _selectionActions(visible)
                 : widget.onWorkspaceSection != null
@@ -1794,7 +1816,12 @@ class _LibraryPageState extends State<LibraryPage> {
       ],
       if (_canPreview)
         const PopupMenuItem(value: 'preview', child: Text('Preview')),
-      const PopupMenuItem(value: 'export', child: Text('Save file to device')),
+      PopupMenuItem(
+        value: 'export',
+        child: Text(
+          note.isTodoList ? 'Export as Notixer file (.noter)' : 'Export file',
+        ),
+      ),
       const PopupMenuItem(value: 'rename', child: Text('Rename')),
       const PopupMenuItem(value: 'organize', child: Text('Folders and tags')),
       const PopupMenuItem(value: 'history', child: Text('Version history')),
@@ -2084,7 +2111,41 @@ class _NewNoteDialogState extends State<_NewNoteDialog> {
             TextField(
               controller: _lineColor,
               decoration: InputDecoration(
-                labelText: 'Line color (hex)',
+                labelText: 'Line color',
+                hintText: 'DCE4EC',
+                prefixIcon: PopupMenuButton<int>(
+                  tooltip: 'Choose line color',
+                  icon: Icon(
+                    Icons.square_rounded,
+                    color: Color(0xFF000000 | (_parsedLineColor ?? 0xDCE4EC)),
+                  ),
+                  onSelected: (value) => setState(() {
+                    _lineColor.text = value
+                        .toRadixString(16)
+                        .padLeft(6, '0')
+                        .toUpperCase();
+                  }),
+                  itemBuilder: (_) => [
+                    for (final (color, name) in const [
+                      (0xDCE4EC, 'Light gray'),
+                      (0x77889F, 'Slate'),
+                      (0xA5C6EB, 'Blue'),
+                      (0xA7CDAC, 'Green'),
+                      (0xE6B5B5, 'Rose'),
+                    ])
+                      PopupMenuItem(
+                        value: color,
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(
+                            Icons.square_rounded,
+                            color: Color(0xFF000000 | color),
+                          ),
+                          title: Text(name),
+                        ),
+                      ),
+                  ],
+                ),
                 errorText: _parsedLineColor == null
                     ? 'Enter six hexadecimal digits'
                     : null,

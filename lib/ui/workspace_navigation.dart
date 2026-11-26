@@ -92,7 +92,9 @@ class _WorkspaceNavigationState extends State<WorkspaceNavigation> {
                       const SizedBox(width: 16),
                     Expanded(
                       child: Text(
-                        'Notixer',
+                        selected == WorkspaceArea.today
+                            ? 'Notixer'
+                            : selected.label,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.titleLarge,

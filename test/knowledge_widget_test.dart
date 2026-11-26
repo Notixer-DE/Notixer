@@ -828,6 +828,47 @@ void main() {
     },
   );
 
+  testWidgets('a repeated saved view request restores its query', (
+    tester,
+  ) async {
+    const view = KnowledgeView('Source', query: 'Source note');
+    Widget page(int request) => MaterialApp(
+      theme: NoterTheme.light,
+      home: KnowledgePage(
+        repository: repository,
+        initialSection: 'Search',
+        savedView: view,
+        savedViewRequest: request,
+      ),
+    );
+    final query = find.widgetWithText(TextField, 'Search Markdown and PDFs');
+    await tester.pumpWidget(page(1));
+    await waitKnowledge(
+      tester,
+      () => find.text('Source note').evaluate().isNotEmpty,
+    );
+    await tester.enterText(query, 'different filter');
+    await tester.tap(
+      find.descendant(
+        of: query,
+        matching: find.byWidgetPredicate(
+          (widget) => widget is IconButton && widget.tooltip == 'Search',
+        ),
+      ),
+    );
+    await waitKnowledge(
+      tester,
+      () => find.text('No matches.').evaluate().isNotEmpty,
+    );
+    await tester.pumpWidget(page(2));
+    await waitKnowledge(
+      tester,
+      () => find.text('Source note').evaluate().isNotEmpty,
+    );
+    expect(tester.widget<TextField>(query).controller!.text, view.query);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets(
     'journal opens past days and applies an edited template only to new entries',
     (tester) async {

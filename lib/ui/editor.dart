@@ -921,26 +921,6 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                   onPressed: () => active.key.currentState?.toggleSearch(),
                   icon: const Icon(Icons.search),
                 ),
-              if (mode == _PdfWorkspaceMode.draw)
-                PopupMenuButton<String>(
-                  tooltip: 'Drawing options',
-                  onSelected: _action,
-                  itemBuilder: (_) => [
-                    CheckedPopupMenuItem(
-                      value: 'finger',
-                      checked: session.preferences.fingerDrawsInk,
-                      child: const Text('Finger drawing'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'presets',
-                      child: Text('Edit pen presets'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'loupe',
-                      child: Text('Writing magnifier'),
-                    ),
-                  ],
-                ),
               if (mode == _PdfWorkspaceMode.pages) ...[
                 TextButton(
                   onPressed: _busy ? null : _pages,
@@ -984,6 +964,11 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     child: _buildEditor(context),
   );
 
+  bool _inlineModeStrip(BuildContext context) =>
+      _workspaceModes &&
+      NoterTheme.desktopControls(context) &&
+      !(active.key.currentState?.learningActive ?? false);
+
   Widget _buildEditor(BuildContext context) => PopScope(
     canPop: widget.tabController != null || _allowPop,
     onPopInvokedWithResult: (popped, _) {
@@ -996,14 +981,21 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
           : AppBar(
               toolbarHeight: NoterTheme.headerHeight(context),
               leadingWidth: DocumentTabsChrome.leadingWidth(context),
-              leading: DocumentNavigation(
-                child: IconButton(
-                  tooltip: 'Back to library',
-                  onPressed: _leave,
-                  icon: const Icon(Icons.arrow_back),
-                ),
-              ),
-              title: Text(session.note.title, overflow: TextOverflow.ellipsis),
+              automaticallyImplyLeading: false,
+              leading:
+                  _inlineModeStrip(context) &&
+                      DocumentTabsChrome.visible(context)
+                  ? null
+                  : DocumentNavigation(
+                      child: IconButton(
+                        tooltip: 'Back to library',
+                        onPressed: _leave,
+                        icon: const Icon(Icons.arrow_back),
+                      ),
+                    ),
+              title: _inlineModeStrip(context)
+                  ? _modeStrip()
+                  : Text(session.note.title, overflow: TextOverflow.ellipsis),
               actions: [
                 IconButton(
                   tooltip: 'Hide toolbars',
@@ -1057,18 +1049,18 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                         child: Text('Paste selection'),
                       ),
                     const PopupMenuDivider(),
-                    if (!_workspaceModes)
+                    if (!_workspaceModes || _pdfMode == _PdfWorkspaceMode.draw)
                       CheckedPopupMenuItem(
                         value: 'finger',
                         checked: session.preferences.fingerDrawsInk,
                         child: const Text('Finger drawing'),
                       ),
-                    if (!_workspaceModes)
+                    if (!_workspaceModes || _pdfMode == _PdfWorkspaceMode.draw)
                       const PopupMenuItem(
                         value: 'presets',
                         child: Text('Edit pen presets'),
                       ),
-                    if (!_workspaceModes)
+                    if (!_workspaceModes || _pdfMode == _PdfWorkspaceMode.draw)
                       const PopupMenuItem(
                         value: 'loupe',
                         child: Text('Writing magnifier'),
@@ -1114,7 +1106,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                     ),
                     const PopupMenuItem(
                       value: 'noter',
-                      child: Text('Save as Notixer file'),
+                      child: Text('Export as Notixer file (.noter)'),
                     ),
                   ],
                 ),
@@ -1127,6 +1119,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
               children: [
                 if (_busy) const LinearProgressIndicator(),
                 if (_showChrome &&
+                    !_inlineModeStrip(context) &&
                     _workspaceModes &&
                     !(active.key.currentState?.learningActive ?? false))
                   _modeStrip(),

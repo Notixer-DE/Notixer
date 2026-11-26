@@ -135,6 +135,30 @@ class KnowledgeTask {
     this.countdown,
     this.deleting = false,
   });
+  factory KnowledgeTask.fromQuickTodo(QuickTodo todo) {
+    final note = Notebook(
+      id: 'quick:${todo.id}',
+      title: todo.text,
+      paper: 'markdown',
+      created: todo.created,
+      modified: todo.modified,
+      folderId: todo.project,
+      tags: [
+        todo.project == null ? unsortedTodos : _quickTodoTag,
+        if (todo.due != null) 'Due: ${todo.due}',
+      ],
+    );
+    return KnowledgeTask(
+      note,
+      0,
+      0,
+      todo.text,
+      todo.revision,
+      canPlan: true,
+      quickTodo: todo,
+    );
+  }
+
   final Notebook note;
   final int offset, line;
   final String text, revision;
@@ -143,6 +167,9 @@ class KnowledgeTask {
   final TodoTimerAction? timerAction;
   final Duration? workTime, countdown;
   QuickTodo? get todo => quickTodo ?? documentTodo;
+  bool get isQuickTodo => quickTodo != null || _isQuickTodo(note);
+  String? get projectFolderId =>
+      quickTodo?.project ?? (_isQuickTodo(note) ? note.folderId : null);
   bool get done => todo?.done ?? false;
 
   KnowledgeTask withTimer({
@@ -214,7 +241,10 @@ class KnowledgeTask {
   }
 
   String get anchor => quickTodo == null ? 'line=$line' : 'task';
-  String? get due => quickTodo?.due ?? quickTodoDueDate(note);
+  String? get due =>
+      quickTodo?.due ??
+      documentTodo?.due ??
+      (_isQuickTodo(note) ? quickTodoDueDate(note) : null);
 }
 
 String markdownRevision(String source) =>
@@ -645,9 +675,27 @@ class KnowledgeStore {
     );
     final document = await decodeMarkdownAsync(bytes);
     final offsets = markdownTaskOffsets(document.source);
-    if (!_isQuickTodo(current) ||
-        markdownRevision(document.source) != task.revision ||
-        offsets.singleOrNull != task.offset ||
+    if (!_isQuickTodo(current) || offsets.singleOrNull != task.offset) {
+      if (markdownRevision(document.source) != task.revision ||
+          !offsets.contains(task.offset)) {
+        throw const FormatException('The to-do changed. Reload the task list.');
+      }
+      final source = planDocumentTask(
+        document.source,
+        task.offset,
+        project: project?.name,
+        due: date,
+      );
+      if (source == document.source) return current;
+      final updated = current.copy(modified: DateTime.now());
+      final archive = await LocalNotebookRepository.encodeAsync(
+        updated,
+        document.copy(source: source).encode(),
+      );
+      await repository.applySync(current.id, snapshot.raw, archive);
+      return updated;
+    }
+    if (markdownRevision(document.source) != task.revision ||
         document.source[task.offset] != ' ' ||
         current.folderId != task.note.folderId ||
         quickTodoDueDate(current) != quickTodoDueDate(task.note)) {
@@ -822,30 +870,9 @@ class KnowledgeStore {
               !todo.text.toLowerCase().contains(query)) {
             continue;
           }
-          // Keep document and inbox results in the same list without creating
-          // a repository document or an editor destination for inbox entries.
-          final note = Notebook(
-            id: 'quick:${todo.id}',
-            title: todo.text,
-            paper: 'markdown',
-            created: todo.created,
-            modified: todo.modified,
-            folderId: todo.project,
-            tags: [
-              todo.project == null ? unsortedTodos : _quickTodoTag,
-              if (todo.due != null) 'Due: ${todo.due}',
-            ],
-          );
+          final task = KnowledgeTask.fromQuickTodo(todo);
+          final note = task.note;
           if (!matchesFilters(note)) continue;
-          final task = KnowledgeTask(
-            note,
-            0,
-            0,
-            todo.text,
-            todo.revision,
-            canPlan: true,
-            quickTodo: todo,
-          );
           tasks.add(task);
           hits.add(KnowledgeHit(note, todo.text, task.anchor));
         }

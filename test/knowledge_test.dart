@@ -33,6 +33,40 @@ void main() {
   });
 
   test(
+    'a document task keeps its own plan when checked and reopened',
+    () async {
+      final note = await store.capture('Plan', '- [ ] First\n- [ ] Second\n');
+      final first = (await store.scan(
+        const KnowledgeView('', openTasks: true),
+      )).tasks.singleWhere((task) => task.text == 'First');
+      await store.planQuickTodo(
+        first,
+        projectId: null,
+        newProject: 'Field work',
+        due: DateTime(2026, 12, 1),
+      );
+      final open = (await store.scan(
+        const KnowledgeView('', openTasks: true),
+      )).tasks;
+      final planned = open.singleWhere((task) => task.text == 'First');
+      expect(planned.documentTodo?.project, 'Field work');
+      expect(planned.due, '2026-12-01');
+      expect(open.singleWhere((task) => task.text == 'Second').due, isNull);
+      await store.changeTask(planned);
+      final finished = (await store.scan(
+        const KnowledgeView('', completedTasks: true),
+      )).tasks.singleWhere((task) => task.note.id == note.id);
+      expect(finished.due, '2026-12-01');
+      await store.changeTask(finished);
+      final reopened = (await store.scan(
+        const KnowledgeView('', openTasks: true),
+      )).tasks.singleWhere((task) => task.text == 'First');
+      expect(reopened.documentTodo?.project, 'Field work');
+      expect(reopened.due, '2026-12-01');
+    },
+  );
+
+  test(
     'to-do list identity and literal tasks survive sync, archive import, and backup',
     () async {
       final todo = await createTodoList(repository, 'Supplies');
@@ -49,7 +83,7 @@ void main() {
       );
       expect(scan.hits.single.snippet, task);
       final open = scan.tasksByLocation['${todo.id}:line=1']!;
-      expect(open.canPlan, isFalse);
+      expect(open.canPlan, isTrue);
       await store.changeTask(open);
 
       final remote = MemoryRemote();

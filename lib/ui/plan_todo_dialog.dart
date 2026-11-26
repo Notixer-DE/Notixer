@@ -23,9 +23,16 @@ class PlanTodoDialog extends StatefulWidget {
 class _PlanTodoDialogState extends State<PlanTodoDialog> {
   static const _newProject = ':new-project:';
   late String _project =
-      widget.folders.any((f) => f.id == widget.task.note.folderId)
-      ? widget.task.note.folderId!
-      : '';
+      widget.folders
+          .where((folder) {
+            final name = widget.task.documentTodo?.project;
+            return name == null
+                ? folder.id == widget.task.projectFolderId
+                : folder.name.toLowerCase() == name.toLowerCase();
+          })
+          .firstOrNull
+          ?.id ??
+      '';
   String _projectName = '';
   late String _text = widget.task.text;
   late DateTime? _due = DateTime.tryParse(widget.task.due ?? '');
@@ -67,7 +74,10 @@ class _PlanTodoDialogState extends State<PlanTodoDialog> {
           DropdownButtonFormField<String>(
             isExpanded: true,
             initialValue: _project,
-            decoration: const InputDecoration(labelText: 'Project'),
+            decoration: const InputDecoration(
+              labelText: 'Project',
+              helperText: 'Projects are library folders.',
+            ),
             items: [
               const DropdownMenuItem(value: '', child: Text('Unsorted')),
               for (final folder in widget.folders)
@@ -87,7 +97,10 @@ class _PlanTodoDialogState extends State<PlanTodoDialog> {
             TextFormField(
               initialValue: _projectName,
               onChanged: (value) => setState(() => _projectName = value),
-              decoration: const InputDecoration(labelText: 'Project name'),
+              decoration: const InputDecoration(
+                labelText: 'Project name',
+                helperText: 'Creates a folder in Files.',
+              ),
             ),
           ],
           const SizedBox(height: 12),

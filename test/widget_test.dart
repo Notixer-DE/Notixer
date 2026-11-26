@@ -73,7 +73,7 @@ void main() {
     );
     await tester.tap(find.byTooltip('Note actions'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Save file to device'));
+    await tester.tap(find.text('Export file'));
     await settleFileIo(
       tester,
       () => find.text('File saved.').evaluate().isNotEmpty,

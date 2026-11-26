@@ -4,6 +4,7 @@ import '../data/keyboard_shortcuts.dart';
 import '../data/notebook.dart';
 import '../data/pdf_search.dart';
 import 'editor.dart';
+import 'document_tab.dart';
 
 class PdfSearchPage extends StatefulWidget {
   const PdfSearchPage({
@@ -11,10 +12,12 @@ class PdfSearchPage extends StatefulWidget {
     required this.notes,
     required this.repository,
     this.shortcuts,
+    this.workspaceSessions,
   });
   final List<Notebook> notes;
   final NotebookRepository repository;
   final KeyboardShortcuts? shortcuts;
+  final WorkspacePdfSessions? workspaceSessions;
 
   @override
   State<PdfSearchPage> createState() => _PdfSearchPageState();
@@ -137,6 +140,7 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
             bytes: bytes,
             repository: widget.repository,
             shortcuts: widget.shortcuts,
+            workspaceSessions: widget.workspaceSessions,
             initialPage: hit.pageIndex,
             initialQuery: _searchedQuery,
           ),
