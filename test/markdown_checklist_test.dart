@@ -72,6 +72,18 @@ void main() {
       ['[ ] Parent', '[X] Child', '[ ] Quote', '[x] End'],
       [false, true, false, true],
     ),
+    'same-line list nesting': (
+      '- - [ ] Nested bullet\n\n1. - [X] Nested number\n\n'
+          '> - 1. [ ] Nested quote\n\n- + [x]\n\n- [ ] After',
+      [
+        '[ ] Nested bullet',
+        '[X] Nested number',
+        '[ ] Nested quote',
+        '[x]',
+        '[ ] After',
+      ],
+      [false, true, false, true, false],
+    ),
     'CRLF, tabs and alternate bullets': (
       '*   [X]\tStar\r\n\r\n+ [ ] Plus\r\n\r\n1. [x] Number\r\n',
       ['[X]\tStar', '[ ] Plus', '[x] Number'],

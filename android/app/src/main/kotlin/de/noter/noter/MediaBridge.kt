@@ -19,6 +19,8 @@ import java.io.File
 class MediaBridge(private val activity: FlutterActivity, messenger: BinaryMessenger) {
     private val channel = MethodChannel(messenger, "de.noter/media")
     private val captureState = activity.getSharedPreferences("media_capture", 0)
+    private var capturePermission: Pair<Boolean, MethodChannel.Result>? = null
+    private var disposed = false
     private var captureReply: MethodChannel.Result? = null
     private var captureFile: File? = null
     private var permissionReply: MethodChannel.Result? = null
@@ -99,22 +101,41 @@ class MediaBridge(private val activity: FlutterActivity, messenger: BinaryMessen
     }
 
     private fun capture(video: Boolean, result: MethodChannel.Result) {
-        if (captureReply != null) { result.error("BUSY", "The camera is already open.", null); return }
-        val file = File.createTempFile("capture-", if (video) ".mp4" else ".jpg", activity.cacheDir)
-        val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.media", file)
-        val intent = Intent(if (video) MediaStore.ACTION_VIDEO_CAPTURE else MediaStore.ACTION_IMAGE_CAPTURE).apply {
-            putExtra(MediaStore.EXTRA_OUTPUT, uri)
-            if (video) { putExtra(MediaStore.EXTRA_DURATION_LIMIT, 600); putExtra(MediaStore.EXTRA_SIZE_LIMIT, 128L * 1024 * 1024) }
-            clipData = ClipData.newRawUri("Capture", uri)
-            addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        if (captureReply != null || capturePermission != null) {
+            result.error("BUSY", "The camera is already open.", null)
+            return
         }
+        if (activity.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            launchCapture(video, result)
+            return
+        }
+        capturePermission = video to result
         try {
+            activity.requestPermissions(arrayOf(Manifest.permission.CAMERA), CAMERA_PERMISSION_REQUEST)
+        } catch (error: Exception) {
+            capturePermission = null
+            result.error("PERMISSION", error.message, null)
+        }
+    }
+
+    private fun launchCapture(video: Boolean, result: MethodChannel.Result) {
+        var output: File? = null
+        try {
+            val file = File.createTempFile("capture-", if (video) ".mp4" else ".jpg", activity.cacheDir)
+            output = file
+            val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.media", file)
+            val intent = Intent(if (video) MediaStore.ACTION_VIDEO_CAPTURE else MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                if (video) { putExtra(MediaStore.EXTRA_DURATION_LIMIT, 600); putExtra(MediaStore.EXTRA_SIZE_LIMIT, 128L * 1024 * 1024) }
+                clipData = ClipData.newRawUri("Capture", uri)
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
             captureReply = result
             captureFile = file
             captureState.edit().putString("pending", file.absolutePath).apply()
             activity.startActivityForResult(intent, 703)
         } catch (error: Exception) {
-            captureReply = null; captureFile = null; file.delete(); captureState.edit().remove("pending").apply()
+            captureReply = null; captureFile = null; output?.delete(); captureState.edit().remove("pending").apply()
             result.error("CAMERA", "No camera is available: ${error.message}", null)
         }
     }
@@ -146,19 +167,33 @@ class MediaBridge(private val activity: FlutterActivity, messenger: BinaryMessen
                         }
                     }
                 }
-                if (file.length() == 0L) { file.delete(); activity.runOnUiThread { reply?.success(null) } }
+                if (file.length() == 0L) { file.delete(); activity.runOnUiThread { if (!disposed && !activity.isDestroyed) reply?.success(null) } }
                 else activity.runOnUiThread {
+                    if (disposed || activity.isDestroyed) return@runOnUiThread
                     if (reply != null) reply.success(file.absolutePath)
                     else channel.invokeMethod("captureRecovered", file.absolutePath)
                 }
             } catch (error: Exception) {
-                file.delete(); activity.runOnUiThread { reply?.error("CAPTURE", error.message, null) }
+                file.delete(); activity.runOnUiThread { if (!disposed && !activity.isDestroyed) reply?.error("CAPTURE", error.message, null) }
             }
         }.start()
         return true
     }
 
     fun onPermissionsResult(requestCode: Int, grantResults: IntArray): Boolean {
+        if (requestCode == CAMERA_PERMISSION_REQUEST) {
+            val pending = capturePermission
+            capturePermission = null
+            if (pending != null) {
+                val (video, reply) = pending
+                if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                    launchCapture(video, reply)
+                } else {
+                    reply.error("PERMISSION", "Camera access was denied. Allow it in Android app permissions to take photos or record video.", null)
+                }
+            }
+            return true
+        }
         if (requestCode != 704) return false
         val reply = permissionReply
         permissionReply = null
@@ -210,10 +245,16 @@ class MediaBridge(private val activity: FlutterActivity, messenger: BinaryMessen
     }
     fun onStop() { stopRecording(); releasePlayer() }
     fun dispose() {
+        disposed = true
+        capturePermission?.second?.error("CANCELLED", "Camera access was interrupted.", null)
+        capturePermission = null
         stopRecording(); recording = null; releasePlayer()
         captureReply?.success(null); captureReply = null
         permissionReply?.error("CANCELLED", "Recording was cancelled.", null); permissionReply = null
         captureFile = null
         channel.setMethodCallHandler(null)
+    }
+    private companion object {
+        const val CAMERA_PERMISSION_REQUEST = 705
     }
 }

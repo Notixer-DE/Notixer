@@ -314,6 +314,9 @@ class _Headings implements md.NodeVisitor {
   void visitText(md.Text text) {}
 }
 
+// A task can start inside multiple list containers on the same line.
+const _taskListPrefix = r'(?:[ \t>]*(?:[-+*]|\d{1,9}[.)])[ \t]+)+';
+
 /// Mark candidate lines, then let the Markdown parser decide which are actual
 /// task list items. This handles nesting, quotes and fenced/indented code without
 /// reimplementing the parser or rewriting a code example when a box is tapped.
@@ -326,7 +329,8 @@ List<int> markdownTaskOffsets(String source, {bool renderingOrder = false}) {
   var offset = 0;
   for (final line in source.split('\n')) {
     final task = RegExp(
-      r'^([ \t>]*(?:[-+*]|\d+[.)])[ \t]+)\[([ xX])\](?:[ \t]|(?=\r?$))',
+      '^($_taskListPrefix)'
+      r'\[([ xX])\](?:[ \t]|(?=\r?$))',
     ).firstMatch(line);
     if (task == null) {
       marked.add(line);
@@ -410,7 +414,8 @@ List<md.Node> parseMarkdownForPreview(String source) {
     emptyMarker += 'x';
   }
   final emptyTask = RegExp(
-    r'^([ \t>]*(?:[-+*]|\d+[.)])[ \t]+\[[ xX]\])[ \t]*(\r?)$',
+    '^($_taskListPrefix'
+    r'\[[ xX]\])[ \t]*(\r?)$',
   );
   String mark(String line) =>
       line.replaceFirstMapped(emptyTask, (m) => '${m[1]} $emptyMarker${m[2]}');

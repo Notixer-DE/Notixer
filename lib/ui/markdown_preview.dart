@@ -57,14 +57,22 @@ List<_PreviewBlock> _parsePreview(String source) {
     }
   }
   final offsets = markdownTaskOffsets(source, renderingOrder: true);
+  final counts = nodes.map(_taskCount).toList();
+  // A parser mismatch must never make a checkbox edit a different task.
+  final mapped =
+      counts.fold(0, (sum, count) => sum + count) == offsets.length &&
+      offsets.toSet().length == offsets.length;
   var checkbox = 0, heading = 0;
   final headings = markdownHeadingsFromNodes(nodes);
   final occurrences = <String, int>{};
   return [
-    for (final node in nodes)
+    for (var index = 0; index < nodes.length; index++)
       (() {
-        final count = _taskCount(node);
-        final tasks = offsets.sublist(checkbox, checkbox + count);
+        final node = nodes[index];
+        final count = counts[index];
+        final tasks = mapped
+            ? offsets.sublist(checkbox, checkbox + count)
+            : <int>[];
         checkbox += count;
         final fingerprint = jsonEncode(_nodeKey(node));
         final occurrence = occurrences.update(
