@@ -99,9 +99,16 @@ class DocumentTabsChrome extends InheritedWidget {
   const DocumentTabsChrome({
     super.key,
     required this.onShowTabs,
+    this.tabsVisible = false,
     required super.child,
   });
   final VoidCallback? onShowTabs;
+  final bool tabsVisible;
+  static bool visible(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<DocumentTabsChrome>()
+          ?.tabsVisible ??
+      false;
   static VoidCallback? action(BuildContext context) => context
       .dependOnInheritedWidgetOfExactType<DocumentTabsChrome>()
       ?.onShowTabs;
@@ -109,7 +116,8 @@ class DocumentTabsChrome extends InheritedWidget {
       action(context) == null ? null : 96;
   @override
   bool updateShouldNotify(DocumentTabsChrome oldWidget) =>
-      onShowTabs != oldWidget.onShowTabs;
+      onShowTabs != oldWidget.onShowTabs ||
+      tabsVisible != oldWidget.tabsVisible;
 }
 
 class DocumentNavigation extends StatelessWidget {

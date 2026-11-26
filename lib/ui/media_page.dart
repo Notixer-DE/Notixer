@@ -248,7 +248,7 @@ class _MediaPageState extends State<MediaPage> {
                 ),
               const PopupMenuItem(
                 value: 'export',
-                child: Text('Save file to device'),
+                child: Text('Export media file'),
               ),
             ],
           )

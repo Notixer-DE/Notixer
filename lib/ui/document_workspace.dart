@@ -341,7 +341,6 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
     final display = catalog.displayPreferences;
     final drawing = catalog.drawingPreferences;
     return Scaffold(
-      appBar: AppBar(title: Text(area.label), automaticallyImplyLeading: false),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 780),
@@ -946,6 +945,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                     context: context,
                     removeTop: _tabs.isNotEmpty && _showTabs,
                     child: DocumentTabsChrome(
+                      tabsVisible: _tabs.isNotEmpty && _showTabs,
                       onShowTabs: _tabs.isNotEmpty && !_showTabs
                           ? () => setState(() => _showTabs = true)
                           : null,

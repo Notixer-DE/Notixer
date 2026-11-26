@@ -1224,31 +1224,18 @@ class _LibraryPageState extends State<LibraryPage> {
                       },
                     ),
             ),
-            toolbarHeight: NoterTheme.headerHeight(context),
+            toolbarHeight: widget.onWorkspaceSection == null
+                ? NoterTheme.headerHeight(context)
+                : 42,
             titleSpacing: _selecting ? 4 : null,
             title: _selecting
                 ? Text(
                     '${_selectedNotes.length} selected',
                     overflow: TextOverflow.ellipsis,
                   )
-                : Row(
-                    children: [
-                      const Icon(
-                        Icons.draw_outlined,
-                        color: NoterTheme.accent,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          widget.onWorkspaceSection == null
-                              ? 'Notixer'
-                              : 'Files',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
+                : widget.onWorkspaceSection == null
+                ? const Text('Notixer')
+                : null,
             actions: _selecting
                 ? _selectionActions(visible)
                 : widget.onWorkspaceSection != null
@@ -1829,7 +1816,12 @@ class _LibraryPageState extends State<LibraryPage> {
       ],
       if (_canPreview)
         const PopupMenuItem(value: 'preview', child: Text('Preview')),
-      const PopupMenuItem(value: 'export', child: Text('Save file to device')),
+      PopupMenuItem(
+        value: 'export',
+        child: Text(
+          note.isTodoList ? 'Export as Notixer file (.noter)' : 'Export file',
+        ),
+      ),
       const PopupMenuItem(value: 'rename', child: Text('Rename')),
       const PopupMenuItem(value: 'organize', child: Text('Folders and tags')),
       const PopupMenuItem(value: 'history', child: Text('Version history')),

@@ -1925,55 +1925,59 @@ class KnowledgePageState extends State<KnowledgePage> {
   Widget _buildPage() {
     final desktop = NoterTheme.desktopControls(context);
     return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: !widget.embedded,
-        title: Text(
-          widget.embedded
-              ? _section
-              : _taskSection && _taskView == _TaskView.unsorted
-              ? unsortedTodos
-              : 'Knowledge hub',
-        ),
-        toolbarHeight: NoterTheme.headerHeight(context),
-        actions: [
-          if (!widget.embedded)
-            IconButton(
-              tooltip:
-                  widget.shortcuts?.tooltip(
-                    'Add to-do',
-                    AppShortcut.quickTodo,
-                  ) ??
-                  'Add to-do',
-              onPressed: _busy ? null : _quickTodo,
-              icon: const Icon(Icons.playlist_add),
+      appBar: widget.embedded && _section != 'Search' && _section != 'Journal'
+          ? null
+          : AppBar(
+              automaticallyImplyLeading: !widget.embedded,
+              title: widget.embedded
+                  ? null
+                  : Text(
+                      _taskSection && _taskView == _TaskView.unsorted
+                          ? unsortedTodos
+                          : 'Knowledge hub',
+                    ),
+              toolbarHeight: widget.embedded
+                  ? 42
+                  : NoterTheme.headerHeight(context),
+              actions: [
+                if (!widget.embedded)
+                  IconButton(
+                    tooltip:
+                        widget.shortcuts?.tooltip(
+                          'Add to-do',
+                          AppShortcut.quickTodo,
+                        ) ??
+                        'Add to-do',
+                    onPressed: _busy ? null : _quickTodo,
+                    icon: const Icon(Icons.playlist_add),
+                  ),
+                if (_section == 'Search') ...[
+                  if (widget.onOpenViews case final views?)
+                    IconButton(
+                      tooltip: 'Saved views',
+                      onPressed: views,
+                      icon: const Icon(Icons.bookmarks_outlined),
+                    ),
+                  if (widget.onOpenGraph case final graph?)
+                    IconButton(
+                      tooltip: 'Graph view',
+                      onPressed: graph,
+                      icon: const Icon(Icons.hub_outlined),
+                    ),
+                ],
+                if (_section == 'Inbox' && !widget.embedded)
+                  IconButton(
+                    tooltip: 'Quick capture',
+                    onPressed: _busy ? null : _capture,
+                    icon: const Icon(Icons.note_add_outlined),
+                  ),
+                IconButton(
+                  tooltip: 'Reload',
+                  onPressed: _busy ? null : _reload,
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
             ),
-          if (_section == 'Search') ...[
-            if (widget.onOpenViews case final views?)
-              IconButton(
-                tooltip: 'Saved views',
-                onPressed: views,
-                icon: const Icon(Icons.bookmarks_outlined),
-              ),
-            if (widget.onOpenGraph case final graph?)
-              IconButton(
-                tooltip: 'Graph view',
-                onPressed: graph,
-                icon: const Icon(Icons.hub_outlined),
-              ),
-          ],
-          if (_section == 'Inbox' && !widget.embedded)
-            IconButton(
-              tooltip: 'Quick capture',
-              onPressed: _busy ? null : _capture,
-              icon: const Icon(Icons.note_add_outlined),
-            ),
-          IconButton(
-            tooltip: 'Reload',
-            onPressed: _busy ? null : _reload,
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
-      ),
       bottomNavigationBar: widget.embedded || desktop
           ? null
           : _bottomNavigation(),

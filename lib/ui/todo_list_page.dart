@@ -478,7 +478,7 @@ class _TodoListEditorState extends State<_TodoListEditor> {
                 ),
                 PopupMenuItem(
                   value: 'export',
-                  child: Text('Save file to device'),
+                  child: Text('Export as Notixer file (.noter)'),
                 ),
               ],
             ),

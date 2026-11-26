@@ -86,7 +86,7 @@ void main() {
         await tester.tap(find.byTooltip('File menu'));
         await tester.pumpAndSettle();
         expect(find.text('Folders and tags'), findsOneWidget);
-        await tester.tap(find.text('Save file to device'));
+        await tester.tap(find.text('Export media file'));
         await settleFileIo(tester, destination.existsSync);
         expect(await tester.runAsync(destination.readAsBytes), samplePng);
       }

@@ -1058,9 +1058,11 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
       );
       await store.save();
       if (mounted) {
-        setState(
-          () => _message =
-              'Markdown template saved. Manage it in More → Templates.',
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Markdown template saved.'),
+            showCloseIcon: true,
+          ),
         );
       }
       return;
@@ -1712,7 +1714,11 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                       selectedTileColor: NoterTheme.active,
                       dense: NoterTheme.desktopControls(context),
                       leading: Icon(
-                        note.isMarkdown
+                        note.isMedia
+                            ? Icons.perm_media_outlined
+                            : note.isTodoList
+                            ? Icons.checklist_outlined
+                            : note.isMarkdown
                             ? Icons.description_outlined
                             : Icons.picture_as_pdf_outlined,
                         size: 18,
@@ -1729,6 +1735,8 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                           child: DocumentTypeBadge(
                             note.isMedia
                                 ? note.mediaFormat!.kind
+                                : note.isTodoList
+                                ? 'To-do list'
                                 : note.isMarkdown
                                 ? 'Markdown'
                                 : 'PDF / handwriting',
@@ -2045,13 +2053,6 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
             );
             return Scaffold(
               backgroundColor: phone ? Colors.white : NoterTheme.workspace,
-              floatingActionButton: _showChrome
-                  ? null
-                  : FloatingActionButton.small(
-                      tooltip: 'Show toolbars',
-                      onPressed: () => setState(() => _showChrome = true),
-                      child: const Icon(Icons.fullscreen_exit),
-                    ),
               appBar: !_showChrome
                   ? null
                   : AppBar(
@@ -2067,7 +2068,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                       titleSpacing: 0,
                       title: Row(
                         children: [
-                          if (desktop)
+                          if (desktop && widget.tabController == null)
                             IconButton(
                               tooltip: _showSidebar
                                   ? 'Hide folders'
@@ -2079,15 +2080,16 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                               ),
                               onPressed: _toggleFolderSidebar,
                             ),
-                          IconButton(
-                            tooltip: desktop && _showNotes
-                                ? 'Hide note list'
-                                : 'Show note list',
-                            isSelected: desktop ? _showNotes : null,
-                            icon: const Icon(Icons.list_alt_outlined),
-                            selectedIcon: const Icon(Icons.list_alt),
-                            onPressed: () => _toggleNoteList(desktop),
-                          ),
+                          if (!desktop || widget.tabController == null)
+                            IconButton(
+                              tooltip: desktop && _showNotes
+                                  ? 'Hide note list'
+                                  : 'Show note list',
+                              isSelected: desktop ? _showNotes : null,
+                              icon: const Icon(Icons.list_alt_outlined),
+                              selectedIcon: const Icon(Icons.list_alt),
+                              onPressed: () => _toggleNoteList(desktop),
+                            ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
@@ -2104,19 +2106,22 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                           onPressed: () => setState(() => _showChrome = false),
                           icon: const Icon(Icons.fullscreen),
                         ),
-                        IconButton(
-                          tooltip: 'Save',
-                          onPressed: _busy || _leaving || _session.saving
-                              ? null
-                              : _saveDocument,
-                          icon: Icon(
-                            _session.error != null
-                                ? Icons.error_outline
-                                : _session.saving
-                                ? Icons.sync
-                                : _session.dirty
-                                ? Icons.save_outlined
-                                : Icons.check_circle_outline,
+                        Tooltip(
+                          message: _session.status,
+                          child: IconButton(
+                            tooltip: 'Save',
+                            onPressed: _busy || _leaving || _session.saving
+                                ? null
+                                : _saveDocument,
+                            icon: Icon(
+                              _session.error != null
+                                  ? Icons.error_outline
+                                  : _session.saving
+                                  ? Icons.sync
+                                  : _session.dirty
+                                  ? Icons.save_outlined
+                                  : Icons.check_circle_outline,
+                            ),
                           ),
                         ),
                         PopupMenuButton<String>(
@@ -2172,7 +2177,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                             ),
                             const PopupMenuItem(
                               value: 'rescue',
-                              child: Text('Export Notixer backup'),
+                              child: Text('Export as Notixer file (.noter)'),
                             ),
                             const PopupMenuDivider(),
                             if (widget.tabController == null)
@@ -2193,9 +2198,15 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                   SafeArea(
                     child: Row(
                       children: [
-                        if (desktop && _showChrome && _showSidebar)
+                        if (desktop &&
+                            widget.tabController == null &&
+                            _showChrome &&
+                            _showSidebar)
                           SizedBox(width: 196, child: _rail()),
-                        if (desktop && _showChrome && _showNotes)
+                        if (desktop &&
+                            widget.tabController == null &&
+                            _showChrome &&
+                            _showNotes)
                           SizedBox(width: 244, child: _list()),
                         Expanded(
                           child: Column(
@@ -2269,29 +2280,6 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                                             ),
                                           ),
                                         ),
-                                        const SizedBox(width: 8),
-                                        Tooltip(
-                                          message: _session.status,
-                                          child: Semantics(
-                                            label: _session.status,
-                                            liveRegion: true,
-                                            child: Icon(
-                                              _session.error != null
-                                                  ? Icons.error_outline
-                                                  : _session.saving
-                                                  ? Icons.sync
-                                                  : _session.dirty
-                                                  ? Icons.edit_outlined
-                                                  : Icons.check_circle_outline,
-                                              size: 18,
-                                              color: _session.error != null
-                                                  ? Theme.of(
-                                                      context,
-                                                    ).colorScheme.error
-                                                  : NoterTheme.accent,
-                                            ),
-                                          ),
-                                        ),
                                       ],
                                     ),
                                   ),
@@ -2329,6 +2317,18 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
                       ],
                     ),
                   ),
+                  if (!_showChrome)
+                    PositionedDirectional(
+                      top: 8,
+                      end: 8,
+                      child: SafeArea(
+                        child: IconButton.filledTonal(
+                          tooltip: 'Show toolbars',
+                          onPressed: () => setState(() => _showChrome = true),
+                          icon: const Icon(Icons.fullscreen_exit),
+                        ),
+                      ),
+                    ),
                   if (!_showChrome &&
                       DocumentTabsChrome.action(context) != null)
                     Positioned(
