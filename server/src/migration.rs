@@ -8,6 +8,7 @@ impl MigratorTrait for Migrator {
             Box::new(Initial),
             Box::new(AdminTables),
             Box::new(PairingCodes),
+            Box::new(HashAdminSessions),
         ]
     }
 }
@@ -101,6 +102,35 @@ impl MigrationTrait for PairingCodes {
     async fn down(&self, _manager: &SchemaManager) -> Result<(), DbErr> {
         Err(DbErr::Custom(
             "Destructive rollback is deliberately disabled".into(),
+        ))
+    }
+}
+
+struct HashAdminSessions;
+
+impl MigrationName for HashAdminSessions {
+    fn name(&self) -> &str {
+        "m20261126_000004_hash_admin_sessions"
+    }
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for HashAdminSessions {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .get_connection()
+            .execute_unprepared(
+                "DELETE FROM admin_sessions WHERE expires_at <= now();
+                 ALTER TABLE admin_sessions RENAME COLUMN token TO token_hash;
+                 UPDATE admin_sessions SET token_hash = encode(sha256(convert_to(token_hash, 'UTF8')), 'hex');",
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn down(&self, _manager: &SchemaManager) -> Result<(), DbErr> {
+        Err(DbErr::Custom(
+            "Session token hashes cannot be reversed".into(),
         ))
     }
 }

@@ -313,10 +313,15 @@ class _LiveHostPageState extends State<LiveHostPage> {
             return;
           }
           if (data is! String) return;
-          final control = jsonDecode(data);
-          if (control is Map && control['viewers'] is int) {
+          final Object? control;
+          try {
+            control = jsonDecode(data);
+          } on FormatException {
+            return;
+          }
+          if (control case {'viewers': final int viewers}) {
             setState(() {
-              _viewers = control['viewers'] as int;
+              _viewers = viewers;
               _attempts = 0;
               _status = 'Live · $_viewers watching';
             });
@@ -338,7 +343,7 @@ class _LiveHostPageState extends State<LiveHostPage> {
     _queue.clear();
     if (socket != null) unawaited(socket.sink.close());
     if (++_attempts > 12) {
-      _clear('Sharing disconnected · Drawing locally');
+      unawaited(_stopSharing('Sharing disconnected · Drawing locally'));
       return;
     }
     setState(() => _status = 'Reconnecting…');
@@ -369,8 +374,12 @@ class _LiveHostPageState extends State<LiveHostPage> {
         final session = _session;
         final socket = _socket;
         if (session == null || socket == null) break;
-        final bytes = await session.encode(_queue.removeFirst(), ++_sequence);
-        if (_socket == socket) socket.sink.add(bytes);
+        final sequence = _sequence + 1;
+        final bytes = await session.encode(_queue.removeFirst(), sequence);
+        if (_socket == socket && _session == session) {
+          socket.sink.add(bytes);
+          _sequence = sequence;
+        }
       }
     } catch (_) {
       _queue.clear();
@@ -394,13 +403,24 @@ class _LiveHostPageState extends State<LiveHostPage> {
     if (mounted) setState(() => _status = status);
   }
 
-  Future<void> _stop() => _work(() async {
+  Future<void> _stop() =>
+      _work(() => _stopSharing('Sharing ended · Drawing locally'));
+
+  Future<void> _stopSharing(String status) async {
     final session = _session;
     final sharing = _sharing;
     if (session == null || sharing == null) return;
-    await sharing.end(session.id);
-    if (_session == session) _clear('Sharing ended · Drawing locally');
-  });
+    _clear(status);
+    try {
+      await sharing.end(session.id);
+    } catch (_) {
+      if (mounted && _session == null) {
+        setState(
+          () => _error = 'The server did not confirm the end of sharing.',
+        );
+      }
+    }
+  }
 
   Future<void> _save() => _work(() async {
     final now = DateTime.now();

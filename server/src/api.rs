@@ -53,6 +53,31 @@ impl BlobStore {
     }
 }
 
+/// An unpublished upload lives outside account directories so account deletion
+/// cannot race its write. The eventual rename stays on the same filesystem.
+struct StagedUpload(PathBuf);
+
+impl StagedUpload {
+    async fn write(root: &std::path::Path, bytes: &[u8]) -> std::io::Result<Self> {
+        let path = root.join(format!(".upload-{}.tmp", Uuid::new_v4()));
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .await?;
+        let staged = Self(path);
+        file.write_all(bytes).await?;
+        file.sync_all().await?;
+        Ok(staged)
+    }
+}
+
+impl Drop for StagedUpload {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct ApiError(pub(crate) StatusCode);
 type ApiResult<T> = Result<T, ApiError>;
@@ -133,7 +158,10 @@ pub(crate) async fn authenticate(
 
 // All writers lock the account row. A cursor is allocated while holding that
 // lock until commit, so a reader cannot skip a late-committing lower sequence.
-async fn lock_account(db: &DatabaseConnection, who: &Identity) -> ApiResult<DatabaseTransaction> {
+pub(crate) async fn lock_account(
+    db: &DatabaseConnection,
+    who: &Identity,
+) -> ApiResult<DatabaseTransaction> {
     let tx = db.begin().await?;
     tx.execute_unprepared("SET LOCAL lock_timeout='5s'; SET LOCAL statement_timeout='15s'")
         .await?;
@@ -347,6 +375,7 @@ async fn upload(
         .uploads
         .try_acquire()
         .map_err(|_| ApiError(StatusCode::TOO_MANY_REQUESTS))?;
+    let staged = StagedUpload::write(&store.root, &bytes).await?;
     let path = store.path(&who.account, &id);
     let tx = lock_account(&ctx.db, &who).await?;
     if tx
@@ -368,43 +397,26 @@ async fn upload(
         return Err(ApiError(StatusCode::INSUFFICIENT_STORAGE));
     }
     fs::create_dir_all(path.parent().unwrap()).await?;
-    let tmp = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
-    // Complete and fsync before making the block available to commits.
-    let result = async {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp)
-            .await?;
-        file.write_all(&bytes).await?;
-        file.sync_all().await?;
-        drop(file);
-        fs::rename(&tmp, &path).await?;
-        let root = store.root.clone();
-        let parent = path.parent().unwrap().to_path_buf();
-        tokio::task::spawn_blocking(move || {
-            // Newly created account/prefix directories must also survive a crash.
-            let mut current = parent.as_path();
-            loop {
-                std::fs::File::open(current)?.sync_all()?;
-                if current == root {
-                    break;
-                }
-                current = current
-                    .parent()
-                    .ok_or_else(|| std::io::Error::other("invalid blob root"))?;
+    // Only publishing the already durable file needs the account lock.
+    fs::rename(&staged.0, &path).await?;
+    let root = store.root.clone();
+    let parent = path.parent().unwrap().to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        // Newly created account/prefix directories must also survive a crash.
+        let mut current = parent.as_path();
+        loop {
+            std::fs::File::open(current)?.sync_all()?;
+            if current == root {
+                break;
             }
-            Ok::<(), std::io::Error>(())
-        })
-        .await
-        .map_err(std::io::Error::other)??;
+            current = current
+                .parent()
+                .ok_or_else(|| std::io::Error::other("invalid blob root"))?;
+        }
         Ok::<(), std::io::Error>(())
-    }
-    .await;
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp).await;
-    }
-    result?;
+    })
+    .await
+    .map_err(std::io::Error::other)??;
     tx.execute_raw(stmt(
         "INSERT INTO blobs(account_id,id,bytes) VALUES($1::uuid,$2,$3)",
         vec![who.account.into(), id.into(), (bytes.len() as i64).into()],

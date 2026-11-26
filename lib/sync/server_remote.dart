@@ -376,8 +376,13 @@ class _ServerHttp {
         }
         output.add(chunk);
       }
-      if ((response.statusCode == 429 || response.statusCode == 503) &&
-          attempt < 3) {
+      final retryable =
+          response.statusCode == 429 ||
+          response.statusCode == 503 ||
+          (method == 'PUT' &&
+              path.startsWith('/blobs/') &&
+              response.statusCode == 500);
+      if (retryable && attempt < 3) {
         await Future<void>.delayed(
           Duration(milliseconds: 500 * (1 << attempt) + Random().nextInt(500)),
         );

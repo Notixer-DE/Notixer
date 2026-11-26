@@ -70,7 +70,8 @@ def main():
             assert retry.returncode != 0 and "already exists" in retry.stderr + retry.stdout
             assert admin_users() == ["admin"]
 
-            browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
+            cookies = CookieJar()
+            browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookies))
             with browser.open(f"http://{address}/admin", timeout=30) as response:
                 assert response.headers.get_content_type() == "text/html"
             login = urllib.request.Request(
@@ -82,7 +83,24 @@ def main():
                 assert json.load(response) == {"ok": True, "username": "admin"}
             with browser.open(f"http://{address}/admin/api/me", timeout=30) as response:
                 assert json.load(response) == {"authenticated": True, "username": "admin"}
-            print("PASS: explicit admin initialization, repeat protection, and authenticated login")
+            cookie = next(c.value for c in cookies if c.name == "noter_admin_session")
+            saved_hash = run("exec", "-T", "postgres", "psql", "-U", "notixer", "-d", "notixer",
+                             "-Atc", "SELECT token_hash FROM admin_sessions").strip()
+            assert saved_hash == hashlib.sha256(cookie.encode()).hexdigest()
+            unknown = "00000000-0000-4000-8000-000000000000"
+            for method, path in (
+                ("DELETE", f"accounts/{unknown}"),
+                ("POST", f"accounts/{unknown}/devices"),
+                ("POST", f"devices/{unknown}/revoke"),
+                ("POST", f"devices/{unknown}/unrevoke"),
+            ):
+                req = urllib.request.Request(f"http://{address}/admin/api/{path}", method=method)
+                try:
+                    with browser.open(req, timeout=30):
+                        raise AssertionError("An unknown admin resource was accepted")
+                except urllib.error.HTTPError as exc:
+                    assert exc.code == 404, (method, path, exc.code)
+            print("PASS: generated admin password, hashed sessions, and missing resource responses")
 
             owner, other = account(), account()
             aid, token = device(owner)

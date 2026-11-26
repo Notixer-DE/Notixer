@@ -61,6 +61,11 @@ class _LiveViewerPageState extends State<LiveViewerPage> {
               case 'joined':
                 setState(() => _status = 'Waiting for the drawing…');
                 return;
+              case 'resync':
+                _waitingForSnapshot = true;
+                _model.cancel(send: false);
+                setState(() => _status = 'Recovering the drawing…');
+                return;
               case 'host-offline':
                 _waitingForSnapshot = true;
                 _model.cancel(send: false);

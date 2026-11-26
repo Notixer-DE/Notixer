@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 import '../sync/sync_controller.dart';
 import 'live_sessions.dart';
@@ -17,6 +18,7 @@ class DesktopLiveBroadcasts extends StatefulWidget {
 }
 
 class _DesktopLiveBroadcastsState extends State<DesktopLiveBroadcasts> {
+  final _client = http.Client();
   Timer? _timer;
   LiveCredentials? _credentials;
   List<({String id, String device})> _sessions = [];
@@ -49,7 +51,10 @@ class _DesktopLiveBroadcastsState extends State<DesktopLiveBroadcasts> {
       final credentials = await widget.sync.liveCredentials();
       if (!mounted || credentials == null) return;
       if (_credentials != credentials) _update(credentials, []);
-      final sessions = await LiveSessions(credentials).active();
+      final sessions = await LiveSessions(
+        credentials,
+        client: _client,
+      ).active();
       if (mounted &&
           await widget.sync.liveCredentials() == credentials &&
           mounted) {
@@ -117,6 +122,7 @@ class _DesktopLiveBroadcastsState extends State<DesktopLiveBroadcasts> {
   void dispose() {
     widget.sync.removeListener(_syncChanged);
     _timer?.cancel();
+    _client.close();
     super.dispose();
   }
 
