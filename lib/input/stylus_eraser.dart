@@ -12,7 +12,7 @@ class NoterBinding extends WidgetsFlutterBinding {
   static StylusEraser? Function(PointerEvent)? resolveEraser;
   static bool Function(PointerEvent)? interceptEvent;
   final Map<int, StylusEraser> _owners = {};
-  final Set<int> _stylusContacts = {};
+  final Map<int, int> _stylusContacts = {};
   final _touchReplay = CapturedTouchReplay();
   static int? replayTouchPointer;
 
@@ -52,9 +52,18 @@ class NoterBinding extends WidgetsFlutterBinding {
       return;
     }
     eventKind = event.kind;
-    if ((event is PointerDownEvent || event is PointerHoverEvent) &&
-        isStylus(event)) {
-      _stylusContacts.add(event.pointer);
+    if (isStylus(event)) {
+      if (event is PointerDownEvent ||
+          event is PointerHoverEvent ||
+          event is PointerAddedEvent ||
+          event is PointerRemovedEvent) {
+        // Flutter can report hover and device transitions with pointer 0
+        // rather than the previous down pointer.
+        _stylusContacts.removeWhere((_, device) => device == event.device);
+      }
+      if (event is PointerDownEvent) {
+        _stylusContacts[event.pointer] = event.device;
+      }
     }
     final resolved = event is PointerDownEvent || event is PointerHoverEvent
         ? resolveEraser?.call(event)
@@ -86,7 +95,7 @@ class NoterBinding extends WidgetsFlutterBinding {
           event is PointerExitEvent) {
         if (event is PointerExitEvent) eraser?.reset();
         _owners.remove(event.pointer);
-        _stylusContacts.remove(event.pointer);
+        if (isStylus(event)) _stylusContacts.remove(event.pointer);
       }
     }
   }
