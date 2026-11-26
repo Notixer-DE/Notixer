@@ -53,6 +53,24 @@ void main() {
   tearDown(() => root.delete(recursive: true));
 
   test(
+    'wiki links resolve spaces, Unicode, slashes and literal percent escapes',
+    () async {
+      final target = await library.create('München / 100% %20');
+      final origin = await library.create('Origin');
+      const source = '[[München / 100% %20#Eintrag|Open]]';
+      await repo.save(origin, MarkdownDocument(source).encode());
+      final link = markdownLinks(source).single;
+      expect(
+        MarkdownLibrary.target([target, origin], origin, link.href)?.id,
+        target.id,
+      );
+      expect((await library.backlinks(target)).map((note) => note.id), [
+        origin.id,
+      ]);
+    },
+  );
+
+  test(
     'Markdown, unknown syntax and binary images round trip losslessly',
     () async {
       const source =

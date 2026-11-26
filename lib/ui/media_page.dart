@@ -37,6 +37,7 @@ class MediaPage extends StatefulWidget {
 class _MediaPageState extends State<MediaPage> {
   final _owner = LocalNotebookRepository.newId();
   bool _busy = false, _playing = false, _loaded = false;
+  int _playRequest = 0;
   int _position = 0, _duration = 0;
   String? _error;
   Timer? _timer;
@@ -94,8 +95,9 @@ class _MediaPageState extends State<MediaPage> {
   }
 
   void _pause() {
+    _playRequest++;
     if (mounted && _playing) setState(() => _playing = false);
-    if (Platform.isAndroid && _loaded) {
+    if (Platform.isAndroid && widget.format.kind == 'audio') {
       unawaited(
         MediaGateway.channel
             .invokeMethod<void>('pause', {'owner': _owner})
@@ -136,12 +138,14 @@ class _MediaPageState extends State<MediaPage> {
   }
 
   Future<void> _play() => _action(() async {
+    final request = ++_playRequest;
     if (Platform.isAndroid && widget.format.kind == 'audio') {
       if (!_loaded) {
         final path = await MediaGateway.playbackFile(
           widget.bytes,
           widget.format,
         );
+        if (!mounted || request != _playRequest) return;
         final duration = await MediaGateway.channel.invokeMethod<int>('play', {
           'path': path,
           'owner': _owner,
@@ -149,7 +153,7 @@ class _MediaPageState extends State<MediaPage> {
         if (mounted) {
           setState(() {
             _loaded = true;
-            _playing = true;
+            _playing = request == _playRequest;
             _duration = duration ?? 0;
           });
         }
@@ -165,14 +169,18 @@ class _MediaPageState extends State<MediaPage> {
               'owner': _owner,
             });
           }
+          if (!mounted || request != _playRequest) return;
           await MediaGateway.channel.invokeMethod<void>('resume', {
             'owner': _owner,
           });
         }
-        if (mounted) setState(() => _playing = !_playing);
+        if (mounted && request == _playRequest) {
+          setState(() => _playing = !_playing);
+        }
       }
     } else {
       final path = await MediaGateway.playbackFile(widget.bytes, widget.format);
+      if (!mounted || request != _playRequest) return;
       if (Platform.isAndroid) {
         await MediaGateway.channel.invokeMethod<void>('openVideo', {
           'path': path,
@@ -193,7 +201,7 @@ class _MediaPageState extends State<MediaPage> {
   @override
   void dispose() {
     _timer?.cancel();
-    if (Platform.isAndroid && _loaded) {
+    if (Platform.isAndroid && widget.format.kind == 'audio') {
       unawaited(
         MediaGateway.channel
             .invokeMethod<void>('stop', {'owner': _owner})

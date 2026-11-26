@@ -26,12 +26,13 @@ class MarkdownLibrary {
   static Notebook? target(List<Notebook> notes, Notebook from, String href) {
     final uri = Uri.tryParse(href);
     if (uri?.scheme == 'noter-wiki') {
-      if (uri!.path.isEmpty) return from;
+      final title = uri!.pathSegments.join('/');
+      if (title.isEmpty) return from;
       final matches = notes
           .where(
             (note) =>
-                note.title.toLowerCase() == uri.path.toLowerCase() ||
-                note.documentPath == uri.path,
+                note.title.toLowerCase() == title.toLowerCase() ||
+                note.documentPath == title,
           )
           .toList();
       return matches.length == 1 ? matches.single : null;

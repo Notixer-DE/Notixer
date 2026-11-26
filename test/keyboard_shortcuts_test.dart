@@ -247,7 +247,9 @@ void main() {
         tester,
         () => find.text('This note is empty.').evaluate().isNotEmpty,
       );
-      await _control(tester, LogicalKeyboardKey.keyF);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await _control(tester, LogicalKeyboardKey.keyI);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
       await settleFileIo(tester, () => pickerOpens == 1);
       expect(editor, findsOneWidget);
 
@@ -266,13 +268,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(KeyboardSettingsPage), findsOneWidget);
       expect(find.text('Ctrl + K'), findsOneWidget);
-      expect(find.text('Ctrl + F'), findsOneWidget);
+      expect(find.text('Ctrl + Shift + I'), findsOneWidget);
       await tester.tap(find.text('Open global search'));
       await tester.pumpAndSettle();
       await _control(tester, LogicalKeyboardKey.keyF);
       await tester.pump();
       expect(
-        find.text('Already assigned to Open file picker.'),
+        find.text('Already assigned to Search note titles.'),
         findsOneWidget,
       );
       expect(pickerOpens, 1);
