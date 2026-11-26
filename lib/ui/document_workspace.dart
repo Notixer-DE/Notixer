@@ -787,6 +787,13 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
       AppShortcut.save => () async {
         await saveAll();
       },
+      AppShortcut.searchLibrary
+          when tab?.note.isPdf == true &&
+              _shortcuts[AppShortcut.searchLibrary]?.keys ==
+                  AppShortcut.searchLibrary.defaultBinding.keys &&
+              _shortcuts[AppShortcut.pdfSearch]?.keys ==
+                  AppShortcut.pdfSearch.defaultBinding.keys =>
+        tab?.controller.commandFor?.call(AppShortcut.pdfSearch),
       AppShortcut.searchLibrary => _focusLibrarySearch,
       _ =>
         _library.commands[action] ?? tab?.controller.commandFor?.call(action),

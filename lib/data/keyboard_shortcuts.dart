@@ -30,7 +30,8 @@ enum AppShortcut {
   importFile(
     ShortcutSection.navigation,
     'Open file picker',
-    LogicalKeyboardKey.keyF,
+    LogicalKeyboardKey.keyI,
+    shift: true,
   ),
   settings(
     ShortcutSection.navigation,
@@ -76,7 +77,6 @@ enum AppShortcut {
     ShortcutSection.library,
     'Search note titles',
     LogicalKeyboardKey.keyF,
-    shift: true,
   ),
   graph(
     ShortcutSection.library,
@@ -394,6 +394,15 @@ class KeyboardShortcuts extends ChangeNotifier {
           meta: row['meta'] == true,
           includeRepeats: false,
         );
+        if (data['defaultsVersion'] == null &&
+            key == LogicalKeyboardKey.keyF &&
+            binding.control &&
+            !binding.alt &&
+            !binding.meta &&
+            ((action == AppShortcut.importFile && !binding.shift) ||
+                (action == AppShortcut.searchLibrary && binding.shift))) {
+          continue;
+        }
         if (_validateBinding(action, binding) == null &&
             used.add(binding.keys)) {
           bindings[action] = binding;
@@ -492,6 +501,7 @@ class KeyboardShortcuts extends ChangeNotifier {
       final temporary = File('${file.path}.tmp');
       await temporary.writeAsString(
         jsonEncode({
+          'defaultsVersion': 2,
           for (final action in AppShortcut.values)
             action.name: bindings[action]?.toJson(),
         }),

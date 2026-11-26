@@ -186,7 +186,7 @@ class WikiLinkSyntax extends md.InlineSyntax {
         : markdownHeadings('# $heading').firstOrNull ?? '';
     final href = Uri(
       scheme: 'noter-wiki',
-      path: title,
+      pathSegments: title.isEmpty ? const [] : [title],
       fragment: slug,
     ).toString();
     final node = md.Element.text(
