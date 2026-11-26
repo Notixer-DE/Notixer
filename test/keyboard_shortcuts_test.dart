@@ -108,6 +108,9 @@ void main() {
         () => find.text(note.title).evaluate().isNotEmpty,
       );
       await _control(tester, LogicalKeyboardKey.comma);
+      final keyboardEntry = find.widgetWithText(ListTile, 'Keyboard shortcuts');
+      await settleFileIo(tester, () => keyboardEntry.evaluate().isNotEmpty);
+      await tester.tap(keyboardEntry);
       final settings = find.byType(KeyboardSettingsPage);
       await settleFileIo(tester, () => settings.evaluate().isNotEmpty);
 
@@ -135,6 +138,11 @@ void main() {
       await assign('Highlighter', LogicalKeyboardKey.f6);
       await tester.pageBack();
       await settleFileIo(tester, () => settings.evaluate().isEmpty);
+      await tester.tap(find.byKey(const ValueKey('workspace-files')));
+      await settleFileIo(
+        tester,
+        () => find.text(note.title).evaluate().isNotEmpty,
+      );
       await tester.tap(find.text(note.title));
 
       final editor = find.byType(EditorPane);

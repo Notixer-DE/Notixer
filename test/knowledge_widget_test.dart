@@ -848,7 +848,14 @@ void main() {
       () => find.text('Source note').evaluate().isNotEmpty,
     );
     await tester.enterText(query, 'different filter');
-    await tester.tap(find.byTooltip('Search'));
+    await tester.tap(
+      find.descendant(
+        of: query,
+        matching: find.byWidgetPredicate(
+          (widget) => widget is IconButton && widget.tooltip == 'Search',
+        ),
+      ),
+    );
     await waitKnowledge(
       tester,
       () => find.text('No matches.').evaluate().isNotEmpty,

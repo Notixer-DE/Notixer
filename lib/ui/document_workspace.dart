@@ -825,6 +825,48 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
     }
   }
 
+  Widget _documentTab(int index, double viewportWidth) {
+    final tab = _tabs[index];
+    return ListenableBuilder(
+      listenable: tab.controller,
+      builder: (context, _) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: (viewportWidth - 6).clamp(96, 280),
+          ),
+          child: Material(
+            color: index == _selected
+                ? Theme.of(context).colorScheme.secondaryContainer
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: TextButton(
+                    key: ValueKey('document-tab-${tab.note.id}'),
+                    onPressed: _busy ? null : () => _select(index),
+                    child: Text(
+                      '${tab.controller.dirty ? '• ' : ''}${tab.controller.title}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Close tab: ${tab.controller.title}',
+                  onPressed: _busy ? null : () => closeNotebook(tab.note.id),
+                  icon: const Icon(Icons.close, size: 18),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Focus(
     focusNode: _workspaceFocus,
@@ -866,64 +908,14 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
                       ),
                       _syncStatus(),
                       Expanded(
-                        child: ListView(
-                          scrollDirection: Axis.horizontal,
-                          children: [
-                            for (var i = 0; i < _tabs.length; i++)
-                              ListenableBuilder(
-                                listenable: _tabs[i].controller,
-                                builder: (context, _) => Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 3,
-                                    vertical: 2,
-                                  ),
-                                  child: Material(
-                                    color: i == _selected
-                                        ? Theme.of(
-                                            context,
-                                          ).colorScheme.secondaryContainer
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        TextButton(
-                                          key: ValueKey(
-                                            'document-tab-${_tabs[i].note.id}',
-                                          ),
-                                          onPressed: _busy
-                                              ? null
-                                              : () => _select(i),
-                                          child: ConstrainedBox(
-                                            constraints: const BoxConstraints(
-                                              maxWidth: 200,
-                                            ),
-                                            child: Text(
-                                              '${_tabs[i].controller.dirty ? '• ' : ''}${_tabs[i].controller.title}',
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                        ),
-                                        IconButton(
-                                          tooltip:
-                                              'Close tab: ${_tabs[i].controller.title}',
-                                          onPressed: _busy
-                                              ? null
-                                              : () => closeNotebook(
-                                                  _tabs[i].note.id,
-                                                ),
-                                          icon: const Icon(
-                                            Icons.close,
-                                            size: 18,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          ],
+                        child: LayoutBuilder(
+                          builder: (context, bounds) => ListView(
+                            scrollDirection: Axis.horizontal,
+                            children: [
+                              for (var i = 0; i < _tabs.length; i++)
+                                _documentTab(i, bounds.maxWidth),
+                            ],
+                          ),
                         ),
                       ),
                       if (_selected >= 0) ...[_globalSearch(), _createMenu()],
