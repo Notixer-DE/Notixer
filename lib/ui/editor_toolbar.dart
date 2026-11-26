@@ -160,7 +160,7 @@ class EditorToolbar extends StatelessWidget {
                     ),
                     tool(
                       'Select text',
-                      Icons.text_fields,
+                      Icons.highlight_alt,
                       onTextSelection,
                       shortcut: AppShortcut.pdfSelectText,
                       selected: normal && editing.tool == null,
@@ -194,11 +194,13 @@ class EditorToolbar extends StatelessWidget {
                     const ToolbarSeparator(),
                     for (var i = 0; i < catalog.presets.length; i++)
                       Tooltip(
-                        message: catalog.presets[i].name,
+                        message:
+                            '${catalog.presets[i].name} · Long-press to edit',
                         child: Semantics(
                           key: ValueKey('pen-preset-$i'),
                           button: true,
                           selected: presetIndex == i,
+                          hint: 'Long-press to edit',
                           child: Ink(
                             decoration: BoxDecoration(
                               color: presetIndex == i
@@ -246,6 +248,7 @@ class EditorToolbar extends StatelessWidget {
                           ),
                         ),
                       ),
+                    const ToolbarSeparator(),
                     tool(
                       'Insert text',
                       Icons.text_fields_outlined,

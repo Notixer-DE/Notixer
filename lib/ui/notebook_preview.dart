@@ -244,7 +244,7 @@ class _MarkdownPreviewState extends State<_MarkdownPreview> {
           Expanded(
             child: Text(
               snapshot.data?.$1 ??
-                  (widget.note.isTodoList ? 'To-do list' : 'Text note'),
+                  (widget.note.isTodoList ? 'To-do list' : 'Markdown'),
               overflow: TextOverflow.fade,
               style: Theme.of(context).textTheme.bodySmall,
             ),

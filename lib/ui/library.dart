@@ -328,7 +328,7 @@ class _LibraryPageState extends State<LibraryPage> {
           _loading = false;
           _error = widget.repository.readErrors.isEmpty
               ? migrationWarning ?? widget.repository.catalog.loadWarning
-              : 'Some note files could not be read: ${widget.repository.readErrors.join(', ')}';
+              : 'Some files could not be read: ${widget.repository.readErrors.join(', ')}';
         });
         if (migrated) widget.workspaceController?.onLegacyTasksMigrated?.call();
       }
@@ -978,14 +978,14 @@ class _LibraryPageState extends State<LibraryPage> {
 
   Future<bool> _confirmDelete({Notebook? note, required int count}) async {
     final subject = note == null
-        ? '$count ${count == 1 ? 'note' : 'notes'}'
+        ? '$count ${count == 1 ? 'file' : 'files'}'
         : '“${note.title}”';
     return await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
             scrollable: true,
             title: Text(
-              note == null ? 'Move selected notes to trash?' : 'Delete note?',
+              note == null ? 'Move selected files to trash?' : 'Delete file?',
             ),
             content: Text(
               '$subject will be moved to the local trash. '
@@ -1314,7 +1314,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                           controller: _searchText,
                                           focusNode: _searchFocus,
                                           decoration: const InputDecoration(
-                                            hintText: 'Search note titles',
+                                            hintText: 'Search file titles',
                                             prefixIcon: Icon(Icons.search),
                                           ),
                                           onChanged: (value) =>
@@ -1323,14 +1323,14 @@ class _LibraryPageState extends State<LibraryPage> {
                                       ),
                                       if (!_selecting)
                                         IconButton(
-                                          tooltip: 'Select notes',
+                                          tooltip: 'Select files',
                                           onPressed:
                                               _busy || visible.every(_isOpen)
                                               ? null
                                               : () => setState(
                                                   () => _selecting = true,
                                                 ),
-                                          icon: const Icon(Icons.checklist),
+                                          icon: const Icon(Icons.select_all),
                                         ),
                                       IconButton(
                                         tooltip: _grid
@@ -1353,7 +1353,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                     children: [
                                       for (final (id, label) in [
                                         ('all', 'All'),
-                                        ('markdown', 'Text'),
+                                        ('markdown', 'Markdown'),
                                         ('todo', 'To-do lists'),
                                         ('notes', 'Notebooks'),
                                         ('pdf', 'PDFs'),
@@ -1476,7 +1476,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                       const SizedBox(height: 12),
                                       Text(
                                         _hasFilters
-                                            ? 'No matching notes found.'
+                                            ? 'No matching files found.'
                                             : 'Your first page is waiting for you.',
                                         textAlign: TextAlign.center,
                                         style: Theme.of(
@@ -1608,8 +1608,8 @@ class _LibraryPageState extends State<LibraryPage> {
     return [
       IconButton(
         tooltip: allSelected && ids.isNotEmpty
-            ? 'Deselect visible notes'
-            : 'Select all visible notes',
+            ? 'Deselect visible files'
+            : 'Select all visible files',
         onPressed: _busy || ids.isEmpty
             ? null
             : () => setState(() {
@@ -1624,12 +1624,12 @@ class _LibraryPageState extends State<LibraryPage> {
         ),
       ),
       IconButton(
-        tooltip: 'Move selected notes',
+        tooltip: 'Move selected files',
         onPressed: _busy || _selectedNotes.isEmpty ? null : _moveSelected,
         icon: const Icon(Icons.drive_file_move_outline),
       ),
       IconButton(
-        tooltip: 'Move selected notes to trash',
+        tooltip: 'Move selected files to trash',
         onPressed: _busy || _selectedNotes.isEmpty ? null : _deleteSelected,
         icon: const Icon(Icons.delete_outline),
       ),
@@ -1640,8 +1640,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final theme = Theme.of(context);
     final folder = _folderFilter == ''
         ? 'Unfiled'
-        : widget.repository.catalog.folderName(_folderFilter) ??
-              (widget.onWorkspaceSection == null ? 'My notes' : 'All files');
+        : widget.repository.catalog.folderName(_folderFilter) ?? 'All files';
     return Wrap(
       spacing: 20,
       runSpacing: 12,
@@ -1659,7 +1658,7 @@ class _LibraryPageState extends State<LibraryPage> {
             ),
             const SizedBox(height: 4),
             Text(
-              '$count ${count == 1 ? 'note' : 'notes'}'
+              '$count ${count == 1 ? 'file' : 'files'}'
               ' · Most recently modified first',
               style: theme.textTheme.bodySmall,
             ),
@@ -1673,7 +1672,7 @@ class _LibraryPageState extends State<LibraryPage> {
               FilledButton.icon(
                 onPressed: _busy ? null : _create,
                 icon: const Icon(Icons.add),
-                label: const Text('New note'),
+                label: const Text('New file'),
               ),
               OutlinedButton.icon(
                 onPressed: _busy ? null : _import,
@@ -1741,7 +1740,7 @@ class _LibraryPageState extends State<LibraryPage> {
       PopupMenuItem(
         value: _refresh,
         enabled: !_busy,
-        child: const Text('Reload notes'),
+        child: const Text('Reload files'),
       ),
       const PopupMenuDivider(),
       PopupMenuItem(
@@ -2055,7 +2054,7 @@ class _NewNoteDialog extends StatefulWidget {
 }
 
 class _NewNoteDialogState extends State<_NewNoteDialog> {
-  final _title = TextEditingController(text: 'New note');
+  final _title = TextEditingController(text: 'Untitled');
   String _paper = 'blank';
   final _lineColor = TextEditingController(text: 'DCE4EC');
   int? get _parsedLineColor =>
@@ -2077,7 +2076,7 @@ class _NewNoteDialogState extends State<_NewNoteDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
     scrollable: true,
-    title: const Text('New note'),
+    title: const Text('New file'),
     content: SizedBox(
       width: 360,
       child: Column(
@@ -2094,12 +2093,9 @@ class _NewNoteDialogState extends State<_NewNoteDialog> {
             DropdownButtonFormField<String>(
               initialValue: _paper,
               isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Note type / paper'),
+              decoration: const InputDecoration(labelText: 'File type / paper'),
               items: const [
-                DropdownMenuItem(
-                  value: 'markdown',
-                  child: Text('Text note (Markdown)'),
-                ),
+                DropdownMenuItem(value: 'markdown', child: Text('Markdown')),
                 DropdownMenuItem(value: 'todo', child: Text('To-do list')),
                 DropdownMenuItem(value: 'blank', child: Text('Blank')),
                 DropdownMenuItem(value: 'lined', child: Text('Ruled')),
@@ -2185,7 +2181,7 @@ class _NewNoteDialogState extends State<_NewNoteDialog> {
         onPressed: _chosenLineColor == null
             ? null
             : () => Navigator.pop(context, (
-                _title.text.trim().isEmpty ? 'New note' : _title.text.trim(),
+                _title.text.trim().isEmpty ? 'Untitled' : _title.text.trim(),
                 _paper,
                 _template,
                 _chosenLineColor!,

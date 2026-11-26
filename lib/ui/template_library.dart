@@ -104,7 +104,7 @@ class _TemplateLibraryState extends State<TemplateLibrary> {
         scrollable: true,
         title: const Text('Delete template?'),
         content: Text(
-          '„${entry.name}“will be deleted. Existing notes remain unchanged.',
+          '“${entry.name}” will be deleted. Existing notes remain unchanged.',
         ),
         actions: [
           TextButton(
@@ -161,9 +161,9 @@ class _TemplateLibraryState extends State<TemplateLibrary> {
           ),
           const SizedBox(height: 4),
           Text(
-            '${entry.kind == TemplateKind.page ? 'Pagesvorlage' : 'Notevorlage'} · '
+            '${entry.kind == TemplateKind.page ? 'Page template' : 'Notebook template'} · '
             '${entry.pageCount} ${entry.pageCount == 1 ? 'Page' : 'Pages'}'
-            '${entry.builtIn ? ' · Startvorlage' : ''}',
+            '${entry.builtIn ? ' · Built in' : ''}',
           ),
           const SizedBox(height: 8),
           Wrap(

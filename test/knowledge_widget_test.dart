@@ -907,7 +907,7 @@ void main() {
         tester,
         () => find.text('Earlier entry').evaluate().isNotEmpty,
       );
-      expect(find.text('Formatted'), findsOneWidget);
+      expect(find.text('Read'), findsOneWidget);
       await tester.tap(find.byTooltip('Back to journal'));
       await waitKnowledge(tester, () => pastDay.evaluate().isNotEmpty);
       expect(
@@ -924,7 +924,7 @@ void main() {
         find.widgetWithText(TextField, 'Template Markdown'),
         '# Daily {{date}}\n',
       );
-      await tester.tap(find.text('Preview'));
+      await tester.tap(find.text('Read'));
       await tester.pumpAndSettle();
       expect(find.text('Daily ${journalDate(past)}'), findsOneWidget);
       await tester.tap(find.text('Save template'));

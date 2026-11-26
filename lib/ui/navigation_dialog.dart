@@ -75,7 +75,7 @@ class NavigationDialog extends StatelessWidget {
       builder: (context) => AlertDialog(
         title: const Text('Delete bookmark?'),
         content: Text(
-          '„${item.title}“ will be deleted.'
+          '“${item.title}” will be deleted.'
           '${item.children.isEmpty ? '' : ' Child entries will also be deleted.'}'
           'You can undo this in the editor.',
         ),

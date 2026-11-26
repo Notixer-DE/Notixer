@@ -119,7 +119,7 @@ void main() {
         ).source.split('\r\n').map(visibleTaskText).join('\r\n'),
         original.replaceFirst('- [ ] First item', '- [x] First item'),
       );
-      await tester.tap(find.text('Markdown'));
+      await tester.tap(find.text('Edit'));
       await tester.pumpAndSettle();
       expect(tester.widget<TextField>(title).readOnly, isFalse);
       expect(tester.takeException(), isNull);
@@ -153,10 +153,10 @@ void main() {
       await open(tester, const Size(1440, 1000));
       await tester.tap(find.byTooltip('Hide folders'));
       await tester.pumpAndSettle();
-      expect(find.text('New text note'), findsNothing);
+      expect(find.text('New Markdown note'), findsNothing);
       await tester.tap(find.byTooltip('Show folders'));
       await tester.pumpAndSettle();
-      expect(find.text('New text note'), findsOneWidget);
+      expect(find.text('New Markdown note'), findsOneWidget);
       final preview = find.byType(MarkdownPreview);
       final state = tester.state<MarkdownPreviewState>(preview);
       final parses = state.debugParses;
@@ -164,10 +164,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.widget<MarkdownPreview>(preview).zoom, closeTo(1.1, .001));
       expect(state.debugParses, parses);
-      await tester.tap(find.text('Markdown'));
+      await tester.tap(find.text('Edit'));
       await tester.pumpAndSettle();
       expect(find.text('100%'), findsOneWidget);
-      await tester.tap(find.text('Formatted'));
+      await tester.tap(find.text('Read'));
       await markdownIo(
         tester,
         () => find.byType(MarkdownPreview).evaluate().isNotEmpty,
@@ -186,7 +186,7 @@ void main() {
     tester,
   ) async {
     await open(tester, const Size(1440, 1000));
-    await tester.tap(find.text('Markdown'));
+    await tester.tap(find.text('Edit'));
     await tester.pumpAndSettle();
     final field = find.byKey(const ValueKey('markdown-source'));
     await tester.tap(field);
@@ -242,7 +242,7 @@ void main() {
     await markdownIo(tester, () => saveFinished);
     final saved = await tester.runAsync(() => repository.load(a.id));
     expect(MarkdownDocument.decode(saved!).source, controller.text);
-    await tester.tap(find.text('Formatted'));
+    await tester.tap(find.text('Read'));
     await markdownIo(
       tester,
       () => find.textContaining('print("hello");').evaluate().isNotEmpty,
@@ -260,9 +260,9 @@ void main() {
       }
 
       await open(tester, const Size(1440, 1000));
-      expect(find.text('My notes'), findsNothing);
+      expect(find.text('Files'), findsNothing);
       final folders = find.byTooltip('Hide folders');
-      final noteList = find.byTooltip('Show note list');
+      final noteList = find.byTooltip('Show file list');
       expect(
         find.descendant(
           of: folders,
@@ -273,7 +273,7 @@ void main() {
       expect(
         find.descendant(
           of: noteList,
-          matching: find.byIcon(Icons.list_alt_outlined),
+          matching: find.byIcon(Icons.file_copy_outlined),
         ),
         findsOneWidget,
       );
@@ -287,15 +287,15 @@ void main() {
       );
       await tester.tap(noteList);
       await tester.pumpAndSettle();
-      expect(find.text('My notes'), findsOneWidget);
+      expect(find.text('Files'), findsOneWidget);
       await tester.tap(folders);
       await tester.pumpAndSettle();
-      expect(find.text('My notes'), findsOneWidget);
+      expect(find.text('Files'), findsOneWidget);
       await tester.tap(find.byTooltip('Show folders'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Hide note list'));
+      await tester.tap(find.byTooltip('Hide file list'));
       await tester.pumpAndSettle();
-      expect(find.text('My notes'), findsNothing);
+      expect(find.text('Files'), findsNothing);
 
       expect(find.byType(Checkbox), findsNWidgets(2));
       await tester.tap(find.byType(Checkbox).first);
@@ -310,7 +310,7 @@ void main() {
         MarkdownDocument.decode(saved).source,
         contains('```\n- [ ] Code only\n```'),
       );
-      await tester.tap(find.text('Markdown'));
+      await tester.tap(find.text('Edit'));
       await tester.pumpAndSettle();
       final field = find.byKey(const ValueKey('markdown-source'));
       await tester.enterText(
@@ -323,7 +323,7 @@ void main() {
         tester.widget<TextField>(field).controller!.text,
         contains('**Text**'),
       );
-      await tester.tap(find.text('Formatted'));
+      await tester.tap(find.text('Read'));
       await markdownIo(
         tester,
         () => find.text('New heading').evaluate().isNotEmpty,
@@ -377,7 +377,7 @@ void main() {
           .controller!
           .text;
       expect(text, contains('${target!.documentPath}#page=2'));
-      await tester.tap(find.text('Formatted'));
+      await tester.tap(find.text('Read'));
       await markdownIo(
         tester,
         () => find.text('PDF pages · Page 2').evaluate().isNotEmpty,
@@ -473,7 +473,7 @@ void main() {
         final text = tester.widget<TextField>(field).controller!.text;
         expect(text, contains(otherFile ? '#target-section' : '#study-plan'));
         if (otherFile) expect(text, contains(b.documentPath));
-        await tester.tap(find.text('Formatted'));
+        await tester.tap(find.text('Read'));
         await markdownIo(
           tester,
           () => find.byType(MarkdownPreview).evaluate().isNotEmpty,
@@ -521,7 +521,7 @@ void main() {
         tester.widget<TextField>(field).controller!.text,
         contains(b.documentPath),
       );
-      await tester.tap(find.text('Formatted'));
+      await tester.tap(find.text('Read'));
       await markdownIo(
         tester,
         () => find.text('Other note').evaluate().isNotEmpty,
@@ -593,7 +593,7 @@ void main() {
     'wiki completion inserts stable file and heading links with keyboard support',
     (tester) async {
       await open(tester, const Size(1440, 1000));
-      await tester.tap(find.text('Markdown'));
+      await tester.tap(find.text('Edit'));
       await tester.pumpAndSettle();
       final field = find.byKey(const ValueKey('markdown-source'));
       await tester.enterText(field, '[[Other');
@@ -636,7 +636,7 @@ void main() {
     tester,
   ) async {
     await open(tester, const Size(1440, 1000));
-    await tester.tap(find.text('Markdown'));
+    await tester.tap(find.text('Edit'));
     await tester.pumpAndSettle();
     final field = find.byKey(const ValueKey('markdown-source'));
     await tester.enterText(field, '```text\n[[Other');
@@ -667,7 +667,7 @@ void main() {
     tester,
   ) async {
     await open(tester, const Size(1440, 1000));
-    await tester.tap(find.text('Markdown'));
+    await tester.tap(find.text('Edit'));
     await tester.pumpAndSettle();
     final field = find.byKey(const ValueKey('markdown-source'));
     final controller = tester.widget<TextField>(field).controller!;
@@ -683,7 +683,7 @@ void main() {
       tester,
       () => find.byTooltip('Saved locally').evaluate().isNotEmpty,
     );
-    await tester.tap(find.text('Formatted'));
+    await tester.tap(find.text('Read'));
     await markdownIo(
       tester,
       () => find.byTooltip('Saved locally').evaluate().isNotEmpty,
@@ -705,7 +705,7 @@ void main() {
 
   testWidgets('selected source text becomes the link label', (tester) async {
     await open(tester, const Size(1440, 1000));
-    await tester.tap(find.text('Markdown'));
+    await tester.tap(find.text('Edit'));
     await tester.pumpAndSettle();
     final field = find.byKey(const ValueKey('markdown-source'));
     await tester.enterText(field, 'Diese Stelle bleibt erhalten');
@@ -832,18 +832,18 @@ void main() {
         tester.platformDispatcher.textScaleFactorTestValue = scale;
         addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
         await open(tester, const Size(390, 844));
-        expect(find.text('My notes'), findsNothing);
-        await tester.tap(find.byTooltip('Show note list'));
+        expect(find.text('Files'), findsNothing);
+        await tester.tap(find.byTooltip('Show file list'));
         await tester.pumpAndSettle();
-        expect(find.text('My notes'), findsOneWidget);
+        expect(find.text('Files'), findsOneWidget);
         await tester.tap(find.text('Other note'));
         await markdownIo(
           tester,
           () => find.text('Target section').evaluate().isNotEmpty,
         );
-        expect(find.text('My notes'), findsNothing);
-        await tester.ensureVisible(find.text('Markdown'));
-        await tester.tap(find.text('Markdown'));
+        expect(find.text('Files'), findsNothing);
+        await tester.ensureVisible(find.text('Edit'));
+        await tester.tap(find.text('Edit'));
         await tester.pumpAndSettle();
         final source = find.byKey(const ValueKey('markdown-source'));
         await tester.enterText(source, 'Text auf dem Handy\n\n- [ ] Eine Task');
@@ -904,7 +904,7 @@ void main() {
     }
     preview.scrollController.jumpTo(0);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Markdown'));
+    await tester.tap(find.text('Edit'));
     await tester.pumpAndSettle();
     expect(tester.widget<TextField>(source).expands, isTrue);
     expect(tester.getSize(source).height, lessThanOrEqualTo(900));

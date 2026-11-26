@@ -92,7 +92,7 @@ void main() {
       await settleFileIo(
         tester,
         () => find
-            .text('1 note · Most recently modified first')
+            .text('1 file · Most recently modified first')
             .evaluate()
             .isNotEmpty,
       );
@@ -105,7 +105,7 @@ void main() {
       await Scrollable.ensureVisible(tester.element(find.byType(TextField)));
       await tester.enterText(find.byType(TextField), 'unbekannt');
       await tester.pumpAndSettle();
-      expect(find.text('No matching notes found.'), findsOneWidget);
+      expect(find.text('No matching files found.'), findsOneWidget);
       await tester.enterText(find.byType(TextField), '');
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
@@ -164,7 +164,7 @@ void main() {
         await settleFileIo(
           tester,
           () => find
-              .text('1 note · Most recently modified first')
+              .text('1 file · Most recently modified first')
               .evaluate()
               .isNotEmpty,
         );
@@ -251,7 +251,7 @@ void main() {
     await tester.tap(find.text('Batch text'));
     await tester.pumpAndSettle();
     expect(find.text('2 selected'), findsOneWidget);
-    await tester.tap(find.byTooltip('Move selected notes'));
+    await tester.tap(find.byTooltip('Move selected files'));
     await tester.pumpAndSettle();
     await tester.tap(find.byType(DropdownButtonFormField<String>));
     await tester.pumpAndSettle();
@@ -260,7 +260,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Move'));
     await settleFileIo(
       tester,
-      () => find.byTooltip('Select notes').evaluate().isNotEmpty,
+      () => find.byTooltip('Select files').evaluate().isNotEmpty,
     );
     final moved = (await tester.runAsync(repository.list))!;
     expect(
@@ -274,26 +274,26 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Grid view'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Select notes'));
+    await tester.tap(find.byTooltip('Select files'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Select all visible notes'));
+    await tester.tap(find.byTooltip('Select all visible files'));
     await tester.pumpAndSettle();
     expect(find.text('2 selected'), findsOneWidget);
     expect(
       tester.widgetList<Checkbox>(find.byType(Checkbox)).map((c) => c.value),
       everyElement(isTrue),
     );
-    await tester.tap(find.byTooltip('Move selected notes to trash'));
+    await tester.tap(find.byTooltip('Move selected files to trash'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     expect(find.text('2 selected'), findsOneWidget);
-    await tester.tap(find.byTooltip('Move selected notes to trash'));
+    await tester.tap(find.byTooltip('Move selected files to trash'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
     await settleFileIo(
       tester,
-      () => find.text('No matching notes found.').evaluate().isNotEmpty,
+      () => find.text('No matching files found.').evaluate().isNotEmpty,
     );
 
     final trash = (await tester.runAsync(repository.recovery))!;
@@ -326,7 +326,7 @@ void main() {
       await settleFileIo(
         tester,
         () => find
-            .text('1 note · Most recently modified first')
+            .text('1 file · Most recently modified first')
             .evaluate()
             .isNotEmpty,
       );
@@ -337,16 +337,16 @@ void main() {
       await tester.enterText(find.byType(TextField), 'Lecture');
       await tester.pumpAndSettle();
       expect(
-        find.text('1 note · Most recently modified first'),
+        find.text('1 file · Most recently modified first'),
         findsOneWidget,
       );
       await tester.tap(find.text('Arbeit').first);
       await tester.pumpAndSettle();
       expect(
-        find.text('0 notes · Most recently modified first'),
+        find.text('0 files · Most recently modified first'),
         findsOneWidget,
       );
-      expect(find.text('No matching notes found.'), findsOneWidget);
+      expect(find.text('No matching files found.'), findsOneWidget);
       final tagFilter = find.widgetWithText(InputChip, '#Mathsmatics');
       expect(tagFilter, findsOneWidget);
       await tester.tap(
@@ -383,7 +383,7 @@ void main() {
       await settleFileIo(
         tester,
         () => find
-            .text('2 notes · Most recently modified first')
+            .text('2 files · Most recently modified first')
             .evaluate()
             .isNotEmpty,
       );
@@ -408,19 +408,19 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(Drawer), findsNothing);
       expect(
-        find.text('1 note · Most recently modified first'),
+        find.text('1 file · Most recently modified first'),
         findsOneWidget,
       );
       await tester.tap(find.text('PDFs'));
       await tester.pumpAndSettle();
       expect(
-        find.text('0 notes · Most recently modified first'),
+        find.text('0 files · Most recently modified first'),
         findsOneWidget,
       );
       await tester.tap(find.text('Reset filters'));
       await tester.pumpAndSettle();
       expect(
-        find.text('2 notes · Most recently modified first'),
+        find.text('2 files · Most recently modified first'),
         findsOneWidget,
       );
       await tester.tap(find.byTooltip('Create'));

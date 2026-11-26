@@ -84,7 +84,7 @@ void main() {
     expect(sync.calls, isEmpty);
 
     await open();
-    await tester.tap(find.text('Markdown'));
+    await tester.tap(find.text('Edit'));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('markdown-source')),

@@ -66,7 +66,7 @@ class LibraryNavigation extends StatelessWidget {
                   ),
                 ),
               ),
-              entry('All notes', Icons.grid_view_outlined, null, notes.length),
+              entry('All files', Icons.grid_view_outlined, null, notes.length),
               entry(
                 'Unfiled',
                 Icons.folder_outlined,

@@ -86,7 +86,7 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
       setState(() {
         for (final id in missing) {
           _messages.add(
-            '„${titles[id] ?? id}“: Search failed. The note is no longer available.',
+            '“${titles[id] ?? id}”: Search failed. The note is no longer available.',
           );
         }
       });
@@ -102,7 +102,7 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
           _hits.addAll(result.hits.map((hit) => (note, hit)));
           if (result.truncated) {
             _messages.add(
-              '„${note.title}“: Only the first 500 matches are shown.',
+              '“${note.title}”: Only the first 500 matches are shown.',
             );
           }
         });
@@ -110,7 +110,7 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
         if (!mounted || generation != _generation) return;
         setState(
           () => _messages.add(
-            '„${note.title}“: Search failed. The file cannot be read.',
+            '“${note.title}”: Search failed. The file cannot be read.',
           ),
         );
       }
@@ -234,7 +234,7 @@ class _PdfSearchPageState extends State<PdfSearchPage> {
                   ),
                   if (!_choosing)
                     Text(
-                      '${_hits.length} matches for „$_searchedQuery“ · '
+                      '${_hits.length} matches for “$_searchedQuery” · '
                       '$_completed/${_selected.length} ${_selected.length == 1 ? 'document' : 'documents'} searched',
                     ),
                   if (_searching) const LinearProgressIndicator(),

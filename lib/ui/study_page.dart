@@ -38,7 +38,7 @@ Future<(List<StudyTask>, List<String>, int)> loadStudyQueue(
           }
         }
       } catch (e) {
-        errors.add('„${note.title}“ could not be checked: $e');
+        errors.add('“${note.title}” could not be checked: $e');
       }
     }
     tasks.sort((a, b) {
@@ -170,7 +170,7 @@ class _StudyPageState extends State<StudyPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open the study task: $e')),
+          SnackBar(content: Text('Could not open the review: $e')),
         );
       }
     } finally {
@@ -193,7 +193,7 @@ class _StudyPageState extends State<StudyPage> {
       title: const Text('Study today'),
       actions: [
         IconButton(
-          tooltip: 'Reload tasks',
+          tooltip: 'Reload reviews',
           onPressed: _loading || _opening ? null : _load,
           icon: const Icon(Icons.refresh),
         ),
@@ -206,9 +206,8 @@ class _StudyPageState extends State<StudyPage> {
           Padding(
             padding: const EdgeInsets.all(16),
             child: Text(
-              '${_tasks.length} ${_tasks.length == 1 ? 'task' : 'tasks'} due now · $_total ${_total == 1 ? 'cover' : 'covers'}\n'
-              'New covers are due immediately. Reveal the answer and rate it; '
-              'study directly in the original document.',
+              '${_tasks.length} ${_tasks.length == 1 ? 'review' : 'reviews'} due · $_total ${_total == 1 ? 'cover' : 'covers'}\n'
+              'New covers are due immediately. Reveal and rate the answer in the original document.',
             ),
           ),
           Expanded(
@@ -230,10 +229,10 @@ class _StudyPageState extends State<StudyPage> {
                     title: Text(
                       _errors.isEmpty
                           ? 'All done for now.'
-                          : 'No tasks due in readable notes.',
+                          : 'No reviews due in readable notes.',
                     ),
                     subtitle: const Text(
-                      'Create new tasks by drawing study covers in the editor.',
+                      'Draw study covers in the editor to add reviews.',
                     ),
                   );
                 }

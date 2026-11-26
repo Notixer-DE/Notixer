@@ -288,6 +288,9 @@ Future<void> main() async {
     await _capture('today-$device');
     await tapElement(startTimer);
     await tapElement(
+      await _waitFor((widget) => widget is Text && widget.data == 'Countdown'),
+    );
+    await tapElement(
       await _waitFor((widget) => widget is Text && widget.data == 'Start'),
     );
     final running = await _waitFor(

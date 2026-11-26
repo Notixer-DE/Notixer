@@ -9,11 +9,14 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'markdown_style.dart';
 import 'noter_theme.dart';
 
-String _date(DateTime value) {
+String _date(BuildContext context, DateTime value) {
   final local = value.toLocal();
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(local.day)}.${two(local.month)}.${local.year} '
-      '${two(local.hour)}:${two(local.minute)}:${two(local.second)}';
+  final format = MaterialLocalizations.of(context);
+  final time = format.formatTimeOfDay(
+    TimeOfDay.fromDateTime(local),
+    alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+  );
+  return '${format.formatMediumDate(local)} · $time';
 }
 
 class RecoveryPage extends StatefulWidget {
@@ -84,7 +87,7 @@ class _RecoveryPageState extends State<RecoveryPage> {
   Future<void> _purge(RecoveryEntry entry) async {
     if (!await _confirm(
           'Delete permanently?',
-          '„${entry.note.title}“ and all previous local versions will be '
+          '“${entry.note.title}” and all previous local versions will be '
               'permanently deleted. Server versions will not be removed.',
         ) ||
         !mounted) {
@@ -231,8 +234,8 @@ class _RecoveryPageState extends State<RecoveryPage> {
                             leading: const Icon(Icons.restore_page_outlined),
                             title: Text(entry.note.title),
                             subtitle: Text(
-                              '${history ? 'Gesichert' : 'Zuletzt bearbeitet'}: '
-                              '${_date(history ? entry.recorded : entry.note.modified)}\n'
+                              '${history ? 'Saved' : 'Last edited'}: '
+                              '${_date(context, history ? entry.recorded : entry.note.modified)}\n'
                               'Open a preview and restore as a new note',
                             ),
                             isThreeLine: true,
