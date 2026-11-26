@@ -753,8 +753,15 @@ void main() {
     await tester.tap(find.byTooltip('Create'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('New file'));
+    await tester.pump();
+    expect(find.widgetWithText(AlertDialog, 'New file'), findsOneWidget);
     await tester.pumpAndSettle();
-    await tester.enterText(find.widgetWithText(TextField, 'Title'), 'Errands');
+    expect(tester.testTextInput.isVisible, isFalse);
+    final title = find.widgetWithText(TextField, 'Title');
+    await tester.tap(title);
+    await tester.pump();
+    expect(tester.testTextInput.isVisible, isTrue);
+    await tester.enterText(title, 'Errands');
     await tester.tap(find.byType(DropdownButtonFormField<String>));
     await tester.pumpAndSettle();
     await tester.tap(find.text('To-do list').last);

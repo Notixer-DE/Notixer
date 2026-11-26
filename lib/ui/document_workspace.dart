@@ -546,6 +546,12 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
 
   Widget _createMenu() => PopupMenuButton<ShortcutAction>(
     tooltip: 'Create',
+    popUpAnimationStyle: MediaQuery.disableAnimationsOf(context)
+        ? AnimationStyle.noAnimation
+        : const AnimationStyle(
+            duration: Duration(milliseconds: 150),
+            reverseDuration: Duration(milliseconds: 100),
+          ),
     onSelected: _action,
     icon: const Icon(Icons.add_circle_outline),
     itemBuilder: (_) => [
