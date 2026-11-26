@@ -306,7 +306,10 @@ void main() {
       );
       session.editing.selectAnnotation(1, 0);
       session.editing.deleteSelected();
-      await tester.runAsync(() => session.save());
+      bool? saved;
+      session.save().then((ok) => saved = ok);
+      await waitStudyIo(tester, () => saved != null);
+      expect(saved, isTrue);
       await tester.tap(find.byTooltip('Reload tasks'));
       await waitStudyIo(
         tester,
