@@ -241,6 +241,9 @@ class _TodoListEditorState extends State<_TodoListEditor> {
           ? repository.catalog.folderName(plan.projectId)
           : (await repository.catalog.ensureFolder(plan.newProject!)).name;
       if (!mounted || source != _source) return;
+      if (plan.projectId != null && project == null) {
+        throw const FormatException('The project was removed.');
+      }
       _replace(
         planDocumentTask(
           source,

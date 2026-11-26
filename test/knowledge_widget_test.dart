@@ -831,7 +831,7 @@ void main() {
   testWidgets('a repeated saved view request restores its query', (
     tester,
   ) async {
-    const view = KnowledgeView('Outline', query: 'Outline');
+    const view = KnowledgeView('Source', query: 'Source note');
     Widget page(int request) => MaterialApp(
       theme: NoterTheme.light,
       home: KnowledgePage(
@@ -848,7 +848,7 @@ void main() {
       () => find.text('Source note').evaluate().isNotEmpty,
     );
     await tester.enterText(query, 'different filter');
-    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.tap(find.byTooltip('Search'));
     await waitKnowledge(
       tester,
       () => find.text('No matches.').evaluate().isNotEmpty,

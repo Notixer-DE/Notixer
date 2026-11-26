@@ -22,6 +22,9 @@ void main() {
     final root = Directory.systemTemp.createTempSync('notixer-live-stylus-');
     addTearDown(() => root.deleteSync(recursive: true));
     final repository = LocalNotebookRepository(root);
+    await tester.runAsync(
+      () => repository.catalog.drawingPreferences.setWholeStrokeEraser(true),
+    );
     final sync = SyncController(repository);
     addTearDown(sync.dispose);
     await tester.pumpWidget(
@@ -55,17 +58,18 @@ void main() {
       ),
     );
     await tester.sendEventToBinding(pen.up());
-    expect(model.ink.index.strokes.single.points.last, .25);
+    final stroke = model.ink.index.strokes.single;
+    expect(stroke.points.last, .25);
 
     await tester.sendEventToBinding(
       pen.down(center, buttons: kPrimaryStylusButton),
     );
-    expect(model.ink.index.strokes, isEmpty);
+    expect(model.ink.hidden, contains(stroke.id));
     await tester.sendEventToBinding(
       pen.move(center + const Offset(12, 0), buttons: kPrimaryButton),
     );
     await tester.sendEventToBinding(pen.up());
-    expect(model.ink.index.strokes, hasLength(1));
+    expect(model.ink.index.strokes.single.id, isNot(stroke.id));
     await tester.pumpWidget(const SizedBox());
   });
 

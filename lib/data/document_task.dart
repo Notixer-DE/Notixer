@@ -212,16 +212,18 @@ String updateDocumentTask(
   );
   final metadata = updated.toJson()
     ..removeWhere(
-      (key, _) => !{
-        'project',
-        'due',
-        'completedAt',
-        'timerStartedAt',
-        'timerPaused',
-        'workMilliseconds',
-        'countdownMilliseconds',
-        'countdownEndAtWorkMilliseconds',
-      }.contains(key),
+      (key, value) =>
+          value == null ||
+          !{
+            'project',
+            'due',
+            'completedAt',
+            'timerStartedAt',
+            'timerPaused',
+            'workMilliseconds',
+            'countdownMilliseconds',
+            'countdownEndAtWorkMilliseconds',
+          }.contains(key),
     );
   if (effectiveLinkId != null) {
     metadata['linkId'] = effectiveLinkId;
