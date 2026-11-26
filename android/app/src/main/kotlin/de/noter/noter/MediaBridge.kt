@@ -28,6 +28,7 @@ class MediaBridge(private val activity: FlutterActivity, messenger: BinaryMessen
     private var recording: File? = null
     private var player: MediaPlayer? = null
     private var playerOwner: String? = null
+    private var autoplay = false
     private var preparing: MethodChannel.Result? = null
 
     init {
@@ -64,26 +65,56 @@ class MediaBridge(private val activity: FlutterActivity, messenger: BinaryMessen
                         player = audio
                         playerOwner = call.argument<String>("owner")
                         preparing = result
+                        autoplay = true
                         audio.setDataSource(path)
                         audio.setOnPreparedListener {
-                            val reply = preparing
-                            preparing = null
-                            it.start()
-                            reply?.success(it.duration)
+                            if (player === it) {
+                                val reply = preparing
+                                preparing = null
+                                try {
+                                    if (autoplay) it.start()
+                                    reply?.success(it.duration)
+                                } catch (error: Exception) {
+                                    reply?.error("PLAY", error.message, null)
+                                    releasePlayer()
+                                }
+                            }
                         }
-                        audio.setOnErrorListener { _, _, _ ->
-                            val reply = preparing
-                            preparing = null
-                            reply?.error("PLAY", "This audio format cannot be played on this device.", null)
-                            releasePlayer()
+                        audio.setOnErrorListener { failed, _, _ ->
+                            if (player === failed) {
+                                val reply = preparing
+                                preparing = null
+                                reply?.error("PLAY", "This audio format cannot be played on this device.", null)
+                                releasePlayer()
+                            }
                             true
                         }
                         audio.prepareAsync()
                     }
-                    "pause" -> { player?.let { if (it.isPlaying) it.pause() }; result.success(null) }
-                    "resume" -> { player?.start(); result.success(null) }
-                    "seek" -> { player?.seekTo(call.argument<Int>("position") ?: 0); result.success(null) }
-                    "status" -> result.success(mapOf("owner" to playerOwner, "position" to (player?.currentPosition ?: 0), "duration" to (player?.duration ?: 0), "playing" to (player?.isPlaying ?: false), "recording" to (recorder != null)))
+                    "pause" -> {
+                        autoplay = false
+                        if (preparing == null) player?.let { if (it.isPlaying) it.pause() }
+                        result.success(null)
+                    }
+                    "resume" -> {
+                        autoplay = true
+                        if (preparing == null) player?.start()
+                        result.success(null)
+                    }
+                    "seek" -> {
+                        if (preparing == null) player?.seekTo(call.argument<Int>("position") ?: 0)
+                        result.success(null)
+                    }
+                    "status" -> {
+                        val ready = if (preparing == null) player else null
+                        result.success(mapOf(
+                            "owner" to playerOwner,
+                            "position" to (ready?.currentPosition ?: 0),
+                            "duration" to (ready?.duration ?: 0),
+                            "playing" to (ready?.isPlaying ?: false),
+                            "recording" to (recorder != null),
+                        ))
+                    }
                     "stop" -> { releasePlayer(); result.success(null) }
                     "openVideo" -> {
                         val file = File(call.argument<String>("path") ?: error("Missing video path."))
@@ -241,6 +272,7 @@ class MediaBridge(private val activity: FlutterActivity, messenger: BinaryMessen
     private fun releasePlayer() {
         preparing?.error("CANCELLED", "Playback was cancelled.", null)
         preparing = null
+        autoplay = false
         player?.release(); player = null; playerOwner = null
     }
     fun onStop() { stopRecording(); releasePlayer() }
