@@ -540,9 +540,13 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
     _restoreDisplay();
     _reload();
     if (widget.initialAnchor case final anchor?) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _anchor(anchor));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _anchor(anchor);
+      });
     } else {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _restorePosition());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _restorePosition();
+      });
     }
   }
 
@@ -658,7 +662,9 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
         );
       }
       final bytes = await widget.repository.load(note.id);
+      if (!mounted) return;
       final count = await markdownPdfPageCount(bytes);
+      if (!mounted) return;
       if (page > count) {
         throw FormatException('PDF page $page does not exist ($count pages).');
       }
@@ -1098,6 +1104,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   Future<(String, String)?> _pdfPageLink(Notebook note) async {
     try {
       final bytes = await widget.repository.load(note.id);
+      if (!mounted) return null;
       final count = await markdownPdfPageCount(bytes);
       if (!mounted) return null;
       final form = GlobalKey<FormState>();

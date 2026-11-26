@@ -283,6 +283,12 @@ class _TemplatePreviewState extends State<TemplatePreview> {
                   final height = sideways
                       ? page.cropBox.width
                       : page.cropBox.height;
+                  if (!width.isFinite ||
+                      !height.isFinite ||
+                      width <= 0 ||
+                      height <= 0) {
+                    return const Center(child: Text('Preview unavailable.'));
+                  }
                   final scale = math.min(
                     constraints.maxWidth / width,
                     constraints.maxHeight / height,

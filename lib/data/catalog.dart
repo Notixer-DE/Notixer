@@ -219,7 +219,12 @@ class LibraryCatalog extends ChangeNotifier {
     for (final folder in _folders) {
       if (folder.name.toLowerCase() == name.toLowerCase()) return folder;
     }
-    final folder = NoteFolder('${DateTime.now().microsecondsSinceEpoch}', name);
+    var next = DateTime.now().microsecondsSinceEpoch;
+    final ids = _folders.map((folder) => folder.id).toSet();
+    while (ids.contains('$next')) {
+      next++;
+    }
+    final folder = NoteFolder('$next', name);
     await _persist([..._folders, folder], _presets);
     return folder;
   });

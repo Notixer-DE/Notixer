@@ -112,10 +112,26 @@ class _TodoListEditorState extends State<_TodoListEditor> {
         final current = notes
             .where((note) => note.id == _session.note.id)
             .firstOrNull;
-        if (current != null) {
-          _session.note = current;
-          _changed();
+        if (current == null) return;
+        final previous = _session.note.modified;
+        if (current.modified != previous &&
+            !_session.dirty &&
+            !_session.saving) {
+          final document = await decodeMarkdownAsync(
+            await _page.repository.load(current.id),
+          );
+          if (!mounted ||
+              _session.dirty ||
+              _session.saving ||
+              _session.note.modified != previous) {
+            return;
+          }
+          _session.document = document;
+          _items = todoListItems(document.source);
+          _selectedLine = null;
         }
+        _session.note = current;
+        _changed();
       };
     } else {
       _previousClose = FileGateway.beforeClose;

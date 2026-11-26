@@ -23,19 +23,19 @@ class NavigationDialog extends StatelessWidget {
       0,
       editing.document.pageCount - 1,
     );
-    final text = TextEditingController(text: title ?? 'Page ${page + 1}');
+    var text = title ?? 'Page ${page + 1}';
     final result = await showDialog<String>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
           title: Text(path == null ? 'Add bookmark' : 'Rename'),
-          content: TextField(
-            controller: text,
+          content: TextFormField(
+            initialValue: text,
             autofocus: true,
             maxLength: 200,
             decoration: const InputDecoration(labelText: 'Name'),
-            onChanged: (_) => setState(() {}),
-            onSubmitted: (value) {
+            onChanged: (value) => setState(() => text = value),
+            onFieldSubmitted: (value) {
               if (value.trim().isNotEmpty) Navigator.pop(context, value.trim());
             },
           ),
@@ -45,16 +45,15 @@ class NavigationDialog extends StatelessWidget {
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: text.text.trim().isEmpty
+              onPressed: text.trim().isEmpty
                   ? null
-                  : () => Navigator.pop(context, text.text.trim()),
+                  : () => Navigator.pop(context, text.trim()),
               child: const Text('Save'),
             ),
           ],
         ),
       ),
     );
-    // The dialog route may still be animating out with the field attached.
     if (context.mounted && result != null) {
       editing.finishInk();
       if (path == null) {
@@ -64,7 +63,6 @@ class NavigationDialog extends StatelessWidget {
         editing.editBookmark(path, title: result);
       }
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) => text.dispose());
   }
 
   Future<void> _delete(

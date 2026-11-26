@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../data/catalog.dart';
+import '../data/file_gateway.dart';
 import '../data/notebook.dart';
 
 class OrganizeDialog extends StatefulWidget {
@@ -243,15 +244,22 @@ class _FolderManagerState extends State<FolderManager> {
         ],
       ),
     );
-    if (answer != true) return;
+    if (answer != true || !mounted) return;
+    if (!await FileGateway.prepareClose()) {
+      throw const FormatException('Could not save open files.');
+    }
+    final current = (await widget.repository.list()).where(
+      (note) => note.folderId == id,
+    );
     // Retain the folder if any document cannot be moved; never remove notes.
-    for (final n in notes) {
+    for (final n in current) {
       await widget.repository.save(
         n.copy(clearFolder: true),
         await widget.repository.load(n.id),
       );
     }
     await widget.repository.catalog.removeFolder(id);
+    await FileGateway.refreshOpenDocuments?.call();
   }
 
   @override

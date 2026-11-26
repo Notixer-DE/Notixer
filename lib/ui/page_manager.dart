@@ -122,7 +122,7 @@ class _PageManagerState extends State<PageManager> {
         ],
       ),
     );
-    if (answer == true) {
+    if (answer == true && mounted) {
       editing.removePages(pages);
       setState(selected.clear);
     }
@@ -151,7 +151,7 @@ class _PageManagerState extends State<PageManager> {
         ],
       ),
     );
-    if (note != null) {
+    if (note != null && mounted) {
       await widget.onCopyTo(note, pages);
       if (mounted) {
         ScaffoldMessenger.of(
