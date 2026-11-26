@@ -97,6 +97,9 @@ class LiveCanvasModel {
     _record(edit);
   }
 
+  void finishErase(InkEraserGesture gesture, {required bool cancel}) =>
+      _recordEdits(() => gesture.finish(cancel: cancel));
+
   void _recordEdits(VoidCallback edit) {
     ink.onEdit = _record;
     try {

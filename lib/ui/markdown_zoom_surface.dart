@@ -10,8 +10,9 @@ class MarkdownZoomSurface extends StatefulWidget {
     required this.zoom,
     required this.onChanged,
     required this.child,
+    this.useDefaultShortcuts = true,
   });
-  final bool enabled;
+  final bool enabled, useDefaultShortcuts;
   final double zoom;
   final ValueChanged<double> onChanged;
   final Widget child;
@@ -62,6 +63,7 @@ class _MarkdownZoomSurfaceState extends State<MarkdownZoomSurface> {
     onKeyEvent: (_, event) {
       final keyboard = HardwareKeyboard.instance;
       if (!widget.enabled ||
+          !widget.useDefaultShortcuts ||
           keyboard.isAltPressed ||
           !(keyboard.isControlPressed || keyboard.isMetaPressed)) {
         return KeyEventResult.ignored;

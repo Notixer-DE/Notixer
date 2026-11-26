@@ -7,12 +7,14 @@ import '../data/keyboard_shortcuts.dart';
 import 'noter_theme.dart';
 import 'workspace_chrome.dart';
 
-const _editorColors = [
-  0xFF293139,
-  0xFF238B7E,
-  0xFFF4BBD0,
-  0xFFFFE481,
-  0xFFBCE9C9,
+// Shared by the PDF editor and Live Canvas.
+const drawingPalette = [
+  ('Black', 0xFF293139),
+  ('Green', 0xFF238B7E),
+  ('Pink', 0xFFF4BBD0),
+  ('Yellow', 0xFFFFE481),
+  ('Mint', 0xFFBCE9C9),
+  ('Blue', 0xFF3572DB),
 ];
 
 void _applyColor(PdfEditingController editing, Color color) {
@@ -264,7 +266,7 @@ class EditorToolbar extends StatelessWidget {
               ),
               if (!NoterTheme.mobileLayout(constraints.maxWidth) &&
                   constraints.maxWidth >= 900)
-                for (final c in _editorColors)
+                for (final (_, c) in drawingPalette)
                   IconButton(
                     tooltip:
                         'Color #${(c & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}',
@@ -386,6 +388,7 @@ class _ToolStyleDialogState extends State<_ToolStyleDialog> {
         .toUpperCase(),
   );
   String? _error, _storageError;
+  double? _widthPreview, _opacityPreview;
   Future<void> _changeDrawing(Future<void> change) async {
     try {
       await change;
@@ -413,7 +416,7 @@ class _ToolStyleDialogState extends State<_ToolStyleDialog> {
       if (showStroke) ...[
         Wrap(
           children: [
-            for (final c in _editorColors)
+            for (final (_, c) in drawingPalette)
               IconButton(
                 tooltip:
                     'Color #${(c & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}',
@@ -449,22 +452,28 @@ class _ToolStyleDialogState extends State<_ToolStyleDialog> {
             }
           }),
         ),
-        Text('Stroke width: ${p.strokeWidth.toStringAsFixed(1)} pt'),
+        Text(
+          'Stroke width: ${(_widthPreview ?? p.strokeWidth).toStringAsFixed(1)} pt',
+        ),
         Slider(
-          value: p.strokeWidth.clamp(.5, 30),
+          value: (_widthPreview ?? p.strokeWidth).clamp(.5, 30),
           min: .5,
           max: 30,
-          onChanged: (value) => setState(() {
+          onChanged: (value) => setState(() => _widthPreview = value),
+          onChangeEnd: (value) => setState(() {
+            _widthPreview = null;
             p.strokeWidth = value;
             widget.editing.restyleSelected(strokeWidth: value);
           }),
         ),
-        Text('Opacity: ${(p.opacity * 100).round()} %'),
+        Text('Opacity: ${((_opacityPreview ?? p.opacity) * 100).round()} %'),
         Slider(
-          value: p.opacity.clamp(.05, 1),
+          value: (_opacityPreview ?? p.opacity).clamp(.05, 1),
           min: .05,
           max: 1,
-          onChanged: (value) => setState(() {
+          onChanged: (value) => setState(() => _opacityPreview = value),
+          onChangeEnd: (value) => setState(() {
+            _opacityPreview = null;
             p.opacity = value;
             widget.editing.restyleSelected(opacity: value);
           }),

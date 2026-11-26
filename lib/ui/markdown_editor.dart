@@ -150,19 +150,32 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   double _sourceZoom = 1;
   double _readingZoom = 1;
   double get _activeZoom => _source ? _sourceZoom : _readingZoom;
+  Timer? _zoomSave;
+  final _pendingZoom = <String, double>{};
+
+  void _persistZoom() {
+    final preferences = widget.repository.catalog.displayPreferences;
+    for (final entry in _pendingZoom.entries) {
+      unawaited(
+        preferences.set(entry.key, entry.value).catchError((Object _) {}),
+      );
+    }
+    _pendingZoom.clear();
+  }
+
   void _setZoom(double value) {
+    final zoom = value.clamp(.7, 2.5);
+    if (zoom == _activeZoom) return;
     setState(() {
       if (_source) {
-        _sourceZoom = value.clamp(.7, 2.5);
+        _sourceZoom = zoom;
       } else {
-        _readingZoom = value.clamp(.7, 2.5);
+        _readingZoom = zoom;
       }
     });
-    unawaited(
-      widget.repository.catalog.displayPreferences
-          .set(_source ? 'sourceZoom' : 'readingZoom', _activeZoom)
-          .catchError((Object _) {}),
-    );
+    _pendingZoom[_source ? 'sourceZoom' : 'readingZoom'] = zoom;
+    _zoomSave?.cancel();
+    _zoomSave = Timer(const Duration(milliseconds: 250), _persistZoom);
   }
 
   Future<void> _restoreDisplay() async {
@@ -1810,6 +1823,7 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
   Widget build(BuildContext context) => MarkdownZoomSurface(
     enabled: !_source,
     zoom: _readingZoom,
+    useDefaultShortcuts: widget.tabController?.shortcuts == null,
     onChanged: _setZoom,
     child: CallbackShortcuts(
       bindings: {
@@ -2339,6 +2353,8 @@ class _MarkdownEditorPageState extends State<_LoadedMarkdownEditor>
 
   @override
   void dispose() {
+    _zoomSave?.cancel();
+    _persistZoom();
     widget.tabController?.detach(this);
     WidgetsBinding.instance.removeObserver(this);
     if (identical(FileGateway.beforeClose, _closeHandler)) {

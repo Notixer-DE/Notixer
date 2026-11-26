@@ -133,7 +133,7 @@ void main() {
       await tester.sendEventToBinding(pen.up());
       expect(model.ink.index.strokes.map((ink) => ink.color), [
         0xff3572db,
-        0x753bae67,
+        0x75238b7e,
       ]);
       await tester.pumpWidget(const SizedBox());
     },
@@ -181,37 +181,37 @@ void main() {
         await tester.pump();
       }
 
-      expect(find.text('4 px'), findsOneWidget);
+      expect(find.text('3 pt'), findsOneWidget);
       await openWidth('Pen');
       await applyWidth('0');
-      expect(find.text('Enter a width from 0.1 to 1000 px.'), findsOneWidget);
+      expect(find.text('Enter a width from 0.5 to 30 pt.'), findsOneWidget);
       await applyWidth('6,5');
-      expect(find.text('6.5 px'), findsOneWidget);
+      expect(find.text('6.5 pt'), findsOneWidget);
       await tester.tap(find.byTooltip('Zoom in'));
       await tester.pump();
       await draw();
 
       await tester.tap(find.byTooltip('Highlighter'));
       await tester.pump();
-      expect(find.text('20 px'), findsOneWidget);
+      expect(find.text('15 pt'), findsOneWidget);
       await openWidth('Highlighter');
-      await applyWidth('32');
+      await applyWidth('24');
       await draw();
 
       await tester.tap(find.byTooltip('Pen'));
       await tester.pump();
-      expect(find.text('6.5 px'), findsOneWidget);
+      expect(find.text('6.5 pt'), findsOneWidget);
       await draw();
 
       expect(model.ink.index.strokes.map((stroke) => stroke.width), [
-        4.875,
+        6.5,
         24,
-        4.875,
+        6.5,
       ]);
       expect(viewer.ink.index.strokes.map((stroke) => stroke.width), [
-        4.875,
+        6.5,
         24,
-        4.875,
+        6.5,
       ]);
       await tester.pumpWidget(const SizedBox());
     },
