@@ -135,7 +135,7 @@ The packaging script writes `dist/notixer_<version>_preview.apk`. The release AP
 ```sh
 sudo apt-get install clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev
 bash tools/build-deb.sh
-sudo apt install ./dist/notixer_1.3.0_amd64.deb
+sudo apt install ./dist/notixer_1.4.0_amd64.deb
 ```
 
 Installing the `notixer` package replaces the previous `noter` package and keeps the existing notebooks. Launch it from the app menu or run `notixer`.
