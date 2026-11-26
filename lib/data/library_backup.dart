@@ -157,8 +157,12 @@ class LibraryBackup {
       ))
         await LocalNotebookRepository.decodeInkValidated(entry.value),
     ];
+    final namespace = 'restored-${LocalNotebookRepository.newId()}';
     final paths = <String>{};
     for (final (note, _, _) in decoded) {
+      if (!MarkdownDocument.safePath('$namespace/${note.documentPath}')) {
+        throw const FormatException('The restored document path is too long.');
+      }
       if (!paths.add(note.documentPath)) {
         throw const FormatException('Ambiguous document paths in backup.');
       }
@@ -172,31 +176,14 @@ class LibraryBackup {
     final backupTodos = QuickTodoStore.decode(
       files['settings/${QuickTodoStore.fileName}'],
     );
-    final pdfTemplates = <(String, Uint8List, InkDocument?)>[];
-    for (final entry in files.entries.where(
-      (entry) =>
-          entry.key.startsWith('templates/') && entry.key.endsWith('.template'),
-    )) {
-      final archive = ZipDecoder().decodeBytes(entry.value, verify: true);
-      final manifest = archive.find('manifest.json'),
-          pdf = archive.find('document.pdf'),
-          ink = archive.find('ink.json');
-      if (manifest == null ||
-          pdf == null ||
-          archive.files.length != (ink == null ? 2 : 3)) {
-        throw const FormatException('Invalid PDF template.');
-      }
-      final metadata = NoteTemplate.fromJson(
-        jsonDecode(utf8.decode(manifest.content)) as Map<String, dynamic>,
-      );
-      final bytes = Uint8List.fromList(pdf.content);
-      validatePdf(bytes);
-      pdfTemplates.add((
-        metadata.name,
-        bytes,
-        ink == null ? null : InkDocument.decode(ink.content),
-      ));
-    }
+    final pdfTemplates = [
+      for (final entry in files.entries.where(
+        (entry) =>
+            entry.key.startsWith('templates/') &&
+            entry.key.endsWith('.template'),
+      ))
+        await TemplateRepository.decodeArchive(entry.value),
+    ];
     final backupFolders = <NoteFolder>[];
     final catalogBytes = files['settings/.library.json'];
     if (catalogBytes != null) {
@@ -225,7 +212,6 @@ class LibraryBackup {
     final wasEmpty = (await repository.list()).isEmpty;
     final store = KnowledgeStore(repository);
     await store.load();
-    final namespace = 'restored-${LocalNotebookRepository.newId()}';
     final result = <Notebook>[];
     final folderIds = <String, String>{};
     for (final folder in backupFolders) {
@@ -335,8 +321,13 @@ class LibraryBackup {
       }
       await store.save();
     }
-    for (final (name, bytes, ink) in pdfTemplates) {
-      await repository.templates.save(name, bytes, ink: ink);
+    for (final (template, bytes, ink) in pdfTemplates) {
+      await repository.templates.save(
+        template.name,
+        bytes,
+        page: template.kind == TemplateKind.page ? 0 : null,
+        ink: ink,
+      );
     }
     return result;
   }
@@ -374,7 +365,6 @@ class AutomaticBackupScheduler {
           'Some library files could not be read; automatic backup was not replaced.',
         );
       }
-      if (notes.isEmpty) return;
       final settings = await store.file.exists()
           ? await store.file.readAsString()
           : '';
@@ -387,10 +377,23 @@ class AutomaticBackupScheduler {
             .map((template) => template.toJson())
             .toList(),
       );
+      final todosFile = File(
+        p.join(repository.directory.path, QuickTodoStore.fileName),
+      );
+      final todos = await todosFile.exists()
+          ? await todosFile.readAsString()
+          : '';
       final fingerprint = sha256
           .convert(
             utf8.encode(
-              '${notes.map((n) => '${n.id}:${n.modified.toIso8601String()}').join('|')}:$settings:$catalog:$templates',
+              jsonEncode([
+                for (final note in notes)
+                  [note.id, note.modified.toIso8601String()],
+                settings,
+                catalog,
+                templates,
+                todos,
+              ]),
             ),
           )
           .toString();

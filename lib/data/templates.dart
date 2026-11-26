@@ -147,13 +147,22 @@ class TemplateRepository {
 
   Future<(NoteTemplate, Uint8List, InkDocument?, Uint8List)> syncSnapshot(
     String id,
-  ) async {
-    await _queue;
+  ) {
     final path = _path(id);
-    return Isolate.run(() {
-      final (entry, pdf, ink) = _readTemplate(path);
-      return (entry, pdf!, ink, File(path).readAsBytesSync());
-    });
+    return _serialize(() => _readTemplateSnapshot(path, id));
+  }
+
+  static Future<(NoteTemplate, Uint8List, InkDocument?)> decodeArchive(
+    Uint8List raw,
+  ) {
+    if (raw.length > maxBytes) {
+      throw const FormatException('The template is too large.');
+    }
+    final transfer = TransferableTypedData.fromList([raw]);
+    return Isolate.run(
+      () => _decodeTemplateArchive(transfer.materialize().asUint8List()),
+      debugName: 'noter:template-archive',
+    );
   }
 
   Future<void> applySynced(
@@ -341,37 +350,72 @@ Uint8List _freshTemplatePdf(Uint8List bytes, {int? page}) {
   final stream = InputFileStream(path, bufferSize: 64 * 1024);
   try {
     final archive = ZipDecoder().decodeStream(stream, verify: true);
-    final manifest = archive.find('manifest.json'),
-        pdf = archive.find('document.pdf');
-    final inkFile = archive.find('ink.json');
-    if (archive.files.length != (inkFile == null ? 2 : 3) ||
-        manifest == null ||
-        pdf == null ||
-        manifest.size > 65536 ||
-        pdf.size > TemplateRepository.maxBytes ||
-        (inkFile != null && inkFile.size > InkDocument.maxBytes)) {
-      throw const FormatException('Invalid template archive.');
-    }
-    final entry = NoteTemplate.fromJson(
-      jsonDecode(utf8.decode(manifest.content)) as Map<String, dynamic>,
-    );
-    if (p.basenameWithoutExtension(path) != entry.id) {
-      throw const FormatException('Incorrect template ID.');
-    }
-    if (metadataOnly) return (entry, null, null);
-    final bytes = Uint8List.fromList(pdf.content);
-    validatePdf(bytes);
-    if (PdfDocument.open(bytes).pageCount != entry.pageCount) {
-      throw const FormatException('Incorrect page count.');
-    }
-    return (
-      entry,
-      bytes,
-      inkFile == null ? null : InkDocument.decode(inkFile.content),
+    return _decodeTemplate(
+      archive,
+      expectedId: p.basenameWithoutExtension(path),
+      metadataOnly: metadataOnly,
     );
   } finally {
     stream.closeSync();
   }
+}
+
+Future<(NoteTemplate, Uint8List, InkDocument?, Uint8List)>
+_readTemplateSnapshot(String path, String id) => Isolate.run(() {
+  final file = File(path);
+  if (file.lengthSync() > TemplateRepository.maxBytes) {
+    throw const FormatException('The template is too large.');
+  }
+  final raw = file.readAsBytesSync();
+  final (entry, pdf, ink) = _decodeTemplateArchive(raw, expectedId: id);
+  return (entry, pdf, ink, raw);
+}, debugName: 'noter:template-sync-snapshot');
+
+(NoteTemplate, Uint8List, InkDocument?) _decodeTemplateArchive(
+  Uint8List raw, {
+  String? expectedId,
+}) {
+  final (entry, pdf, ink) = _decodeTemplate(
+    ZipDecoder().decodeBytes(raw, verify: true),
+    expectedId: expectedId,
+  );
+  return (entry, pdf!, ink);
+}
+
+(NoteTemplate, Uint8List?, InkDocument?) _decodeTemplate(
+  Archive archive, {
+  String? expectedId,
+  bool metadataOnly = false,
+}) {
+  final manifest = archive.find('manifest.json'),
+      pdf = archive.find('document.pdf');
+  final inkFile = archive.find('ink.json');
+  if (archive.files.length != (inkFile == null ? 2 : 3) ||
+      archive.files.any((file) => !file.isFile) ||
+      manifest == null ||
+      pdf == null ||
+      manifest.size > 65536 ||
+      pdf.size > TemplateRepository.maxBytes ||
+      (inkFile != null && inkFile.size > InkDocument.maxBytes)) {
+    throw const FormatException('Invalid template archive.');
+  }
+  final entry = NoteTemplate.fromJson(
+    jsonDecode(utf8.decode(manifest.content)) as Map<String, dynamic>,
+  );
+  if (expectedId != null && expectedId != entry.id) {
+    throw const FormatException('Incorrect template ID.');
+  }
+  if (metadataOnly) return (entry, null, null);
+  final bytes = Uint8List.fromList(pdf.content);
+  validatePdf(bytes);
+  if (PdfDocument.open(bytes).pageCount != entry.pageCount) {
+    throw const FormatException('Incorrect page count.');
+  }
+  return (
+    entry,
+    bytes,
+    inkFile == null ? null : InkDocument.decode(inkFile.content),
+  );
 }
 
 void _writeTemplate(

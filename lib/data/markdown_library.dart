@@ -96,6 +96,11 @@ class MarkdownLibrary {
   Future<List<Notebook>> importBundle(Uint8List bytes) async {
     final documents = await Isolate.run(() => _readBundle(bytes));
     final namespace = LocalNotebookRepository.newId();
+    if (documents.any(
+      (document) => !MarkdownDocument.safePath('$namespace/${document.path}'),
+    )) {
+      throw const FormatException('The imported document path is too long.');
+    }
     final now = DateTime.now();
     final result = <Notebook>[];
     for (final document in documents) {
