@@ -176,15 +176,16 @@ void main() {
     await tester.pumpAndSettle();
     expect(controller.selections, [null]);
     await tester.tap(find.text('Sync note (optional)'));
+    final option = find.widgetWithText(SimpleDialogOption, selected.title);
     for (var i = 0; i < 150; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 15)),
       );
       await tester.pump();
-      if (find.textContaining('My note\n').evaluate().isNotEmpty) break;
+      if (option.evaluate().isNotEmpty) break;
     }
     await tester.pumpAndSettle();
-    await tester.tap(find.textContaining('My note\n'));
+    await tester.tap(option);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Sync selected note'));
     for (var i = 0; i < 150 && controller.selections.length < 2; i++) {
