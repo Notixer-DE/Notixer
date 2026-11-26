@@ -15,76 +15,89 @@ Future<Uint8List?> _extractFirstPage(Uint8List bytes) => Isolate.run(() {
   return page.length <= 2 * 1024 * 1024 ? page : null;
 });
 
-class _PreviewRequest {
+class _PreviewRequest<T> {
   _PreviewRequest(bool Function() wanted) : waiters = [wanted];
   final List<bool Function()> waiters;
-  late Future<PdfDocument?> future;
+  late Future<T?> future;
   bool complete = false;
   bool get wanted => waiters.any((check) => check());
 }
 
-/// Visible cards request previews lazily. One document is processed at a time,
-/// away from the UI isolate. Only eight small, single-page PDFs are retained.
-/// Large or unreadable documents keep their paper-type cover.
+/// Queue preview work and retain a limited number of results by file revision.
 class NotebookPreviewCache {
   NotebookPreviewCache(this.repository);
   final NotebookRepository repository;
-  final _entries = <String, _PreviewRequest>{};
+  final _pdf = <String, _PreviewRequest<PdfDocument>>{};
+  final _markdown = <String, _PreviewRequest<(String, int, int)>>{};
   Future<void> _queue = Future.value();
   bool _disposed = false;
 
   Future<PdfDocument?> load(Notebook note, bool Function() wanted) {
     if (!note.isPdf) return Future.value(null);
+    return _load(note, wanted, _pdf, 8, (wanted) async {
+      final bytes = repository is LocalNotebookRepository
+          ? await (repository as LocalNotebookRepository).loadPdf(note.id)
+          : await repository.load(note.id);
+      if (!wanted() || bytes.length > 32 * 1024 * 1024) return null;
+      final page = await _extractFirstPage(bytes);
+      return page == null || !wanted() ? null : PdfDocument.open(page);
+    });
+  }
+
+  Future<(String, int, int)?> loadMarkdown(
+    Notebook note,
+    bool Function() wanted,
+  ) => _load(note, wanted, _markdown, 64, (wanted) async {
+    final bytes = await repository.load(note.id);
+    if (!wanted()) return null;
+    return _summarizeMarkdown(bytes);
+  });
+
+  Future<T?> _load<T>(
+    Notebook note,
+    bool Function() wanted,
+    Map<String, _PreviewRequest<T>> entries,
+    int capacity,
+    Future<T?> Function(bool Function()) read,
+  ) {
+    if (_disposed) return Future.value(null);
     final key = '${note.id}:${note.modified.microsecondsSinceEpoch}';
-    final existing = _entries.remove(key);
+    final existing = entries.remove(key);
     if (existing != null) {
-      _entries[key] = existing;
+      entries[key] = existing;
       if (!existing.complete) existing.waiters.add(wanted);
       return existing.future;
     }
-    final request = _PreviewRequest(wanted);
+    final request = _PreviewRequest<T>(wanted);
+    bool stillWanted() => !_disposed && request.wanted;
     final result = _queue.then((_) async {
-      var cancelled = false;
       try {
-        if (_disposed || !request.wanted) {
-          cancelled = true;
-          return null;
-        }
-        final bytes = repository is LocalNotebookRepository
-            ? await (repository as LocalNotebookRepository).loadPdf(note.id)
-            : await repository.load(note.id);
-        if (_disposed || !request.wanted) {
-          cancelled = true;
-          return null;
-        }
-        if (bytes.length > 32 * 1024 * 1024) {
-          return null;
-        }
-        final page = await _extractFirstPage(bytes);
-        return page == null || _disposed ? null : PdfDocument.open(page);
+        if (!stillWanted()) return null;
+        return await read(stillWanted);
       } catch (_) {
         // A failed preview must not prevent opening/exporting a notebook.
         return null;
       } finally {
         request.complete = true;
-        request.waiters.clear();
-        if (cancelled && identical(_entries[key], request)) {
-          _entries.remove(key);
+        if (!stillWanted() && identical(entries[key], request)) {
+          entries.remove(key);
         }
+        request.waiters.clear();
       }
     });
     request.future = result;
     _queue = result.then<void>((_) {});
-    _entries[key] = request;
-    while (_entries.length > 8) {
-      _entries.remove(_entries.keys.first);
+    entries[key] = request;
+    while (entries.length > capacity) {
+      entries.remove(entries.keys.first);
     }
     return result;
   }
 
   void dispose() {
     _disposed = true;
-    _entries.clear();
+    _pdf.clear();
+    _markdown.clear();
   }
 }
 
@@ -123,7 +136,7 @@ class _NotebookPreviewState extends State<NotebookPreview> {
       ? _MarkdownPreview(
           key: ValueKey('${widget.note.id}:${widget.note.modified}'),
           note: widget.note,
-          repository: widget.cache.repository,
+          cache: widget.cache,
           height: widget.height,
         )
       : FutureBuilder(
@@ -191,39 +204,43 @@ class _NotebookPreviewState extends State<NotebookPreview> {
         );
 }
 
-Future<(String, int, int)> _markdownPreview(
-  NotebookRepository repository,
-  String id,
-) async {
-  final bytes = await repository.load(id);
-  return Isolate.run(() {
-    final source = MarkdownDocument.decode(bytes).source;
-    final offsets = markdownTaskOffsets(source);
-    final text = parseMarkdown(source).map((n) => n.textContent).join('\n');
-    return (
-      text.length > 280 ? '${text.substring(0, 280)}…' : text,
-      offsets.where((i) => source[i].toLowerCase() == 'x').length,
-      offsets.length,
-    );
-  });
-}
+Future<(String, int, int)> _summarizeMarkdown(Uint8List bytes) =>
+    Isolate.run(() {
+      final source = MarkdownDocument.decode(bytes).source;
+      final offsets = markdownTaskOffsets(source);
+      final text = parseMarkdown(source).map((n) => n.textContent).join('\n');
+      return (
+        text.length > 280 ? '${text.substring(0, 280)}…' : text,
+        offsets.where((i) => source[i].toLowerCase() == 'x').length,
+        offsets.length,
+      );
+    });
 
 class _MarkdownPreview extends StatefulWidget {
   const _MarkdownPreview({
     super.key,
     required this.note,
-    required this.repository,
+    required this.cache,
     required this.height,
   });
   final Notebook note;
-  final NotebookRepository repository;
+  final NotebookPreviewCache cache;
   final double height;
   @override
   State<_MarkdownPreview> createState() => _MarkdownPreviewState();
 }
 
 class _MarkdownPreviewState extends State<_MarkdownPreview> {
-  late final _preview = _markdownPreview(widget.repository, widget.note.id);
+  late var _preview = _load();
+  Future<(String, int, int)?> _load() =>
+      widget.cache.loadMarkdown(widget.note, () => mounted);
+
+  @override
+  void didUpdateWidget(covariant _MarkdownPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.cache != widget.cache) _preview = _load();
+  }
+
   @override
   Widget build(BuildContext context) => Container(
     height: widget.height,

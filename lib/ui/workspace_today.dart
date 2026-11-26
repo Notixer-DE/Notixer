@@ -40,6 +40,7 @@ class _WorkspaceTodayState extends State<WorkspaceToday> {
   late final _store = KnowledgeStore(widget.repository);
   late Future<(List<QuickTodo>, List<Notebook>)> _data;
   late Future<(List<StudyTask>, List<String>, int)> _study;
+  int _studyRequest = 0;
   final _pending = <String>{};
 
   @override
@@ -76,10 +77,12 @@ class _WorkspaceTodayState extends State<WorkspaceToday> {
 
   void _reload() {
     _data = _load();
+    final request = ++_studyRequest;
     _study = loadStudyQueue(
       widget.repository,
       DateTime.now(),
-      cancelled: () => !mounted,
+      listing: _data.then((data) => data.$2),
+      cancelled: () => !mounted || !widget.current || _studyRequest != request,
     );
   }
 
@@ -161,6 +164,8 @@ class _WorkspaceTodayState extends State<WorkspaceToday> {
       future: _data,
       builder: (context, snapshot) {
         final (tasks, notes) = snapshot.data ?? (<QuickTodo>[], <Notebook>[]);
+        final now = DateTime.now();
+        final today = journalDate(now);
         final byId = {for (final note in notes) note.id: note};
         final recent = [
           for (final id in widget.recentIds)
@@ -168,9 +173,7 @@ class _WorkspaceTodayState extends State<WorkspaceToday> {
                 when note.isPdf || (note.isMarkdown && !note.isTodoList))
               note,
         ];
-        final hasJournal = notes.any(
-          (note) => journalEntryDate(note) == journalDate(DateTime.now()),
-        );
+        final hasJournal = notes.any((note) => journalEntryDate(note) == today);
         return Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1100),
@@ -183,9 +186,7 @@ class _WorkspaceTodayState extends State<WorkspaceToday> {
                   style: Theme.of(context).textTheme.headlineMedium,
                 ),
                 Text(
-                  MaterialLocalizations.of(
-                    context,
-                  ).formatFullDate(DateTime.now()),
+                  MaterialLocalizations.of(context).formatFullDate(now),
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 16),
@@ -237,10 +238,7 @@ class _WorkspaceTodayState extends State<WorkspaceToday> {
                                     onTap: () => _plan(todo),
                                     subtitle: Text(
                                       [
-                                        if (todo.due!.compareTo(
-                                              journalDate(DateTime.now()),
-                                            ) <
-                                            0)
+                                        if (todo.due!.compareTo(today) < 0)
                                           'Overdue'
                                         else
                                           'Today',
@@ -274,6 +272,7 @@ class _WorkspaceTodayState extends State<WorkspaceToday> {
                               ]),
                               _section('Study', Icons.school_outlined, [
                                 FutureBuilder(
+                                  key: ValueKey(_studyRequest),
                                   future: _study,
                                   builder: (context, snapshot) {
                                     final queue = snapshot.data;

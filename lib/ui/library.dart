@@ -8,6 +8,8 @@ import 'dart:convert';
 import 'dart:io' show Platform;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart'
+    show SliverConstraints, SliverGridLayout;
 import 'package:path/path.dart' as p;
 import '../data/notebook.dart';
 import '../data/keyboard_shortcuts.dart';
@@ -99,6 +101,7 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _selecting = false;
   String? _error;
   bool _loading = true, _actionBusy = false;
+  late bool _syncBusy;
   bool get _busy => _actionBusy || _sync.busy;
   bool get _hasOpenDocuments => widget.hasOpenDocuments?.call() ?? false;
   bool _isOpen(Notebook note) => widget.isNotebookOpen?.call(note.id) ?? false;
@@ -138,6 +141,7 @@ class _LibraryPageState extends State<LibraryPage> {
         AppShortcut.knowledgeBackups: () => _knowledge(section: 'Backups'),
       };
     }
+    _syncBusy = _sync.busy;
     _sync.addListener(_syncChanged);
     MediaGateway.recoveredCapture.addListener(_captureRecovered);
     FileGateway.sharedText.addListener(_sharedCapture);
@@ -150,7 +154,11 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   void _syncChanged() {
-    if (mounted) setState(() {});
+    // The status banner listens separately. Only a busy-state transition
+    // changes the enabled state of file controls.
+    if (mounted && _syncBusy != _sync.busy) {
+      setState(() => _syncBusy = _sync.busy);
+    }
   }
 
   Future<void> _initializeSync() async {
@@ -1153,8 +1161,9 @@ class _LibraryPageState extends State<LibraryPage> {
 
   @override
   Widget build(BuildContext context) {
+    final query = _query.toLowerCase();
     final visible = _notes
-        .where((n) => n.title.toLowerCase().contains(_query.toLowerCase()))
+        .where((n) => query.isEmpty || n.title.toLowerCase().contains(query))
         .where(
           (n) =>
               !n.isArchivedSettingsConflict ||
@@ -1181,9 +1190,10 @@ class _LibraryPageState extends State<LibraryPage> {
               (_kind == 'media' && n.isMedia),
         )
         .toList();
-    final hiddenSelection =
-        _selectedNotes.length -
-        visible.where((note) => _selectedNotes.contains(note.id)).length;
+    final hiddenSelection = _selectedNotes.isEmpty
+        ? 0
+        : _selectedNotes.length -
+              visible.where((note) => _selectedNotes.contains(note.id)).length;
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide =
@@ -1515,42 +1525,16 @@ class _LibraryPageState extends State<LibraryPage> {
                           else
                             SliverPadding(
                               padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-                              sliver: SliverLayoutBuilder(
-                                builder: (context, constraints) =>
-                                    SliverGrid.builder(
-                                      gridDelegate:
-                                          SliverGridDelegateWithFixedCrossAxisCount(
-                                            crossAxisCount:
-                                                MediaQuery.textScalerOf(
-                                                          context,
-                                                        ).scale(16) >
-                                                        24 ||
-                                                    constraints
-                                                            .crossAxisExtent <
-                                                        300
-                                                ? 1
-                                                : constraints.crossAxisExtent <
-                                                      840
-                                                ? 2
-                                                : 3,
-                                            mainAxisExtent:
-                                                (phone ? 246 : 310) +
-                                                (MediaQuery.textScalerOf(
-                                                              context,
-                                                            ).scale(16) /
-                                                            16 -
-                                                        1) *
-                                                    100,
-                                            mainAxisSpacing: 16,
-                                            crossAxisSpacing: 12,
-                                          ),
-                                      itemCount: visible.length,
-                                      itemBuilder: (context, index) =>
-                                          _noteCard(
-                                            visible[index],
-                                            compact: phone,
-                                          ),
-                                    ),
+                              sliver: SliverGrid.builder(
+                                gridDelegate: _FileGridDelegate(
+                                  phone: phone,
+                                  textSize: MediaQuery.textScalerOf(
+                                    context,
+                                  ).scale(16),
+                                ),
+                                itemCount: visible.length,
+                                itemBuilder: (context, index) =>
+                                    _noteCard(visible[index], compact: phone),
                               ),
                             ),
                         ],
@@ -2047,6 +2031,28 @@ class _LibraryPageState extends State<LibraryPage> {
       ),
     );
   }
+}
+
+class _FileGridDelegate extends SliverGridDelegate {
+  const _FileGridDelegate({required this.phone, required this.textSize});
+
+  final bool phone;
+  final double textSize;
+
+  @override
+  SliverGridLayout getLayout(SliverConstraints constraints) {
+    final width = constraints.crossAxisExtent;
+    return SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: textSize > 24 || width < 300 ? 1 : (width < 840 ? 2 : 3),
+      mainAxisExtent: (phone ? 246 : 310) + (textSize / 16 - 1) * 100,
+      mainAxisSpacing: 16,
+      crossAxisSpacing: 12,
+    ).getLayout(constraints);
+  }
+
+  @override
+  bool shouldRelayout(_FileGridDelegate oldDelegate) =>
+      phone != oldDelegate.phone || textSize != oldDelegate.textSize;
 }
 
 class _NewNoteDialog extends StatefulWidget {

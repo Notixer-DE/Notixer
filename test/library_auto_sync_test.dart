@@ -16,6 +16,12 @@ class _RecordingSync extends SyncController {
   _RecordingSync(super.repository);
   final calls = <String?>[];
 
+  void report(String message, {required bool working}) {
+    busy = working;
+    status = message;
+    notifyListeners();
+  }
+
   @override
   Future<void> load() async {
     enabled = true;
@@ -30,6 +36,40 @@ class _RecordingSync extends SyncController {
 }
 
 void main() {
+  testWidgets(
+    'sync progress updates the banner without rebuilding the file list',
+    (tester) async {
+      final root = Directory.systemTemp.createTempSync('noter-sync-progress-');
+      final repository = LocalNotebookRepository(root);
+      final sync = _RecordingSync(repository);
+      addTearDown(() async {
+        sync.dispose();
+        await root.delete(recursive: true);
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LibraryPage(repository: repository, syncController: sync),
+        ),
+      );
+      await markdownIo(tester, () => sync.calls.isNotEmpty);
+      sync.report('Uploading 1 of 100', working: true);
+      await tester.pump();
+      final scroll = find.byType(CustomScrollView);
+      final list = tester.widget<CustomScrollView>(scroll);
+      expect(find.text('Uploading 1 of 100'), findsOneWidget);
+
+      sync.report('Uploading 2 of 100', working: true);
+      await tester.pump();
+      expect(find.text('Uploading 2 of 100'), findsOneWidget);
+      expect(tester.widget<CustomScrollView>(scroll), same(list));
+
+      sync.report('Finished', working: false);
+      await tester.pump();
+      expect(tester.widget<CustomScrollView>(scroll), isNot(same(list)));
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
   testWidgets('closing an editor syncs only saved changes, not viewed notes', (
     tester,
   ) async {
