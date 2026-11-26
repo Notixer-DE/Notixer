@@ -243,6 +243,12 @@ class LibraryExtrasSync {
     final knowledge = KnowledgeStore(repository);
     await knowledge.load();
     await repository.catalog.load();
+    // A recovered catalog holds placeholder folders/presets, not user intent.
+    // Treat it like a missing file so it is never uploaded as deletions or
+    // default presets; incoming records may still restore it locally. This
+    // also covers a catalog rewritten from placeholders before that restore.
+    final catalogRecovering = repository.catalog.needsSyncRestore;
+    final hasCatalog = before['.library.json'] != null && !catalogRecovering;
     final sessionRemote = remote is SyncSessionRemote
         ? remote
         : SyncSessionRemote(remote);
@@ -253,6 +259,7 @@ class LibraryExtrasSync {
       p.join(staging.directory.path, '.local-fingerprint-$account'),
     );
     if (onlyIfChanged &&
+        !catalogRecovering &&
         await fingerprintFile.exists() &&
         await fingerprintFile.readAsString() == await _fingerprint()) {
       return SyncReport();
@@ -260,6 +267,17 @@ class LibraryExtrasSync {
     final remoteIds = (await sessionRemote.list()).map((r) => r.noteId).toSet();
     final expected = <String>{};
     final old = {for (final note in await staging.list()) note.id: note};
+    // Last synced value of a record, used while local folder IDs are lost.
+    Future<Object?> synced(String id) async {
+      if (!old.containsKey(id)) return null;
+      final snapshot = await staging.snapshotForSync(id);
+      if (snapshot == null) return null;
+      final (_, bytes) = await LocalNotebookRepository.decodeValidated(
+        snapshot.archive,
+      );
+      return jsonDecode((await decodeMarkdownAsync(bytes)).source);
+    }
+
     Future<void> stage(
       String kind,
       String key,
@@ -335,7 +353,18 @@ class LibraryExtrasSync {
         if (view.folder.isNotEmpty) {
           data['folderName'] = repository.catalog.folderName(view.folder);
           data['folder'] = '';
-          if (data['folderName'] == null) data['folder'] = view.folder;
+          if (data['folderName'] == null) {
+            final previous = catalogRecovering
+                ? await synced(_id('view', view.name))
+                : null;
+            if (previous is Map) {
+              // Keep the synced folder instead of publishing a lost local ID.
+              data['folderName'] = previous['folderName'];
+              data['folder'] = previous['folder'] ?? '';
+            } else {
+              data['folder'] = view.folder;
+            }
+          }
         }
         await value('view', view.name, data);
       }
@@ -356,14 +385,22 @@ class LibraryExtrasSync {
     for (final todo in QuickTodoStore.decode(
       before[QuickTodoStore.fileName],
     ).values) {
+      var project = repository.catalog.folderName(todo.project);
+      if (project == null && todo.project != null && catalogRecovering) {
+        // The folder ID is unknown only because the catalog was lost.
+        final previous = await synced(_id('quick-todo', todo.id));
+        if (previous is Map && previous['project'] is String) {
+          project = previous['project'] as String;
+        }
+      }
       await value(
         'quick-todo',
         todo.id,
-        todo.withProject(repository.catalog.folderName(todo.project)).toJson(),
+        todo.withProject(project).toJson(),
         title: 'Quick to-do',
       );
     }
-    if (before['.library.json'] != null) {
+    if (hasCatalog) {
       for (final folder in repository.catalog.folders) {
         await value('folder', folder.name.toLowerCase(), folder.name);
       }
@@ -449,7 +486,7 @@ class LibraryExtrasSync {
           kind == 'preset' ||
           ((kind == 'markdown' || kind == 'knowledge' || kind == 'view') &&
               before['.knowledge.json'] == null) ||
-          (kind == 'folder' && before['.library.json'] == null)) {
+          (kind == 'folder' && !hasCatalog)) {
         continue;
       }
       await staging.delete(note.id);
@@ -669,7 +706,7 @@ class LibraryExtrasSync {
         in repository.catalog.folders
             .where((f) => !folderNames.contains(f.name.toLowerCase()))
             .toList()) {
-      if (before['.library.json'] != null) {
+      if (hasCatalog) {
         await repository.catalog.removeFolder(folder.id);
       }
     }
@@ -698,6 +735,8 @@ class LibraryExtrasSync {
       await temporary.writeAsString(encoded, flush: true);
       await temporary.rename(file.path);
     }
+    // Remote folders and presets are applied; later syncs may upload again.
+    if (catalogRecovering) await repository.catalog.markSyncRestored();
     await repository.catalog.reload();
     final temporaryFingerprint = File('${fingerprintFile.path}.tmp');
     await temporaryFingerprint.writeAsString(await _fingerprint(), flush: true);
