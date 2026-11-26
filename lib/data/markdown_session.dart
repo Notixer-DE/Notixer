@@ -68,16 +68,18 @@ class MarkdownSession extends ChangeNotifier {
 
   Future<bool> _write() async {
     try {
-      while (dirty) {
-        final revision = _revision;
-        final snapshot = note;
-        final bytes = await encodeMarkdownAsync(document);
-        final saved = await repository.save(snapshot, bytes);
-        // Preserve a rename made while this snapshot was being written.
-        note = note.copy(modified: saved.modified);
-        _saved = revision;
-      }
-      await repository.flush();
+      do {
+        while (dirty) {
+          final revision = _revision;
+          final snapshot = note;
+          final bytes = await encodeMarkdownAsync(document);
+          final saved = await repository.save(snapshot, bytes);
+          // Preserve a rename made while this snapshot was being written.
+          note = note.copy(modified: saved.modified);
+          _saved = revision;
+        }
+        await repository.flush();
+      } while (dirty);
       error = null;
       return true;
     } catch (e) {

@@ -118,7 +118,8 @@ class InkStroke {
       final x = value.dx * scaleX;
       final y = value.dy * scaleY;
       final direction = Offset(x * cosine - y * sine, x * sine + y * cosine);
-      return direction / direction.distance;
+      final distance = direction.distance;
+      return distance.isFinite && distance > 1e-6 ? direction / distance : null;
     }
 
     return InkStroke(

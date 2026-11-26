@@ -339,8 +339,9 @@ class NotebookSync {
         if (!handled.add(losing.digest)) continue;
         final bytes = await read(losing);
         if (await _documentDigest(bytes) == winnerContent) continue;
+        final conflictIdentity = extras ? losing.revision : losing.digest;
         final conflictId =
-            '${extras ? 'extra_conflict_' : 'conflict_'}${sha256.convert(utf8.encode('$id:${losing.digest}')).toString().substring(0, 40)}';
+            '${extras ? 'extra_conflict_' : 'conflict_'}${sha256.convert(utf8.encode('$id:$conflictIdentity')).toString().substring(0, 40)}';
         if (revisions.values.any((r) => r.noteId == conflictId) ||
             localIds.contains(conflictId)) {
           continue;

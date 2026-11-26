@@ -433,11 +433,12 @@ class KnowledgePageState extends State<KnowledgePage> {
           value.$1,
           value.$2,
         );
-        _store.templates = [
-          ..._store.templates.where((t) => t.id != updated.id),
-          updated,
-        ];
-        await _store.save();
+        await _store.updateSettings((settings) {
+          settings.templates = [
+            ...settings.templates.where((t) => t.id != updated.id),
+            updated,
+          ];
+        });
       });
     }
   }
@@ -447,19 +448,20 @@ class KnowledgePageState extends State<KnowledgePage> {
     if (name == null || name.isEmpty || !mounted) return;
     final view = _view;
     await _work(() async {
-      _store.views = [
-        ..._store.views.where((v) => v.name != name),
-        KnowledgeView(
-          name,
-          query: view.query,
-          tag: view.tag,
-          folder: view.folder,
-          kind: view.kind,
-          openTasks: view.openTasks,
-          completedTasks: view.completedTasks,
-        ),
-      ];
-      await _store.save();
+      await _store.updateSettings((settings) {
+        settings.views = [
+          ...settings.views.where((v) => v.name != name),
+          KnowledgeView(
+            name,
+            query: view.query,
+            tag: view.tag,
+            folder: view.folder,
+            kind: view.kind,
+            openTasks: view.openTasks,
+            completedTasks: view.completedTasks,
+          ),
+        ];
+      });
     });
   }
 
@@ -1186,27 +1188,27 @@ class KnowledgePageState extends State<KnowledgePage> {
     );
     if (selection == null || !mounted) return;
     await _work(() async {
-      await _store.reload();
-      final (id, source) = selection;
-      if (source.trim().isEmpty) {
-        _store.journalTemplate = null;
-      } else {
-        final template = _store.templates
-            .where((entry) => entry.id == id)
-            .firstOrNull;
-        final updated = MarkdownTemplate(
-          template?.id ?? LocalNotebookRepository.newId(),
-          template?.name ?? 'Custom journal',
-          source,
-        );
-        _store.templates = [
-          for (final entry in _store.templates)
-            entry.id == updated.id ? updated : entry,
-          if (template == null) updated,
-        ];
-        _store.journalTemplate = updated.id;
-      }
-      await _store.save();
+      await _store.updateSettings((settings) {
+        final (id, source) = selection;
+        if (source.trim().isEmpty) {
+          settings.journalTemplate = null;
+        } else {
+          final template = settings.templates
+              .where((entry) => entry.id == id)
+              .firstOrNull;
+          final updated = MarkdownTemplate(
+            template?.id ?? LocalNotebookRepository.newId(),
+            template?.name ?? 'Custom journal',
+            source,
+          );
+          settings.templates = [
+            for (final entry in settings.templates)
+              entry.id == updated.id ? updated : entry,
+            if (template == null) updated,
+          ];
+          settings.journalTemplate = updated.id;
+        }
+      });
       if (mounted) await widget.onJournalChanged?.call(null);
     });
   }
@@ -1412,11 +1414,14 @@ class KnowledgePageState extends State<KnowledgePage> {
             onPressed: _busy
                 ? null
                 : () => _work(() async {
-                    _store.templates.removeWhere((t) => t.id == template.id);
-                    if (_store.journalTemplate == template.id) {
-                      _store.journalTemplate = null;
-                    }
-                    await _store.save();
+                    await _store.updateSettings((settings) {
+                      settings.templates.removeWhere(
+                        (t) => t.id == template.id,
+                      );
+                      if (settings.journalTemplate == template.id) {
+                        settings.journalTemplate = null;
+                      }
+                    });
                   }),
           ),
         ),
@@ -1524,8 +1529,11 @@ class KnowledgePageState extends State<KnowledgePage> {
             onPressed: _busy
                 ? null
                 : () => _work(() async {
-                    _store.views.remove(view);
-                    await _store.save();
+                    await _store.updateSettings((settings) {
+                      settings.views.removeWhere(
+                        (entry) => entry.name == view.name,
+                      );
+                    });
                   }),
           ),
         ),
@@ -1578,8 +1586,9 @@ class KnowledgePageState extends State<KnowledgePage> {
         onChanged: _busy
             ? null
             : (v) => _work(() async {
-                _store.automaticBackups = v;
-                await _store.save();
+                await _store.updateSettings((settings) {
+                  settings.automaticBackups = v;
+                });
               }),
       ),
       Wrap(

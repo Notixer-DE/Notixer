@@ -5,6 +5,7 @@ import '../data/keyboard_shortcuts.dart';
 import '../data/notebook.dart';
 import '../data/tapes.dart';
 import 'editor.dart';
+import 'document_tab.dart';
 
 class StudyTask {
   const StudyTask(this.note, this.target, this.schedule);
@@ -67,11 +68,13 @@ class StudyPage extends StatefulWidget {
     this.clock,
     this.shortcuts,
     this.startImmediately = false,
+    this.workspaceSessions,
   });
   final NotebookRepository repository;
   final DateTime Function()? clock;
   final KeyboardShortcuts? shortcuts;
   final bool startImmediately;
+  final WorkspacePdfSessions? workspaceSessions;
   @override
   State<StudyPage> createState() => _StudyPageState();
 }
@@ -151,6 +154,7 @@ class _StudyPageState extends State<StudyPage> {
               bytes: bytes,
               repository: widget.repository,
               shortcuts: widget.shortcuts,
+              workspaceSessions: widget.workspaceSessions,
               initialPage: target.page,
               initialTapeId: target.id,
               reviewProgress: 'Review ${reviewed + 1} · ${_tasks.length} due',

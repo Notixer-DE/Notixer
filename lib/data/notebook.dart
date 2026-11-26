@@ -496,21 +496,22 @@ class LocalNotebookRepository
   }
 
   @override
-  Future<Uint8List> load(String id) async {
-    await _queue;
-    final loaded = await _loadNotebookWithInk(
-      _file(id).path,
-      _inkJournal(id).path,
-    );
-    _cacheInk(id, loaded.$2);
-    return loaded.$1;
-  }
+  Future<Uint8List> load(String id) async => (await _loadWithInk(id)).$1;
+
+  Future<(Uint8List, (InkDocument, String, int))> _loadWithInk(String id) =>
+      _serialize(() async {
+        final loaded = await _loadNotebookWithInk(
+          _file(id).path,
+          _inkJournal(id).path,
+        );
+        _cacheInk(id, loaded.$2);
+        return loaded;
+      });
 
   /// Interchange/preview PDF, not the editor's unchanged base document.
   Future<Uint8List> loadPdf(String id) async {
-    final bytes = await load(id);
-    final ink = _loadedInk[id]?.$1;
-    return ink == null ? bytes : _renderInkPdf(bytes, ink);
+    final (bytes, (ink, _, _)) = await _loadWithInk(id);
+    return ink.strokes.isEmpty ? bytes : _renderInkPdf(bytes, ink);
   }
 
   File _inkJournal(String id) {
@@ -642,11 +643,16 @@ class LocalNotebookRepository
         await _checkpointInkJournalAsync(path);
         _loadedInk.remove(note.id);
       }
-      await _saveNotebook(path, updated, snapshot);
+      final base = await _saveNotebook(
+        path,
+        updated,
+        snapshot,
+        hashPayload: isNew && note.isPdf,
+      );
       if (isNew && note.isPdf) {
         _cacheInk(note.id, (
           InkDocument(generation: _legacyInkGeneration(updated)),
-          '',
+          base,
           0,
         ));
       }
@@ -762,13 +768,12 @@ class LocalNotebookRepository
   });
 
   @override
-  Future<Uint8List> exportArchive(Notebook note) async {
-    await _queue;
+  Future<Uint8List> exportArchive(Notebook note) => _serialize(() async {
     await catalog.load();
     return _exportNotebook(_file(note.id).path, {
       for (final folder in catalog.folders) folder.id: folder.name,
     });
-  }
+  });
 
   @override
   Future<Notebook> importArchive(Uint8List bytes) async {
@@ -953,16 +958,18 @@ Future<(Notebook, Uint8List, InkDocument?)> _decodeInkTransferred(
   return result;
 }, debugName: 'noter:decode-ink-archive');
 
-Future<void> _saveNotebook(
+Future<String> _saveNotebook(
   String path,
   Notebook note,
   TransferableTypedData snapshot, {
   InkDocument? ink,
+  bool hashPayload = false,
 }) => Isolate.run(() {
   final pdf = snapshot.materialize().asUint8List();
   _checkpoint(path, note.modified);
   _writeNotebook(path, note, pdf, ink: ink);
   _pruneHistory(path);
+  return hashPayload ? sha256.convert(pdf).toString() : '';
 }, debugName: 'noter:atomic-save');
 
 Directory _historyDirectory(String path) => Directory(
@@ -1204,9 +1211,10 @@ Future<(InkDocument, String, int)> _loadInkNotebook(
       (file.existsSync()
           ? LocalNotebookRepository.decodeWithInk(file.readAsBytesSync())
           : null);
-  // Generation matches are sufficient for ordinary replay. Do not hash a
-  // potentially 256-MB unchanged PDF on every open just for a fallback path.
-  var base = '';
+  // Legacy archives need a payload identity that survives metadata changes.
+  final base = decoded != null && decoded.$1.isPdf && decoded.$3 == null
+      ? sha256.convert(decoded.$2).toString()
+      : '';
   var ink =
       decoded?.$3 ??
       InkDocument(
@@ -1222,22 +1230,22 @@ Future<(InkDocument, String, int)> _loadInkNotebook(
   if (journal.lengthSync() > InkDocument.maxBytes) {
     throw const FormatException('The ink journal is too large.');
   }
-  final text = journal.readAsStringSync();
+  var text = journal.readAsStringSync();
   if (!text.endsWith('\n')) {
     final end = text.lastIndexOf('\n');
     if (end < 0) {
       journal.deleteSync();
       return (ink, base, saved);
     }
-    journal.writeAsStringSync(text.substring(0, end + 1), flush: true);
+    text = text.substring(0, end + 1);
+    journal.writeAsStringSync(text, flush: true);
   }
   final lines = text.split('\n')
     ..removeLast(); // Ignore an incomplete final write.
   if (lines.isEmpty) throw const FormatException('Corrupted ink journal.');
   final header = jsonDecode(lines.first) as Map<String, dynamic>;
   if (header['generation'] != ink.generation) {
-    base = sha256.convert(decoded?.$2 ?? const <int>[]).toString();
-    if (decoded?.$3 != null || header['base'] != base) {
+    if (base.isEmpty || header['base'] != base) {
       throw const FormatException(
         'The ink journal belongs to a different document version.',
       );
@@ -1302,6 +1310,7 @@ void _checkpointInkJournal(String path) {
   );
   if (!file.existsSync() || !journal.existsSync()) return;
   final (ink, _, _) = _readInk(path, journal.path);
+  if (!journal.existsSync()) return;
   final (note, pdf, _) = LocalNotebookRepository.decodeWithInk(
     file.readAsBytesSync(),
   );

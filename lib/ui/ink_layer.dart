@@ -195,10 +195,11 @@ class LiveInk extends ChangeNotifier {
     if (tailPoints > 65) {
       final end = 64 * 3;
       final key = '$id-${_chunks.length}';
-      final direction = Offset(
+      final tangent = Offset(
         _samples[end] - _samples[end - 6],
         _samples[end + 1] - _samples[end - 5],
       );
+      final direction = tangent.distanceSquared > 1e-12 ? tangent : null;
       final chunk = _stroke(
         key,
         Float32List.fromList(_samples.sublist(0, end)),

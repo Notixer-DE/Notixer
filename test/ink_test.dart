@@ -35,6 +35,25 @@ void main() {
   late Directory directory;
   late LocalNotebookRepository repo;
   late DocumentSession session;
+  test('a zero-length tangent can be transformed and serialized', () {
+    final ink = InkStroke(
+      id: 'turn',
+      page: '1:0',
+      order: 0,
+      color: 0xff001122,
+      width: 2,
+      points: Float32List.fromList([1, 2, .5, 2, 3, .5]),
+      endDirection: Offset.zero,
+    );
+    final result = ink.transform(delta: const Offset(3, 4));
+    expect(result.endDirection, isNull);
+    expect(result.points.take(2), [4, 6]);
+    expect(
+      InkDocument(generation: 'test', strokes: [result]).encode(),
+      isNotEmpty,
+    );
+  });
+
   setUp(() async {
     directory = await Directory.systemTemp.createTemp('noter-ink-test-');
     repo = LocalNotebookRepository(directory);
@@ -76,6 +95,40 @@ void main() {
         (await repo.openInk(session.note.id)).$1.strokes.single.page,
         page,
       );
+    },
+  );
+
+  test(
+    'legacy journal survives metadata changes and partial headers',
+    () async {
+      final note = session.note;
+      final path = File('${directory.path}/${note.id}.noter');
+      final pdf = await repo.load(note.id);
+      final (_, generationBase, _) = await repo.openInk(note.id);
+      final id = inkPageId(session.editing.document, 0);
+      final generation = session.ink.generation;
+      await repo.appendInk(
+        note.id,
+        generationBase,
+        generation,
+        1,
+        InkEdit(add: [stroke(id)]),
+      );
+      await path.writeAsBytes(
+        LocalNotebookRepository.encode(
+          note.copy(modified: note.modified.add(const Duration(seconds: 1))),
+          pdf,
+        ),
+      );
+      final (_, _, ink) = LocalNotebookRepository.decodeWithInk(
+        await repo.exportArchive(note),
+      );
+      expect(ink!.strokes.single.id, 'test');
+
+      final journal = File('${directory.path}/.ink/${note.id}.jsonl');
+      await journal.writeAsString('{"generation":');
+      await repo.exportArchive(note);
+      expect(await journal.exists(), isFalse);
     },
   );
 
