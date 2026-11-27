@@ -18,20 +18,35 @@ import 'sync_revision.dart';
 /// Reuse the encrypted revision/conflict protocol for individually addressable
 /// templates and preferences. Staging archives never appear as user documents.
 class LibraryExtrasSync {
-  LibraryExtrasSync(this.repository, this.remote, {this.onProgress});
+  LibraryExtrasSync(
+    this.repository,
+    this.remote, {
+    this.onProgress,
+    this.syncSettings = true,
+  });
   final LocalNotebookRepository repository;
   final RevisionRemote remote;
   final void Function(String)? onProgress;
+  final bool syncSettings;
   static final _epoch = DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
   static String _id(String kind, String key) => libraryExtraId(kind, key);
-  static const _files = [
-    '.knowledge.json',
-    QuickTodoStore.fileName,
-    '.library.json',
+  static const _preferenceFiles = [
     '.drawing-preferences.json',
     '.reading-positions.json',
     '.display-preferences.json',
   ];
+  Iterable<String> get _files => [
+    '.knowledge.json',
+    QuickTodoStore.fileName,
+    '.library.json',
+    if (syncSettings) ..._preferenceFiles,
+  ];
+  static bool _isSetting(String kind) =>
+      kind == 'knowledge' ||
+      kind == 'preset' ||
+      _preferenceFiles.contains(kind);
+  static String _kindOf(Notebook note) =>
+      (jsonDecode(note.tags.single) as Map)['kind'] as String;
 
   /// Archive the original notice in place so later syncs retain its identity.
   static Future<void> resolveSettingConflict(
@@ -229,11 +244,17 @@ class LibraryExtrasSync {
       }
     }
     parts.sort();
-    return sha256.convert(utf8.encode(parts.join('\n'))).toString();
+    return sha256
+        .convert(utf8.encode('$syncSettings\n${parts.join('\n')}'))
+        .toString();
   }
 
   Future<SyncReport> _run({required bool onlyIfChanged}) async {
-    onProgress?.call('Checking quick to-dos, templates and preferences …');
+    onProgress?.call(
+      syncSettings
+          ? 'Checking quick to-dos, templates and preferences …'
+          : 'Checking quick to-dos, templates and library organization …',
+    );
     await repository.catalog.load();
     await repository.catalog.readingPositions.load();
     await repository.flush();
@@ -274,6 +295,7 @@ class LibraryExtrasSync {
     final remoteIds = (await sessionRemote.list()).map((r) => r.noteId).toSet();
     final expected = <String>{};
     final old = {for (final note in await staging.list()) note.id: note};
+    final stagedKinds = <String, String>{};
     // Last synced value of a record, used while local folder IDs are lost.
     Future<Object?> synced(String id) async {
       if (!old.containsKey(id)) return null;
@@ -294,6 +316,7 @@ class LibraryExtrasSync {
       String paper = 'markdown',
       bool preferRemote = false,
     }) async {
+      if (!syncSettings && _isSetting(kind)) return;
       Notebook? conflict;
       if (kind == 'view') {
         conflict = old.values
@@ -313,6 +336,7 @@ class LibraryExtrasSync {
         }
       }
       final id = conflict?.id ?? _id(kind, key);
+      if (!syncSettings) stagedKinds[id] = kind;
       expected.add(id);
       if (preferRemote && !old.containsKey(id) && remoteIds.contains(id)) {
         return;
@@ -445,11 +469,7 @@ class LibraryExtrasSync {
         );
       }
     }
-    for (final name in [
-      '.drawing-preferences.json',
-      '.reading-positions.json',
-      '.display-preferences.json',
-    ]) {
+    for (final name in _preferenceFiles) {
       final bytes = before[name];
       if (bytes == null) continue;
       final json = switch (name) {
@@ -504,8 +524,8 @@ class LibraryExtrasSync {
     for (final note in old.values.where(
       (note) => !expected.contains(note.id),
     )) {
-      final metadata = jsonDecode(note.tags.single) as Map;
-      final kind = metadata['kind'] as String;
+      final kind = _kindOf(note);
+      if (!syncSettings && _isSetting(kind)) continue;
       // Unset optional values are not deletions. In-app resets explicitly write
       // their defaults; corrupt/missing device files must not erase other devices.
       if (kind.startsWith('.') ||
@@ -523,6 +543,16 @@ class LibraryExtrasSync {
       sessionRemote,
       extras: true,
       onProgress: onProgress,
+      includeNote: syncSettings
+          ? null
+          : (id, remoteNote) async {
+              // Extra IDs hash the record type. For an unseen record, inspect its
+              // metadata before allowing its revisions into the local baseline.
+              final staged = stagedKinds[id];
+              if (staged != null) return !_isSetting(staged);
+              final note = old[id] ?? await remoteNote();
+              return note != null && !_isSetting(_kindOf(note));
+            },
     ).run();
     // All incoming records are validated before applying any preference.
     final records =
@@ -538,6 +568,7 @@ class LibraryExtrasSync {
     for (final note in await staging.list()) {
       final metadata = jsonDecode(note.tags.single) as Map;
       final kind = metadata['kind'] as String, key = metadata['key'] as String;
+      if (!syncSettings && _isSetting(kind)) continue;
       final snapshot = await staging.snapshotForSync(note.id);
       final (_, bytes, ink) = await LocalNotebookRepository.decodeInkValidated(
         snapshot!.archive,
@@ -578,11 +609,7 @@ class LibraryExtrasSync {
     final nextViews = <KnowledgeView>[];
     final remoteTodos = <String, QuickTodo>{};
     final settings = <String, Map<String, dynamic>>{
-      for (final name in [
-        '.drawing-preferences.json',
-        '.reading-positions.json',
-        '.display-preferences.json',
-      ])
+      for (final name in _preferenceFiles)
         if (before[name] != null)
           name: name == '.reading-positions.json'
               ? {
@@ -755,7 +782,8 @@ class LibraryExtrasSync {
     if (hasKnowledge) {
       knowledge.templates = nextTemplates;
       knowledge.views = nextViews;
-      if (!nextTemplates.any((t) => t.id == knowledge.journalTemplate)) {
+      if (syncSettings &&
+          !nextTemplates.any((t) => t.id == knowledge.journalTemplate)) {
         knowledge.journalTemplate = null;
       }
       await knowledge.save();
@@ -768,8 +796,10 @@ class LibraryExtrasSync {
       await temporary.writeAsString(encoded, flush: true);
       await temporary.rename(file.path);
     }
-    // Remote folders and presets are applied; later syncs may upload again.
-    if (catalogRecovering) await repository.catalog.markSyncRestored();
+    // Finish restoring the catalog once both folders and presets are applied.
+    if (catalogRecovering && syncSettings) {
+      await repository.catalog.markSyncRestored();
+    }
     await repository.catalog.reload();
     final temporaryFingerprint = File('${fingerprintFile.path}.tmp');
     await temporaryFingerprint.writeAsString(await _fingerprint(), flush: true);

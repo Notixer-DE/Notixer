@@ -807,6 +807,7 @@ class KnowledgeStore {
     bool onlyQuickTodos = false,
     bool completedTasks = false,
     bool includeCompletedTasks = false,
+    bool Function(Notebook)? includeNote,
     bool Function()? cancelled,
     void Function(int, int)? onProgress,
     void Function(KnowledgeScan)? onPartial,
@@ -827,6 +828,7 @@ class KnowledgeStore {
     final notes = listing.entries
         .where(
           (entry) =>
+              (includeNote?.call(entry.note) ?? true) &&
               (!onlyQuickTodos || _isQuickTodo(entry.note)) &&
               matchesFilters(entry.note),
         )

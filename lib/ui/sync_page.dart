@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart'
 import '../sync/device_pairing.dart';
 import 'device_pairing_scanner.dart';
 import '../data/keyboard_shortcuts.dart';
+import '../data/notebook.dart';
 import '../sync/sync_controller.dart';
 import '../sync/sync_crypto.dart';
 import '../sync/server_remote.dart';
@@ -29,9 +30,13 @@ class _SyncPageState extends State<SyncPage> {
   final _key = TextEditingController();
   bool _showKey = false;
   bool _allowHttp = false;
-  String? _noteId;
-  String? _noteTitle;
+  Notebook? _selectedNote;
   bool _validating = false;
+
+  Notebook? get _selection {
+    final note = _selectedNote;
+    return note != null && widget.controller.includesNote(note) ? note : null;
+  }
 
   Future<void> _scanPairing() async {
     final sync = widget.controller;
@@ -140,16 +145,14 @@ class _SyncPageState extends State<SyncPage> {
     if (_validating || sync.busy || widget.hasOpenDocuments) return;
     setState(() => _validating = true);
     try {
-      if (_noteId != null) {
+      final noteId = _selection?.id;
+      if (noteId != null) {
         final selected = (await sync.repository.list()).where(
-          (n) => n.id == _noteId,
+          (n) => n.id == noteId && sync.includesNote(n),
         );
         if (!mounted) return;
         if (selected.isEmpty) {
-          setState(() {
-            _noteId = null;
-            _noteTitle = null;
-          });
+          setState(() => _selectedNote = null);
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
@@ -159,9 +162,9 @@ class _SyncPageState extends State<SyncPage> {
           );
           return;
         }
-        setState(() => _noteTitle = selected.single.title);
+        setState(() => _selectedNote = selected.single);
       }
-      await sync.synchronize(noteId: _noteId);
+      await sync.synchronize(noteId: noteId);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -175,9 +178,12 @@ class _SyncPageState extends State<SyncPage> {
 
   Future<void> _chooseNote() async {
     try {
-      final notes = await widget.controller.repository.list();
+      final sync = widget.controller;
+      final notes = (await sync.repository.list())
+          .where(sync.includesNote)
+          .toList();
       if (!mounted) return;
-      final selected = await showDialog<String>(
+      final selected = await showDialog<Notebook>(
         context: context,
         builder: (context) => SimpleDialog(
           title: const Text('Select a single note'),
@@ -189,7 +195,7 @@ class _SyncPageState extends State<SyncPage> {
               ),
             for (final note in notes)
               SimpleDialogOption(
-                onPressed: () => Navigator.pop(context, note.id),
+                onPressed: () => Navigator.pop(context, note),
                 child: Text(note.title),
               ),
             SimpleDialogOption(
@@ -200,10 +206,7 @@ class _SyncPageState extends State<SyncPage> {
         ),
       );
       if (!mounted || selected == null) return;
-      setState(() {
-        _noteId = selected;
-        _noteTitle = notes.firstWhere((note) => note.id == selected).title;
-      });
+      setState(() => _selectedNote = selected);
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -287,6 +290,7 @@ class _SyncPageState extends State<SyncPage> {
     listenable: widget.controller,
     builder: (context, _) {
       final sync = widget.controller;
+      final selection = _selection;
       return AbsorbPointer(
         absorbing: _validating,
         child: PopScope(
@@ -366,20 +370,20 @@ class _SyncPageState extends State<SyncPage> {
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Sync note (optional)'),
                         subtitle: Text(
-                          _noteTitle ??
-                              'Entire library, templates and preferences',
+                          selection?.title ??
+                              (sync.settingsSync
+                                  ? 'Entire library, templates and preferences'
+                                  : 'Entire library and templates'),
                         ),
                         onTap: sync.busy ? null : _chooseNote,
-                        trailing: _noteId == null
+                        trailing: selection == null
                             ? const Icon(Icons.chevron_right)
                             : IconButton(
                                 tooltip: 'Clear selection',
                                 onPressed: sync.busy
                                     ? null
-                                    : () => setState(() {
-                                        _noteId = null;
-                                        _noteTitle = null;
-                                      }),
+                                    : () =>
+                                          setState(() => _selectedNote = null),
                                 icon: const Icon(Icons.clear),
                               ),
                       ),
@@ -391,7 +395,7 @@ class _SyncPageState extends State<SyncPage> {
                         onPressed: sync.busy ? null : _synchronize,
                         icon: const Icon(Icons.sync),
                         label: Text(
-                          _noteId == null ? 'Sync now' : 'Sync selected note',
+                          selection == null ? 'Sync now' : 'Sync selected note',
                         ),
                       ),
                       SwitchListTile.adaptive(
@@ -401,6 +405,16 @@ class _SyncPageState extends State<SyncPage> {
                         ),
                         value: sync.automatic,
                         onChanged: sync.busy ? null : sync.setAutomatic,
+                      ),
+                      SwitchListTile.adaptive(
+                        title: const Text('Sync settings on this device'),
+                        subtitle: const Text(
+                          'Include drawing preferences, display settings, reading positions and journal preferences.',
+                        ),
+                        value: sync.settingsSync,
+                        onChanged: sync.busy || _validating
+                            ? null
+                            : sync.setSettingsSync,
                       ),
                       TextButton(
                         onPressed: sync.busy
@@ -461,8 +475,7 @@ class _SyncPageState extends State<SyncPage> {
                                   await sync.disconnect();
                                   if (mounted && !sync.enabled) {
                                     setState(() {
-                                      _noteId = null;
-                                      _noteTitle = null;
+                                      _selectedNote = null;
                                     });
                                   }
                                 }

@@ -102,6 +102,7 @@ class _LibraryPageState extends State<LibraryPage> {
   String? _error;
   bool _loading = true, _actionBusy = false;
   late bool _syncBusy;
+  late bool _settingsSync;
   bool get _busy => _actionBusy || _sync.busy;
   bool get _hasOpenDocuments => widget.hasOpenDocuments?.call() ?? false;
   bool _isOpen(Notebook note) => widget.isNotebookOpen?.call(note.id) ?? false;
@@ -142,6 +143,7 @@ class _LibraryPageState extends State<LibraryPage> {
       };
     }
     _syncBusy = _sync.busy;
+    _settingsSync = _sync.settingsSync;
     _sync.addListener(_syncChanged);
     MediaGateway.recoveredCapture.addListener(_captureRecovered);
     FileGateway.sharedText.addListener(_sharedCapture);
@@ -154,11 +156,17 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   void _syncChanged() {
-    // The status banner listens separately. Only a busy-state transition
-    // changes the enabled state of file controls.
-    if (mounted && _syncBusy != _sync.busy) {
-      setState(() => _syncBusy = _sync.busy);
+    // The banner handles progress without rebuilding the file list.
+    if (!mounted ||
+        (_syncBusy == _sync.busy && _settingsSync == _sync.settingsSync)) {
+      return;
     }
+    final settingsChanged = _settingsSync != _sync.settingsSync;
+    setState(() {
+      _syncBusy = _sync.busy;
+      _settingsSync = _sync.settingsSync;
+    });
+    if (settingsChanged) _updateConflicts(_notes);
   }
 
   Future<void> _initializeSync() async {
@@ -281,9 +289,16 @@ class _LibraryPageState extends State<LibraryPage> {
     super.dispose();
   }
 
-  static bool _isConflict(Notebook note) =>
-      (note.isSettingsConflict && !note.isArchivedSettingsConflict) ||
+  bool _isConflict(Notebook note) =>
+      (_settingsSync &&
+          note.isSettingsConflict &&
+          !note.isArchivedSettingsConflict) ||
       note.id.startsWith('conflict_');
+
+  void _updateConflicts(List<Notebook> notes) {
+    final conflicts = widget.workspaceController?.conflicts;
+    if (conflicts != null) conflicts.value = notes.where(_isConflict).length;
+  }
 
   void _showConflicts() {
     _searchFocus.unfocus();
@@ -316,10 +331,7 @@ class _LibraryPageState extends State<LibraryPage> {
           ? await MediaGateway.pendingCaptures()
           : const <String>[];
       if (mounted) {
-        final conflicts = widget.workspaceController?.conflicts;
-        if (conflicts != null) {
-          conflicts.value = notes.where(_isConflict).length;
-        }
+        _updateConflicts(notes);
         setState(() {
           _notes = notes;
           final available = {for (final note in notes) note.id};
@@ -784,6 +796,7 @@ class _LibraryPageState extends State<LibraryPage> {
       MaterialPageRoute(
         builder: (_) => KnowledgePage(
           repository: widget.repository,
+          includeNote: _settingsSync ? null : _sync.includesNote,
           initialSection: section,
           sharedText: sharedText,
           onChangeTask: (task) async {
@@ -1163,6 +1176,7 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget build(BuildContext context) {
     final query = _query.toLowerCase();
     final visible = _notes
+        .where(_sync.includesNote)
         .where((n) => query.isEmpty || n.title.toLowerCase().contains(query))
         .where(
           (n) =>
@@ -1749,7 +1763,7 @@ class _LibraryPageState extends State<LibraryPage> {
   );
 
   Widget _navigation() => LibraryNavigation(
-    notes: _notes,
+    notes: _settingsSync ? _notes : _notes.where(_sync.includesNote).toList(),
     folders: widget.repository.catalog.folders,
     folder: _folderFilter,
     tag: _tagFilter,

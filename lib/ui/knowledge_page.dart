@@ -30,6 +30,7 @@ class KnowledgePage extends StatefulWidget {
     this.initialSection = 'Search',
     this.sharedText,
     this.onChangeTask,
+    this.includeNote,
     this.autofocusSearch = false,
     this.shortcuts,
     this.onImportFile,
@@ -60,6 +61,7 @@ class KnowledgePage extends StatefulWidget {
   final String initialSection;
   final String? sharedText;
   final Future<KnowledgeTask?> Function(KnowledgeTask)? onChangeTask;
+  final bool Function(Notebook)? includeNote;
   final bool autofocusSearch;
   final KeyboardShortcuts? shortcuts;
   final Future<void> Function(VoidCallback onImported)? onImportFile;
@@ -283,6 +285,7 @@ class KnowledgePageState extends State<KnowledgePage> {
     try {
       final result = await _store.scan(
         _view,
+        includeNote: widget.includeNote,
         includeCompletedTasks:
             widget.embedded && _section == 'Search' && !_view.tasksOnly,
         cancelled: () =>
@@ -581,14 +584,18 @@ class KnowledgePageState extends State<KnowledgePage> {
   }
 
   List<KnowledgeHit> _taskHits(KnowledgeScan scan, String today) {
+    final include = widget.includeNote;
+    final visible = include == null
+        ? scan.hits
+        : scan.hits.where((hit) => include(hit.note)).toList();
     if (!_taskSection ||
         _taskView == _TaskView.all ||
         _taskView == _TaskView.completed) {
-      return scan.hits;
+      return visible;
     }
     final catalog = widget.repository.catalog;
     final selected = catalog.folderName(_projectFilter);
-    final hits = scan.hits.where((hit) {
+    final hits = visible.where((hit) {
       final task = scan.tasksByLocation['${hit.note.id}:${hit.anchor}'];
       if (task == null || !task.canPlan) return false;
       final project = _taskProject(task);

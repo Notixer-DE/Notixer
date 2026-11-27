@@ -144,10 +144,18 @@ class NotebookSync {
     this.remote, {
     this.onProgress,
     this.extras = false,
+    this.includeSettingsConflicts = true,
+    this.includeNote,
   });
   final SyncNotebookRepository repository;
   final RevisionRemote remote;
   final bool extras;
+  final bool includeSettingsConflicts;
+  final Future<bool> Function(
+    String id,
+    Future<Notebook?> Function() remoteNote,
+  )?
+  includeNote;
   final void Function(String)? onProgress;
   bool _running = false;
 
@@ -166,7 +174,10 @@ class NotebookSync {
   Future<SyncReport> _run({String? noteId, required bool onlyIfChanged}) async {
     final report = SyncReport();
     onProgress?.call('Checking the account and local notes …');
-    final localIds = (await repository.syncIds()).toSet();
+    bool eligible(String id) =>
+        includeSettingsConflicts || !_settingsConflictId.hasMatch(id);
+    if (noteId != null && !eligible(noteId)) return report;
+    final localIds = (await repository.syncIds()).where(eligible).toSet();
     // A stale manual selection must not become a deletion. Automatic sync
     // must still be able to publish a locally deleted note.
     if (noteId != null && !onlyIfChanged && !localIds.contains(noteId)) {
@@ -202,7 +213,8 @@ class NotebookSync {
     onProgress?.call('Loading encrypted revisions …');
     final revisions = <String, SyncRevision>{
       for (final r in await remote.list())
-        if (r.noteId.startsWith('extra_') == extras) r.revision: r,
+        if (r.noteId.startsWith('extra_') == extras && eligible(r.noteId))
+          r.revision: r,
     };
     final byNote = <String, List<SyncRevision>>{};
     // A corrupt history must never turn a live document into a deletion.
@@ -219,7 +231,8 @@ class NotebookSync {
       }
     }
     final ids = noteId == null
-        ? ({...localIds, ...state.keys, ...byNote.keys}.toList()..sort())
+        ? ({...localIds, ...state.keys.where(eligible), ...byNote.keys}.toList()
+            ..sort())
         : [noteId];
     final cache = <String, Uint8List>{};
     Future<void> publish(SyncRevision r, Uint8List bytes) async {
@@ -246,6 +259,24 @@ class NotebookSync {
 
     for (var index = 0; index < ids.length; index++) {
       final id = ids[index];
+      if (includeNote case final include?) {
+        final versions = byNote[id] ?? const <SyncRevision>[];
+        SyncRevision? inspected;
+        final included = await include(id, () async {
+          final superseded = versions.expand((r) => r.parents).toSet();
+          inspected = versions
+              .where((r) => !r.deleted && !superseded.contains(r.revision))
+              .firstOrNull;
+          final head = inspected;
+          if (head == null) return null;
+          final (note, _) = await _decodeValidated(await read(head));
+          return note;
+        });
+        if (!included) {
+          cache.remove(inspected?.revision);
+          continue;
+        }
+      }
       onProgress?.call('Note ${index + 1} of ${ids.length}: syncing …');
       final snapshot = await repository.snapshotForSync(id);
       final hash = snapshot == null
