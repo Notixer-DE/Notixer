@@ -81,6 +81,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
   String? _requestedTaskView;
   bool _addJournalEntry = false, _showJournalToday = false;
   DateTime? _lastSyncedAt;
+  bool _settingsSync = true;
   List<String> _recent = [];
   bool _hasOpenedDocument = false;
   Future<void> _recentWrites = Future.value();
@@ -207,9 +208,14 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
   }
 
   void _workspaceSyncChanged() {
-    if (!mounted || _lastSyncedAt == _sync.lastSyncedAt) return;
+    if (!mounted ||
+        (_lastSyncedAt == _sync.lastSyncedAt &&
+            _settingsSync == _sync.settingsSync)) {
+      return;
+    }
     setState(() {
       _lastSyncedAt = _sync.lastSyncedAt;
+      _settingsSync = _sync.settingsSync;
       _homeRevision++;
     });
   }
@@ -443,6 +449,7 @@ class DocumentWorkspaceState extends State<DocumentWorkspace>
   }
 
   Widget _knowledgeArea(WorkspaceArea area) => KnowledgePage(
+    includeNote: _settingsSync ? null : _sync.includesNote,
     key: area == WorkspaceArea.search ? _search : ValueKey(area),
     repository: widget.repository,
     initialSection: area.label,

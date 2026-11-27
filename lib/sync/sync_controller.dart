@@ -19,6 +19,9 @@ class SyncController extends ChangeNotifier {
   final FlutterSecureStorage _storage;
   ServerRemote? _remote;
   bool busy = false, enabled = false, automatic = false;
+  bool _settingsSync = true;
+  bool get settingsSync => _settingsSync;
+  bool includesNote(Notebook note) => settingsSync || !note.isSettingsConflict;
   bool allowInsecureHttp = false;
   bool get usesHttp => enabled && Uri.tryParse(serverUrl)?.scheme == 'http';
   String serverUrl = '', status = 'Server sync is disabled.';
@@ -48,6 +51,7 @@ class SyncController extends ChangeNotifier {
         jsonDecode(await _file.readAsString()) as Map<String, dynamic>;
     serverUrl = config['server'] as String;
     automatic = config['automatic'] == true;
+    _settingsSync = config['settingsSync'] != false;
     allowInsecureHttp = config['allowInsecureHttp'] == true;
     enabled = config['enabled'] == true;
     if (enabled) {
@@ -95,7 +99,7 @@ class SyncController extends ChangeNotifier {
     );
   }
 
-  Future<void> _save() async {
+  Future<void> _save({bool? settingsSync}) async {
     await _file.parent.create(recursive: true);
     final temp = File('${_file.path}.tmp');
     await temp.writeAsString(
@@ -103,6 +107,7 @@ class SyncController extends ChangeNotifier {
         'server': serverUrl,
         'enabled': enabled,
         'automatic': automatic,
+        'settingsSync': settingsSync ?? _settingsSync,
         'allowInsecureHttp': allowInsecureHttp,
       }),
       flush: true,
@@ -230,6 +235,13 @@ class SyncController extends ChangeNotifier {
     status = value ? 'Automatic sync enabled.' : 'Automatic sync disabled.';
   });
 
+  Future<void> setSettingsSync(bool value) => _action(() async {
+    await load();
+    await _save(settingsSync: value);
+    _settingsSync = value;
+    status = value ? 'Settings sync enabled.' : 'Settings sync paused.';
+  });
+
   Future<void> synchronize({String? noteId, bool onlyIfChanged = false}) =>
       _action(() async {
         await load();
@@ -240,6 +252,7 @@ class SyncController extends ChangeNotifier {
         final report = await NotebookSync(
           repository,
           sessionRemote,
+          includeSettingsConflicts: settingsSync,
           onProgress: (value) {
             status = value;
             notifyListeners();
@@ -249,6 +262,7 @@ class SyncController extends ChangeNotifier {
           final extras = await LibraryExtrasSync(
             repository,
             sessionRemote,
+            syncSettings: settingsSync,
             onProgress: (value) {
               status = value;
               notifyListeners();
@@ -269,13 +283,16 @@ class SyncController extends ChangeNotifier {
     final report = await LibraryExtrasSync(
       repository,
       SyncSessionRemote(_remote!),
+      syncSettings: settingsSync,
       onProgress: (value) {
         status = value;
         notifyListeners();
       },
     ).run(onlyIfChanged: true);
     lastSyncedAt = DateTime.now();
-    status = 'Quick to-dos, templates and preferences synced: $report';
+    status = settingsSync
+        ? 'Quick to-dos, templates and preferences synced: $report'
+        : 'Quick to-dos, templates and library organization synced: $report';
   });
 
   Future<void> disconnect() => _action(() async {

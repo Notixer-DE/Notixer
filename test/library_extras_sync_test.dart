@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noter/data/catalog.dart';
 import 'package:noter/data/drawing_preferences.dart';
 import 'package:noter/data/knowledge.dart';
+import 'package:noter/data/markdown_document.dart';
 import 'package:noter/data/notebook.dart';
 import 'package:noter/data/paper.dart';
 import 'package:noter/data/quick_todos.dart';
@@ -44,11 +45,99 @@ void main() {
     await b.flush();
     await root.delete(recursive: true);
   });
-  Future<SyncReport> sync(LocalNotebookRepository repo) async {
+  Future<SyncReport> sync(
+    LocalNotebookRepository repo, {
+    bool syncSettings = true,
+  }) async {
     final session = SyncSessionRemote(remote);
-    await NotebookSync(repo, session).run();
-    return LibraryExtrasSync(repo, session).run();
+    await NotebookSync(
+      repo,
+      session,
+      includeSettingsConflicts: syncSettings,
+    ).run();
+    return LibraryExtrasSync(repo, session, syncSettings: syncSettings).run();
   }
+
+  test('paused settings stay local while library items still sync', () async {
+    await a.catalog.displayPreferences.set('readingZoom', 1.4);
+    await b.catalog.displayPreferences.set('readingZoom', 1.6);
+    await a.catalog.readingPositions.save({'note': 4});
+    await a.catalog.setPreset(
+      0,
+      const PenPreset('Fine', 'ink', 0xff123456, 1.5, .8),
+    );
+    final store = KnowledgeStore(a);
+    await store.updateSettings((settings) {
+      settings.templates.add(const MarkdownTemplate('plan', 'Plan', 'Plan'));
+      settings.journalTemplate = 'plan';
+      settings.automaticBackups = false;
+    });
+    final task = await store.addQuickTodo('Prepare the slides');
+    final now = DateTime(2026);
+    final settingsNotice = Notebook(
+      id: 'settings_extra_conflict_${'a' * 40}',
+      title: 'Settings conflict',
+      paper: 'markdown',
+      created: now,
+      modified: now,
+      tags: const ['Sync conflict'],
+    );
+    final noteConflict = Notebook(
+      id: 'conflict_${'b' * 40}',
+      title: 'Note conflict',
+      paper: 'markdown',
+      created: now,
+      modified: now,
+      tags: const ['Sync conflict'],
+    );
+    for (final note in [settingsNotice, noteConflict]) {
+      await a.save(note, MarkdownDocument('A conflict copy').encode());
+    }
+    await sync(a);
+    final revisionCount = remote.revisions.length;
+    await sync(b, syncSettings: false);
+    expect(remote.revisions.length, revisionCount);
+    expect((await b.list()).map((n) => n.id), [noteConflict.id]);
+    expect(b.catalog.displayPreferences.zoom('readingZoom'), 1.6);
+    expect(b.catalog.readingPositions.pageFor('note', 20), isNot(4));
+    expect(b.catalog.presets.map((p) => p.name), isNot(contains('Fine')));
+    final copy = KnowledgeStore(b);
+    await copy.load();
+    expect(copy.templates.map((t) => t.id), contains('plan'));
+    expect(copy.journalTemplate, 'daily');
+    expect(copy.automaticBackups, isTrue);
+    expect(await copy.quickTodos.read(), contains(task.id));
+
+    await sync(b);
+    expect((await b.list()).map((n) => n.id), contains(settingsNotice.id));
+    expect(b.catalog.readingPositions.pageFor('note', 20), 4);
+    expect(b.catalog.presets.first.name, 'Fine');
+    await copy.reload();
+    expect(copy.journalTemplate, 'plan');
+    expect(copy.automaticBackups, isFalse);
+  });
+
+  test(
+    'pausing preserves the baseline for concurrent settings edits',
+    () async {
+      await a.catalog.displayPreferences.set('readingZoom', 1.4);
+      await sync(a);
+      await sync(b);
+      await a.catalog.displayPreferences.set('readingZoom', 1.2);
+      await b.catalog.displayPreferences.set('readingZoom', 1.6);
+      await sync(a);
+
+      final paused = await sync(b, syncSettings: false);
+      expect(paused.conflicts, 0);
+      expect(await b.list(), isEmpty);
+      expect(b.catalog.displayPreferences.zoom('readingZoom'), 1.6);
+      await sync(a);
+      expect(a.catalog.displayPreferences.zoom('readingZoom'), 1.2);
+
+      await sync(b);
+      expect((await b.list()).where((n) => n.isSettingsConflict), hasLength(1));
+    },
+  );
 
   test('stale settings editors preserve each other’s changes', () async {
     final views = KnowledgeStore(a), templates = KnowledgeStore(a);

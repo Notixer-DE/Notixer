@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:noter/data/markdown_document.dart';
 import 'package:noter/data/notebook.dart';
 import 'package:noter/data/paper.dart';
 import 'package:noter/sync/notebook_sync.dart';
@@ -39,6 +40,33 @@ void main() {
             as Map<String, dynamic>)['notes']
         as Map<String, dynamic>;
   }
+
+  test('settings sync defaults on and is saved per device', () async {
+    await a.directory.create(recursive: true);
+    await File('${a.directory.path}/.server-sync.json').writeAsString(
+      jsonEncode({'server': '', 'automatic': true, 'enabled': false}),
+    );
+    final first = SyncController(a);
+    final reloaded = SyncController(a);
+    final other = SyncController(b);
+    addTearDown(first.dispose);
+    addTearDown(reloaded.dispose);
+    addTearDown(other.dispose);
+    await first.load();
+    expect(first.settingsSync, isTrue);
+    await first.setSettingsSync(false);
+    expect(first.error, isNull);
+    await reloaded.load();
+    await other.load();
+    expect(reloaded.settingsSync, isFalse);
+    expect(reloaded.automatic, isTrue);
+    expect(other.settingsSync, isTrue);
+    await reloaded.setSettingsSync(true);
+    final enabledAgain = SyncController(a);
+    addTearDown(enabledAgain.dispose);
+    await enabledAgain.load();
+    expect(enabledAgain.settingsSync, isTrue);
+  });
 
   test(
     'selection uploads only one note; omitted selection still syncs all',
@@ -203,6 +231,75 @@ void main() {
     expect(controller.selections, [null, selected.id, null]);
     await tester.pumpWidget(const SizedBox.shrink());
     controller.dispose();
+  });
+
+  testWidgets('pausing settings hides an existing notice from manual sync', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1000, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final now = DateTime(2026);
+    const title = 'Existing settings conflict';
+    await tester.runAsync(() async {
+      await a.save(
+        Notebook(
+          id: 'settings_extra_conflict_${'a' * 40}',
+          title: title,
+          paper: 'markdown',
+          created: now,
+          modified: now,
+        ),
+        MarkdownDocument('Conflict').encode(),
+      );
+      await a.create('Regular note', paper);
+    });
+    final controller = _RecordingController(a)..enabled = true;
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(home: SyncPage(controller: controller)),
+    );
+
+    Future<void> openPicker() async {
+      await tester.tap(find.text('Sync note (optional)'));
+      for (var i = 0; i < 150; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+        if (find.text('Regular note').evaluate().isNotEmpty) break;
+      }
+      await tester.pumpAndSettle();
+    }
+
+    await openPicker();
+    await tester.tap(find.text(title));
+    await tester.pumpAndSettle();
+    expect(find.text('Sync selected note'), findsOneWidget);
+
+    final settingsSwitch = find.widgetWithText(
+      SwitchListTile,
+      'Sync settings on this device',
+    );
+    await tester.ensureVisible(settingsSwitch);
+    await tester.tap(settingsSwitch);
+    for (var i = 0; i < 150 && controller.busy; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+    expect(controller.settingsSync, isFalse);
+    await tester.drag(find.byType(ListView), const Offset(0, 800));
+    await tester.pumpAndSettle();
+    expect(find.text(title), findsNothing);
+    expect(find.text('Sync now'), findsOneWidget);
+    await openPicker();
+    expect(find.text('Regular note'), findsOneWidget);
+    expect(find.text(title), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 }
 
